@@ -1,0 +1,25 @@
+# User data (not shipped with repo — root-level only, not example/)
+/meetings/
+/memory/
+kbx.toml
+
+# Data (database, vectors, model cache)
+data/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environment
+.venv/
+
+# macOS
+.DS_Store
+
+# Coverage
+.coverage
+htmlcov/
+
+# Hypothesis
+.hypothesis/

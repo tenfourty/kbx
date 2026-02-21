@@ -1,0 +1,35 @@
+repos:
+  - repo: https://github.com/lattice/ggshield
+    rev: v1.46.0
+    hooks:
+      - id: ggshield
+        language_version: python3
+        stages: [pre-commit]
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.1
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy
+        entry: uv run mypy
+        language: system
+        types: [python]
+        files: ^src/
+        pass_filenames: false
+      - id: bandit
+        name: bandit
+        entry: uv run bandit -c pyproject.toml -r src/
+        language: system
+        types: [python]
+        pass_filenames: false
+      - id: tests
+        name: pytest
+        entry: uv run pytest tests/ -x -q --cov --cov-fail-under=90 -m "not slow"
+        language: system
+        pass_filenames: false
+        always_run: true
