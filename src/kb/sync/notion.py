@@ -13,7 +13,7 @@ import sqlite3
 import subprocess
 import urllib.parse
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -154,3 +154,109 @@ class NotionClient:
         )
         response.raise_for_status()
         return response.json()
+
+    # ------------------------------------------------------------------
+    # Public API methods
+    # ------------------------------------------------------------------
+
+    def search_pages(
+        self,
+        space_id: str,
+        since: str | None = None,
+        created_by: str | None = None,
+        limit: int = 100,
+        pagination_token: str | None = None,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        """Search for pages in a workspace.
+
+        Returns (results_list, block_record_map).
+        """
+        filters: dict[str, Any] = {
+            "isDeletedOnly": False,
+            "excludeTemplates": True,
+            "navigableBlockContentOnly": True,
+            "requireEditPermissions": False,
+            "ancestors": [],
+            "createdBy": [created_by] if created_by else [],
+            "editedBy": [],
+            "lastEditedTime": {},
+            "createdTime": {},
+        }
+        if since:
+            filters["createdTime"] = {
+                "type": "after",
+                "value": {"type": "exact", "value": since},
+            }
+
+        payload: dict[str, Any] = {
+            "type": "BlocksInSpace",
+            "query": "",
+            "spaceId": space_id,
+            "limit": limit,
+            "filters": filters,
+            "sort": {"field": "created", "direction": "desc"},
+            "source": "quick_find_input_change",
+        }
+        if pagination_token:
+            payload["paginationToken"] = pagination_token
+
+        data = self._request("/search", json_data=payload)
+        results = data.get("results", [])
+        record_map = data.get("recordMap", {}).get("block", {})
+        return results, record_map
+
+    def load_page_chunk(self, page_id: str, limit: int = 5) -> dict[str, Any]:
+        """Load a page's blocks. Returns block record map."""
+        data = self._request(
+            "/loadPageChunk",
+            json_data={
+                "pageId": page_id,
+                "limit": limit,
+                "cursor": {"stack": []},
+                "chunkNumber": 0,
+                "verticalColumns": False,
+            },
+        )
+        return cast("dict[str, Any]", data.get("recordMap", {}).get("block", {}))
+
+    def load_block_children(self, block_id: str, limit: int = 200) -> dict[str, Any]:
+        """Load a block's children (e.g. transcript segments).
+
+        Returns block record map.
+        """
+        return self.load_page_chunk(block_id, limit=limit)
+
+    def get_users(self, user_ids: list[str]) -> dict[str, dict[str, Any]]:
+        """Batch-resolve Notion user IDs to name/email dicts."""
+        record_requests = [
+            {"pointer": {"table": "notion_user", "id": uid}, "version": -1} for uid in user_ids
+        ]
+        data = self._request("/syncRecordValues", json_data={"requests": record_requests})
+        users = data.get("recordMap", {}).get("notion_user", {})
+        return {uid: record["value"] for uid, record in users.items() if "value" in record}
+
+    def _get_spaces_data(self) -> dict[str, Any]:
+        """Fetch /getSpaces response, cached for the lifetime of this client."""
+        if not hasattr(self, "_spaces_cache"):
+            self._spaces_cache: dict[str, Any] = self._request("/getSpaces", json_data={})
+        return self._spaces_cache
+
+    def get_space_id(self) -> str:
+        """Get the current user's primary space ID."""
+        data = self._get_spaces_data()
+        # Response is keyed by user ID, each containing space data
+        for user_data in data.values():
+            space_views = user_data.get("space_view", {})
+            for sv in space_views.values():
+                space_id = sv.get("value", {}).get("space_id")
+                if space_id:
+                    return cast("str", space_id)
+        raise ValueError("No workspace found for current user")
+
+    def get_current_user_id(self) -> str:
+        """Get the current authenticated user's ID."""
+        data = self._get_spaces_data()
+        user_ids = list(data.keys())
+        if not user_ids:
+            raise ValueError("No user found in API response")
+        return user_ids[0]

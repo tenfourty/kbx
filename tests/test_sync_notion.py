@@ -6,9 +6,13 @@ import hashlib
 import sqlite3
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 import pytest
+
+if TYPE_CHECKING:
+    from kb.sync.notion import NotionClient
 
 
 @pytest.fixture
@@ -170,3 +174,76 @@ class TestTokenReading:
             token = client._get_token()
 
         assert token == "v02:some-notion-token-value"
+
+
+class TestAPIClient:
+    """Phase 2: API request methods."""
+
+    @pytest.fixture
+    def client(self, monkeypatch: pytest.MonkeyPatch) -> NotionClient:
+        """Create a NotionClient with mock token."""
+        monkeypatch.setenv("NOTION_TOKEN_V2", "test-token")
+        from kb.sync.notion import NotionClient
+
+        return NotionClient()
+
+    def test_search_pages(self, client: NotionClient) -> None:
+        """Search returns page results with pagination."""
+        mock_response = {
+            "results": [{"id": "page-1"}, {"id": "page-2"}],
+            "total": 2,
+            "recordMap": {"block": {}},
+        }
+        with patch.object(client, "_request", return_value=mock_response) as mock_req:
+            results, _record_map = client.search_pages(space_id="space-1", limit=10)
+            assert len(results) == 2
+            mock_req.assert_called_once()
+            call_args = mock_req.call_args
+            assert call_args[0][0] == "/search"
+
+    def test_load_page_chunk(self, client: NotionClient) -> None:
+        """loadPageChunk returns block record map."""
+        mock_response = {
+            "recordMap": {
+                "block": {
+                    "page-1": {"value": {"type": "page", "content": ["trans-1"]}},
+                    "trans-1": {"value": {"type": "transcription", "format": {}}},
+                }
+            }
+        }
+        with patch.object(client, "_request", return_value=mock_response):
+            blocks = client.load_page_chunk("page-1", limit=5)
+            assert "page-1" in blocks
+            assert blocks["trans-1"]["value"]["type"] == "transcription"
+
+    def test_sync_record_values(self, client: NotionClient) -> None:
+        """syncRecordValues batch-fetches records."""
+        mock_response = {
+            "recordMap": {
+                "notion_user": {
+                    "user-1": {"value": {"name": "Wren", "email": "alice@example.com"}}
+                }
+            }
+        }
+        with patch.object(client, "_request", return_value=mock_response):
+            users = client.get_users(["user-1"])
+            assert users["user-1"]["name"] == "Wren"
+
+    def test_get_space_id(self, client: NotionClient) -> None:
+        """get_space_id extracts workspace ID from /getSpaces response."""
+        mock_response = {"user-1": {"space_view": {"sv-1": {"value": {"space_id": "space-abc"}}}}}
+        with patch.object(client, "_request", return_value=mock_response):
+            assert client.get_space_id() == "space-abc"
+
+    def test_get_space_id_no_workspace_raises(self, client: NotionClient) -> None:
+        """get_space_id raises ValueError when no workspace found."""
+        with (
+            patch.object(client, "_request", return_value={}),
+            pytest.raises(ValueError, match="No workspace found"),
+        ):
+            client.get_space_id()
+
+    def test_get_current_user_id(self, client: NotionClient) -> None:
+        """get_current_user_id extracts first user key from /getSpaces."""
+        with patch.object(client, "_request", return_value={"user-42": {}}):
+            assert client.get_current_user_id() == "user-42"
