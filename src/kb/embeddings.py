@@ -10,10 +10,11 @@ from __future__ import annotations
 import os
 import platform
 import sys
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     import numpy as np
     import numpy.typing as npt
     from sentence_transformers import SentenceTransformer
@@ -317,7 +318,11 @@ class Embedder:
     """
 
     def __init__(self, cache_dir: Path | None = None, device: str | None = None) -> None:
-        self._cache_dir = cache_dir or Path(__file__).parent / "data" / "model"
+        if cache_dir is None:
+            from kb.config import get_data_dir
+
+            cache_dir = get_data_dir() / "model"
+        self._cache_dir = cache_dir
         self._device = device  # None = auto, "cpu" = force CPU
         self._backend: _EmbedderBackend | None = None
 
