@@ -8,11 +8,14 @@ optionally triggers indexing.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import sqlite3
 import subprocess
+import time
 import urllib.parse
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, cast
 
@@ -358,8 +361,6 @@ def build_frontmatter(
     attendees: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Build YAML frontmatter dict from Notion meeting data."""
-    from datetime import datetime, timezone
-
     dt = datetime.fromtimestamp(last_edited_time / 1000, tz=timezone.utc)
     date = dt.strftime("%Y-%m-%d")
 
@@ -509,3 +510,236 @@ def _write_file(path: Path, content: str) -> None:
     """Write content to file, creating parent directories."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Sync state persistence
+# ---------------------------------------------------------------------------
+
+
+def save_sync_state(path: Path, **kwargs: Any) -> None:
+    """Save sync state to a JSON file."""
+    state: dict[str, Any] = {}
+    if path.exists():
+        state = json.loads(path.read_text(encoding="utf-8"))
+    state.update(kwargs)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+
+def load_sync_state(path: Path) -> dict[str, Any]:
+    """Load sync state from a JSON file."""
+    if not path.exists():
+        return {}
+    try:
+        return cast("dict[str, Any]", json.loads(path.read_text(encoding="utf-8")))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+# ---------------------------------------------------------------------------
+# High-level sync orchestration
+# ---------------------------------------------------------------------------
+
+
+def sync_notion(
+    project_root: Path,
+    data_dir: Path,
+    since: str | None = None,
+    dry_run: bool = False,
+    force: bool = False,
+    on_progress: Any = None,
+) -> dict[str, Any]:
+    """Run the full Notion sync pipeline.
+
+    Returns dict with keys: total, created, updated, skipped, dry_run (if applicable).
+    """
+    import sys
+
+    def _log(msg: str) -> None:
+        if on_progress:
+            on_progress(msg)
+        else:
+            print(msg, file=sys.stderr)
+
+    client = NotionClient()
+
+    # Get workspace and user info
+    user_id = client.get_current_user_id()
+    space_id = client.get_space_id()
+    _log(f"User: {user_id}, Space: {space_id}")
+
+    # Load sync state
+    state_path = data_dir / ".notion_sync_state.json"
+    state = load_sync_state(state_path)
+
+    effective_since = since
+    if not effective_since and state.get("last_sync"):
+        effective_since = state["last_sync"][:10]
+
+    _log(f"Searching pages{' since ' + effective_since if effective_since else ' (full sync)'}...")
+
+    # Discover all pages
+    all_pages: list[dict[str, Any]] = []
+    pagination_token = None
+    while True:
+        results, _ = client.search_pages(
+            space_id=space_id,
+            since=effective_since,
+            created_by=user_id,
+            pagination_token=pagination_token,
+        )
+        all_pages.extend(results)
+
+        if len(results) < 100:
+            break
+        pagination_token = results[-1].get("id")
+        time.sleep(BATCH_DELAY)
+
+    _log(f"Found {len(all_pages)} pages. Checking for meeting transcripts...")
+
+    if dry_run:
+        _log("Dry run — not writing files.")
+        return {
+            "total": len(all_pages),
+            "created": 0,
+            "updated": 0,
+            "skipped": 0,
+            "dry_run": True,
+        }
+
+    # Process each page — find transcription blocks
+    all_attendee_ids: set[str] = set()
+    meetings: list[dict[str, Any]] = []
+
+    for i, page_result in enumerate(all_pages):
+        page_id = page_result["id"]
+        blocks = client.load_page_chunk(page_id, limit=5)
+
+        # Find transcription block
+        transcription = None
+        for block_data in blocks.values():
+            val = block_data.get("value", {})
+            if val.get("type") == "transcription":
+                state_info = val.get("format", {}).get("transcription_state", {})
+                if state_info.get("state") == "idle":
+                    transcription = val
+                break
+
+        if not transcription:
+            continue
+
+        fmt = transcription.get("format", {})
+        cal = fmt.get("transcription_calendar_event", {})
+        attendee_ids = cal.get("attendeeIds", [])
+        all_attendee_ids.update(attendee_ids)
+
+        # Get page title
+        page_block = blocks.get(page_id, {}).get("value", {})
+        title_raw = page_block.get("properties", {}).get("title", [])
+        title = _extract_text(title_raw).replace("\u2023", "").strip()
+
+        meetings.append(
+            {
+                "page_id": page_id,
+                "title": title or "Untitled",
+                "transcription": transcription,
+                "last_edited_time": transcription.get("last_edited_time", 0),
+            }
+        )
+
+        if (i + 1) % BATCH_SIZE == 0:
+            time.sleep(BATCH_DELAY)
+
+    _log(f"Found {len(meetings)} meetings with transcripts.")
+
+    # Batch-resolve all attendee IDs
+    user_map: dict[str, dict[str, str]] = {}
+    if all_attendee_ids:
+        raw_users = client.get_users(list(all_attendee_ids))
+        for uid, udata in raw_users.items():
+            user_map[uid] = {
+                "name": udata.get("name", ""),
+                "email": udata.get("email", ""),
+            }
+
+    created = 0
+    updated = 0
+    skipped = 0
+
+    for i, meeting in enumerate(meetings):
+        title = meeting["title"]
+        _log(f"[{i + 1}/{len(meetings)}] {title}")
+
+        fmt = meeting["transcription"].get("format", {})
+        cal = fmt.get("transcription_calendar_event", {})
+        attendee_ids = cal.get("attendeeIds", [])
+
+        attendees = [user_map.get(uid, {"name": "Unknown", "email": ""}) for uid in attendee_ids]
+
+        fm = build_frontmatter(
+            title=title,
+            page_id=meeting["page_id"],
+            last_edited_time=meeting["last_edited_time"],
+            calendar_event=cal if cal.get("uid") else None,
+            attendees=attendees,
+        )
+
+        base_name = make_filename(
+            title=title,
+            calendar_uid=cal.get("uid"),
+            source_id=meeting["page_id"],
+        )
+
+        # Fetch transcript segments
+        transcript_id = fmt.get("transcription_transcript_id", "")
+        transcript_md = ""
+        if transcript_id:
+            transcript_blocks = client.load_block_children(transcript_id, limit=500)
+            parent_block = transcript_blocks.get(transcript_id, {}).get("value", {})
+            child_order = parent_block.get("content", [])
+            transcript_md = transcript_to_markdown(transcript_blocks, child_order)
+
+        # Fetch notes
+        notes_id = fmt.get("transcription_notes_id", "")
+        notes_md = ""
+        if notes_id:
+            notes_blocks = client.load_block_children(notes_id, limit=200)
+            parent_block = notes_blocks.get(notes_id, {}).get("value", {})
+            child_order = parent_block.get("content", [])
+            notes_md = notes_to_markdown(notes_blocks, child_order)
+
+        result = write_meeting(
+            frontmatter=fm,
+            notes_md=notes_md,
+            transcript_md=transcript_md,
+            base_name=base_name,
+            source="notion",
+            project_root=project_root,
+            force=force,
+        )
+
+        if result["status"] == "created":
+            created += 1
+        elif result["status"] == "updated":
+            updated += 1
+        else:
+            skipped += 1
+
+        if (i + 1) % BATCH_SIZE == 0:
+            time.sleep(BATCH_DELAY)
+
+    # Save sync state
+    save_sync_state(
+        state_path,
+        last_sync=datetime.now().isoformat(),
+        docs_synced=len(meetings),
+        last_run=datetime.now().isoformat(),
+    )
+
+    return {
+        "total": len(meetings),
+        "created": created,
+        "updated": updated,
+        "skipped": skipped,
+    }

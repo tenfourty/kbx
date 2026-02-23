@@ -6,7 +6,7 @@ import hashlib
 import sqlite3
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
 import pytest
@@ -402,3 +402,359 @@ class TestFrontmatterAndWrite:
         assert result["transcript_path"].exists()
         assert ".notion.notes.md" in result["notes_path"].name
         assert ".notion.transcript.md" in result["transcript_path"].name
+
+
+class TestSyncOrchestration:
+    """Phase 5: High-level sync pipeline."""
+
+    def test_sync_state_persistence(self, tmp_dir: Path) -> None:
+        """Sync state is saved and loaded correctly."""
+        from kb.sync.notion import load_sync_state, save_sync_state
+
+        state_path = tmp_dir / ".notion_sync_state.json"
+        save_sync_state(state_path, last_sync="2026-02-23T10:00:00Z", docs_synced=5)
+
+        state = load_sync_state(state_path)
+        assert state["last_sync"] == "2026-02-23T10:00:00Z"
+        assert state["docs_synced"] == 5
+
+    def test_load_sync_state_missing_file(self, tmp_dir: Path) -> None:
+        """Missing state file returns empty dict."""
+        from kb.sync.notion import load_sync_state
+
+        state = load_sync_state(tmp_dir / "missing.json")
+        assert state == {}
+
+    def test_sync_notion_dry_run(self, tmp_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Dry run reports counts without writing files."""
+        monkeypatch.setenv("NOTION_TOKEN_V2", "test-token")
+        from kb.sync.notion import sync_notion
+
+        with patch("kb.sync.notion.NotionClient") as MockClient:
+            client = MockClient.return_value
+            client.get_current_user_id.return_value = "user-1"
+            client.get_space_id.return_value = "space-1"
+            client.search_pages.return_value = (
+                [{"id": "page-1"}],
+                {
+                    "page-1": {
+                        "value": {
+                            "type": "page",
+                            "content": ["trans-1"],
+                            "properties": {"title": [["Test Meeting"]]},
+                        }
+                    }
+                },
+            )
+
+            result = sync_notion(
+                project_root=tmp_dir,
+                data_dir=tmp_dir,
+                dry_run=True,
+            )
+            assert result["dry_run"] is True
+            assert result["total"] >= 1
+
+    def test_sync_notion_full_pipeline(
+        self, tmp_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Full sync writes meeting files and saves state."""
+        monkeypatch.setenv("NOTION_TOKEN_V2", "test-token")
+        from kb.sync.notion import sync_notion
+
+        page_id = "page-abc-123"
+        transcript_id = "transcript-1"
+        notes_id = "notes-1"
+
+        # Block map returned by load_page_chunk for the page
+        page_blocks = {
+            page_id: {
+                "value": {
+                    "type": "page",
+                    "content": ["trans-block"],
+                    "properties": {"title": [["Weekly Sync"]]},
+                }
+            },
+            "trans-block": {
+                "value": {
+                    "type": "transcription",
+                    "last_edited_time": 1708700400000,
+                    "format": {
+                        "transcription_state": {"state": "idle"},
+                        "transcription_calendar_event": {
+                            "uid": "cal-uid-1234@google.com",
+                            "startTime": "2026-02-23T10:00:00.000+01:00",
+                            "endTime": "2026-02-23T10:30:00.000+01:00",
+                            "attendeeIds": ["user-a", "user-b"],
+                        },
+                        "transcription_transcript_id": transcript_id,
+                        "transcription_notes_id": notes_id,
+                    },
+                }
+            },
+        }
+
+        # Transcript blocks
+        transcript_blocks = {
+            transcript_id: {
+                "value": {
+                    "type": "text",
+                    "content": ["seg-1", "seg-2"],
+                }
+            },
+            "seg-1": {
+                "value": {
+                    "type": "text",
+                    "properties": {"title": [["Hello everyone."]]},
+                    "format": {"transcript_metadata": {"speaker_name": "speaker0"}},
+                }
+            },
+            "seg-2": {
+                "value": {
+                    "type": "text",
+                    "properties": {"title": [["Hi, let's begin."]]},
+                    "format": {"transcript_metadata": {"speaker_name": "speaker1"}},
+                }
+            },
+        }
+
+        # Notes blocks
+        notes_blocks = {
+            notes_id: {
+                "value": {
+                    "type": "text",
+                    "content": ["note-1"],
+                }
+            },
+            "note-1": {
+                "value": {
+                    "type": "sub_sub_header",
+                    "properties": {"title": [["Action Items"]]},
+                }
+            },
+        }
+
+        with patch("kb.sync.notion.NotionClient") as MockClient:
+            client = MockClient.return_value
+            client.get_current_user_id.return_value = "user-1"
+            client.get_space_id.return_value = "space-1"
+            client.search_pages.return_value = ([{"id": page_id}], {})
+
+            def _load_page_chunk(pid: str, limit: int = 5) -> dict:
+                if pid == page_id:
+                    return page_blocks
+                return {}
+
+            def _load_block_children(bid: str, limit: int = 200) -> dict:
+                if bid == transcript_id:
+                    return transcript_blocks
+                if bid == notes_id:
+                    return notes_blocks
+                return {}
+
+            client.load_page_chunk.side_effect = _load_page_chunk
+            client.load_block_children.side_effect = _load_block_children
+            client.get_users.return_value = {
+                "user-a": {"name": "Wren Smith", "email": "alice@example.com"},
+                "user-b": {"name": "Soren Jones", "email": "bob@example.com"},
+            }
+
+            result = sync_notion(
+                project_root=tmp_dir,
+                data_dir=tmp_dir,
+            )
+
+        assert result["total"] == 1
+        assert result["created"] == 1
+        assert result["updated"] == 0
+        assert result["skipped"] == 0
+        assert "dry_run" not in result
+
+        # Verify state file was written
+        state_path = tmp_dir / ".notion_sync_state.json"
+        assert state_path.exists()
+        import json
+
+        state = json.loads(state_path.read_text())
+        assert state["docs_synced"] == 1
+        assert "last_sync" in state
+
+        # Verify meeting files were written
+        import glob
+
+        notes_files = glob.glob(
+            str(tmp_dir / "meetings" / "organised" / "**/*.notes.md"), recursive=True
+        )
+        transcript_files = glob.glob(
+            str(tmp_dir / "meetings" / "organised" / "**/*.transcript.md"), recursive=True
+        )
+        assert len(notes_files) == 1
+        assert len(transcript_files) == 1
+
+        # Verify content
+        notes_content = Path(notes_files[0]).read_text()
+        assert "Weekly Sync" in notes_content
+        assert "### Action Items" in notes_content
+
+        transcript_content = Path(transcript_files[0]).read_text()
+        assert "Speaker 1" in transcript_content
+        assert "Speaker 2" in transcript_content
+
+    def test_sync_notion_no_transcription_skips_page(
+        self, tmp_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Pages without transcription blocks are skipped."""
+        monkeypatch.setenv("NOTION_TOKEN_V2", "test-token")
+        from kb.sync.notion import sync_notion
+
+        page_blocks = {
+            "page-1": {
+                "value": {
+                    "type": "page",
+                    "content": [],
+                    "properties": {"title": [["No Transcript"]]},
+                }
+            },
+        }
+
+        with patch("kb.sync.notion.NotionClient") as MockClient:
+            client = MockClient.return_value
+            client.get_current_user_id.return_value = "user-1"
+            client.get_space_id.return_value = "space-1"
+            client.search_pages.return_value = ([{"id": "page-1"}], {})
+            client.load_page_chunk.return_value = page_blocks
+
+            result = sync_notion(
+                project_root=tmp_dir,
+                data_dir=tmp_dir,
+            )
+
+        assert result["total"] == 0
+        assert result["created"] == 0
+
+    def test_sync_notion_uses_saved_state(
+        self, tmp_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Sync uses last_sync from saved state when no --since provided."""
+        monkeypatch.setenv("NOTION_TOKEN_V2", "test-token")
+        from kb.sync.notion import save_sync_state, sync_notion
+
+        # Pre-seed state
+        state_path = tmp_dir / ".notion_sync_state.json"
+        save_sync_state(state_path, last_sync="2026-02-20T10:00:00Z")
+
+        with patch("kb.sync.notion.NotionClient") as MockClient:
+            client = MockClient.return_value
+            client.get_current_user_id.return_value = "user-1"
+            client.get_space_id.return_value = "space-1"
+            client.search_pages.return_value = ([], {})
+
+            sync_notion(
+                project_root=tmp_dir,
+                data_dir=tmp_dir,
+            )
+
+            # Verify search_pages was called with the saved since date
+            call_kwargs = client.search_pages.call_args[1]
+            assert call_kwargs["since"] == "2026-02-20"
+
+    def test_sync_notion_with_on_progress(
+        self, tmp_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """on_progress callback receives log messages."""
+        monkeypatch.setenv("NOTION_TOKEN_V2", "test-token")
+        from kb.sync.notion import sync_notion
+
+        messages: list[str] = []
+
+        with patch("kb.sync.notion.NotionClient") as MockClient:
+            client = MockClient.return_value
+            client.get_current_user_id.return_value = "user-1"
+            client.get_space_id.return_value = "space-1"
+            client.search_pages.return_value = ([], {})
+
+            sync_notion(
+                project_root=tmp_dir,
+                data_dir=tmp_dir,
+                on_progress=messages.append,
+            )
+
+        assert any("User: user-1" in m for m in messages)
+        assert any("(full sync)" in m for m in messages)
+
+    def test_load_sync_state_corrupted_file(self, tmp_dir: Path) -> None:
+        """Corrupted state file returns empty dict."""
+        from kb.sync.notion import load_sync_state
+
+        state_path = tmp_dir / ".notion_sync_state.json"
+        state_path.write_text("not valid json {{{", encoding="utf-8")
+        assert load_sync_state(state_path) == {}
+
+    def test_sync_notion_update_and_skip(
+        self, tmp_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Second sync with force=True updates; without force skips (same timestamp)."""
+        monkeypatch.setenv("NOTION_TOKEN_V2", "test-token")
+        from kb.sync.notion import sync_notion
+
+        page_id = "page-update-1"
+        transcript_id = "transcript-u1"
+
+        page_blocks = {
+            page_id: {
+                "value": {
+                    "type": "page",
+                    "content": ["trans-block"],
+                    "properties": {"title": [["Update Test"]]},
+                }
+            },
+            "trans-block": {
+                "value": {
+                    "type": "transcription",
+                    "last_edited_time": 1708700400000,
+                    "format": {
+                        "transcription_state": {"state": "idle"},
+                        "transcription_calendar_event": {},
+                        "transcription_transcript_id": transcript_id,
+                    },
+                }
+            },
+        }
+
+        transcript_blocks = {
+            transcript_id: {"value": {"type": "text", "content": ["seg-1"]}},
+            "seg-1": {
+                "value": {
+                    "type": "text",
+                    "properties": {"title": [["Hello."]]},
+                    "format": {"transcript_metadata": {"speaker_name": "speaker0"}},
+                }
+            },
+        }
+
+        def _setup_mock(mock_cls: Any) -> None:
+            client = mock_cls.return_value
+            client.get_current_user_id.return_value = "user-1"
+            client.get_space_id.return_value = "space-1"
+            client.search_pages.return_value = ([{"id": page_id}], {})
+            client.load_page_chunk.return_value = page_blocks
+            client.load_block_children.return_value = transcript_blocks
+            client.get_users.return_value = {}
+
+        # First run — creates
+        with patch("kb.sync.notion.NotionClient") as MockClient:
+            _setup_mock(MockClient)
+            r1 = sync_notion(project_root=tmp_dir, data_dir=tmp_dir)
+        assert r1["created"] == 1
+
+        # Second run with force — updates
+        with patch("kb.sync.notion.NotionClient") as MockClient:
+            _setup_mock(MockClient)
+            r2 = sync_notion(project_root=tmp_dir, data_dir=tmp_dir, force=True)
+        assert r2["updated"] == 1
+
+        # Third run without force — skips (same timestamp)
+        with patch("kb.sync.notion.NotionClient") as MockClient:
+            _setup_mock(MockClient)
+            r3 = sync_notion(project_root=tmp_dir, data_dir=tmp_dir)
+        assert r3["skipped"] == 1
