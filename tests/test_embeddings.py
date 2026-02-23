@@ -449,19 +449,43 @@ class TestMLXBackendMocked:
 
     def test_mlx_release_gpu_memory(self):
         """MLX release_gpu_memory calls mx.metal.clear_cache."""
+        import sys
+        from types import ModuleType
+        from unittest.mock import MagicMock
+
         from kb.embeddings import _MLXBackend
 
-        backend = _MLXBackend.__new__(_MLXBackend)
-        with patch("mlx.core.metal.clear_cache") as mock_clear:
+        # Inject fake mlx.core.metal into sys.modules so patch target exists
+        mock_metal = MagicMock()
+        fake_core = ModuleType("mlx.core")
+        fake_core.metal = mock_metal  # type: ignore[attr-defined]
+        fake_mlx = ModuleType("mlx")
+        fake_mlx.core = fake_core  # type: ignore[attr-defined]
+        with patch.dict(
+            sys.modules, {"mlx": fake_mlx, "mlx.core": fake_core, "mlx.core.metal": mock_metal}
+        ):
+            backend = _MLXBackend.__new__(_MLXBackend)
             backend.release_gpu_memory()
-            mock_clear.assert_called_once()
+            mock_metal.clear_cache.assert_called_once()
 
     def test_mlx_release_swallows_exception(self):
         """MLX release_gpu_memory catches exceptions."""
+        import sys
+        from types import ModuleType
+        from unittest.mock import MagicMock
+
         from kb.embeddings import _MLXBackend
 
-        backend = _MLXBackend.__new__(_MLXBackend)
-        with patch("mlx.core.metal.clear_cache", side_effect=RuntimeError("Metal error")):
+        mock_metal = MagicMock()
+        mock_metal.clear_cache.side_effect = RuntimeError("Metal error")
+        fake_core = ModuleType("mlx.core")
+        fake_core.metal = mock_metal  # type: ignore[attr-defined]
+        fake_mlx = ModuleType("mlx")
+        fake_mlx.core = fake_core  # type: ignore[attr-defined]
+        with patch.dict(
+            sys.modules, {"mlx": fake_mlx, "mlx.core": fake_core, "mlx.core.metal": mock_metal}
+        ):
+            backend = _MLXBackend.__new__(_MLXBackend)
             # Should not raise
             backend.release_gpu_memory()
 
