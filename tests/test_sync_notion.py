@@ -758,3 +758,29 @@ class TestSyncOrchestration:
             _setup_mock(MockClient)
             r3 = sync_notion(project_root=tmp_dir, data_dir=tmp_dir)
         assert r3["skipped"] == 1
+
+
+class TestCLI:
+    """Phase 6: CLI integration."""
+
+    def test_sync_notion_help(self) -> None:
+        """kb sync notion --help works."""
+        from click.testing import CliRunner
+
+        from kb.cli import cli
+
+        result = CliRunner().invoke(cli, ["sync", "notion", "--help"])
+        assert result.exit_code == 0
+        assert "--since" in result.output
+        assert "--dry-run" in result.output
+
+    def test_sync_all_help(self) -> None:
+        """kb sync --help shows all subcommands."""
+        from click.testing import CliRunner
+
+        from kb.cli import cli
+
+        result = CliRunner().invoke(cli, ["sync", "--help"])
+        assert result.exit_code == 0
+        assert "granola" in result.output
+        assert "notion" in result.output

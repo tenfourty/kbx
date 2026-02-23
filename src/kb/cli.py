@@ -1455,6 +1455,12 @@ def usage() -> None:
   kb index run --no-embed            # text-only index (fast, no GPU)
   kb index run --cpu                 # full index with embeddings on CPU
 
+## 9. Sync
+  kb sync                              # run all sync plugins
+  kb sync granola --since 2026-01-01   # sync Granola meetings since date
+  kb sync notion --since 2026-01-01    # sync Notion AI Meeting Notes since date
+  Options: --dry-run | --force | --no-index
+
 ## Global Options
   --json | --format table|json|jsonl|csv | --fields f1,f2 | --jq expr
 """
@@ -1971,10 +1977,22 @@ def mcp() -> None:
 # ---------------------------------------------------------------------------
 
 
-@cli.group()
-def sync() -> None:
-    """Sync commands — pull data from external sources."""
-    pass
+@cli.group(invoke_without_command=True)
+@click.pass_context
+def sync(ctx: click.Context) -> None:
+    """Sync commands — pull data from external sources.
+
+    Run without a subcommand to sync all sources.
+    """
+    if ctx.invoked_subcommand is None:
+        # Run all sync plugins sequentially
+        for name in ["granola", "notion"]:
+            click.echo(f"\nSyncing {name}...", err=True)
+            try:
+                ctx.invoke(sync.commands[name])
+            except Exception as e:
+                click.echo(f"  {name} failed: {e}", err=True)
+        click.echo("\nTip: Run `kb index run` to index new files.", err=True)
 
 
 @sync.command("granola")
@@ -2005,6 +2023,37 @@ def sync_granola(
         dry_run=dry_run,
         force=force,
         token_path=tp,
+        on_progress=lambda msg: click.echo(msg, err=True),
+    )
+
+    click.echo(
+        f"Sync complete: {result['created']} created, {result['updated']} updated, "
+        f"{result['skipped']} skipped (total: {result['total']}).",
+        err=True,
+    )
+
+    if not dry_run and not no_index:
+        click.echo("Tip: Run `kb index run` to index new files.", err=True)
+
+
+@sync.command("notion")
+@click.option("--since", default=None, help="Sync documents since date (YYYY-MM-DD).")
+@click.option("--dry-run", is_flag=True, help="Preview only, no file writes.")
+@click.option("--force", is_flag=True, help="Overwrite files even if timestamps match.")
+@click.option("--no-index", is_flag=True, help="Skip indexing after sync.")
+def sync_notion_cmd(since: str | None, dry_run: bool, force: bool, no_index: bool) -> None:
+    """Sync meetings from Notion AI Meeting Notes."""
+    from kb.sync.notion import sync_notion as do_sync
+
+    project_root = _find_project_root()
+    data_dir = _get_data_dir()
+
+    result = do_sync(
+        project_root=project_root,
+        data_dir=data_dir,
+        since=since,
+        dry_run=dry_run,
+        force=force,
         on_progress=lambda msg: click.echo(msg, err=True),
     )
 
