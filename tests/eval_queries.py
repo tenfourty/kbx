@@ -45,18 +45,18 @@ QUERIES = [
 
 
 def _find_data_dir() -> Path:
-    """Locate kb/data/ from script location."""
-    here = Path(__file__).resolve().parent
-    data = here.parent / "data"
-    if data.exists():
-        return data
-    # fallback: use KB_DATA_DIR env var
+    """Locate data directory from default location or env var."""
+    # 1. KB_DATA_DIR env var
     import os
 
     env = os.environ.get("KB_DATA_DIR")
     if env:
         return Path(env)
-    print("ERROR: Could not find kb/data/ directory. Set KB_DATA_DIR.", file=sys.stderr)
+    # 2. Default: ~/.config/kbx/
+    default = Path.home() / ".config" / "kbx"
+    if default.exists():
+        return default
+    print("ERROR: Could not find data directory. Set KB_DATA_DIR.", file=sys.stderr)
     sys.exit(3)
 
 

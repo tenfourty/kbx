@@ -135,9 +135,11 @@ Available on all data commands (search, view, list, entity, index status):
 
 ## Database Path
 
-The database lives at `kb/data/` relative to the project root. Auto-detection walks up from CWD looking for a directory containing both `kb/` and `meetings/` (or `memory/`).
+The database lives at `~/.config/kbx/` by default. This can be overridden via:
+1. `data.dir` in `kbx.toml` config file
+2. `KB_DATA_DIR` environment variable
 
-Override with `KB_DATA_DIR` environment variable.
+Project root auto-detection walks up from CWD looking for `kbx.toml`, or a directory containing both `kbx/` and `meetings/` (or `memory/`).
 
 ## Error Handling
 

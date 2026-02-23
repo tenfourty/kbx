@@ -8,7 +8,7 @@ Search order for config file:
 Data directory resolution:
   1. $KB_DATA_DIR env var (backwards compat)
   2. data.dir from config file (relative to config file location)
-  3. $XDG_DATA_HOME/kbx/ (~/.local/share/kbx/)
+  3. ~/.config/kbx/ (default)
 """
 
 from __future__ import annotations
@@ -82,12 +82,12 @@ def load_config(config_path: Path) -> KbxConfig:
 
 
 def resolve_data_dir(cfg: KbxConfig, config_path: Path | None) -> Path:
-    """Resolve the data directory from config + env vars + XDG defaults.
+    """Resolve the data directory from config + env vars + default.
 
     Priority:
       1. $KB_DATA_DIR env var (backwards compat)
       2. data.dir from config file (relative to config file location)
-      3. $XDG_DATA_HOME/kbx/ (~/.local/share/kbx/)
+      3. ~/.config/kbx/ (default)
     """
     # 1. Env var (backwards compat)
     env = os.environ.get("KB_DATA_DIR")
@@ -101,9 +101,8 @@ def resolve_data_dir(cfg: KbxConfig, config_path: Path | None) -> Path:
             p = config_path.parent / p
         return p.resolve()
 
-    # 3. XDG data home
-    xdg = os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share"))
-    return (Path(xdg) / "kbx").resolve()
+    # 3. Default
+    return (Path.home() / ".config" / "kbx").resolve()
 
 
 def resolve_source_dir(cfg: KbxConfig, key: str, config_path: Path | None) -> Path:

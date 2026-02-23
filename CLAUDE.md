@@ -86,8 +86,8 @@ src/kb/|root: ./src/kb
 ## Gotchas
 
 - **MPS memory** — embedding batches: 32 on MPS, 16 on CPU; texts truncated at 8K chars. `torch.mps.empty_cache()` between batches
-- **Model cache** — ~1.1GB at `kb/data/model/`. First run downloads automatically
-- **`KB_DATA_DIR`** — env var overrides default `kb/data/`. Tests use this to isolate
+- **Model cache** — ~1.1GB at `~/.config/kbx/model/`. First run downloads automatically
+- **`KB_DATA_DIR`** — env var overrides default `~/.config/kbx/`. Tests use this to isolate
 - **Incremental indexing** — skips unchanged files (by `content_hash`). Use `--full` to force
 - **LanceDB lazy import** — only loaded for vector ops. `--no-embed` skips entirely
 - **Slow tests** — `@pytest.mark.slow` on ML model tests; pre-commit skips them (`-m "not slow"`). Run all with `uv run pytest`

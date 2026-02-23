@@ -27,21 +27,21 @@ def find_project_root() -> Path:
     if config_path is not None:
         return config_path.parent
 
-    # Legacy fallback: walk up looking for kb/ + meetings/ or memory/
+    # Legacy fallback: walk up looking for kbx/ + meetings/ or memory/
     cwd = Path.cwd()
     for d in [cwd, *cwd.parents]:
-        if (d / "kb").is_dir() and ((d / "meetings").is_dir() or (d / "memory").is_dir()):
+        if (d / "kbx").is_dir() and ((d / "meetings").is_dir() or (d / "memory").is_dir()):
             return d
     return cwd
 
 
 def get_data_dir() -> Path:
-    """Get the database directory using config or legacy detection.
+    """Get the database directory using config or env var or default.
 
     Priority:
-      1. Config file (via user_config) — respects KB_DATA_DIR, data.dir, XDG
+      1. Config file (via user_config) — respects KB_DATA_DIR, data.dir, default
       2. KB_DATA_DIR env var (legacy, relative resolved against project root)
-      3. <project_root>/kb/data (legacy default)
+      3. ~/.config/kbx/ (default)
 
     Always returns an absolute path.
     """
@@ -60,7 +60,7 @@ def get_data_dir() -> Path:
             p = find_project_root() / p
         return p.resolve()
 
-    return find_project_root() / "kb" / "data"
+    return (Path.home() / ".config" / "kbx").resolve()
 
 
 _db_instance: Database | None = None

@@ -2,9 +2,9 @@
 
 ## Overview
 
-The kb MCP server exposes knowledge base functionality as MCP tools and resources, allowing Claude Desktop, Claude Code, and other MCP-compatible clients to query the knowledge base directly.
+The kbx MCP server exposes knowledge base functionality as MCP tools and resources, allowing Claude Desktop, Claude Code, and other MCP-compatible clients to query the knowledge base directly.
 
-The MCP server wraps existing kb functionality — no new search or entity logic. It uses `fast=True` (FTS-only) search by default to avoid loading the embedding model, making tool calls instant.
+The MCP server wraps existing kbx functionality — no new search or entity logic. It uses `fast=True` (FTS-only) search by default to avoid loading the embedding model, making tool calls instant.
 
 ## Setup
 
@@ -13,7 +13,7 @@ The MCP server wraps existing kb functionality — no new search or entity logic
 ```json
 {
   "mcpServers": {
-    "kb": {
+    "kbx": {
       "command": "kb",
       "args": ["mcp"]
     }
@@ -26,7 +26,7 @@ The MCP server wraps existing kb functionality — no new search or entity logic
 ```json
 {
   "mcpServers": {
-    "kb": {
+    "kbx": {
       "command": "kb",
       "args": ["mcp"],
       "type": "stdio"
@@ -41,7 +41,7 @@ The MCP server wraps existing kb functionality — no new search or entity logic
 kb mcp    # Start MCP server on stdio transport
 ```
 
-> **Note:** Requires `kb` to be installed globally via `uv tool install --editable .` from the project directory. If `kb` is not on PATH in your MCP client's environment, use the full path: `uv --directory "/path/to/project" run kb mcp`.
+> **Note:** Requires `kbx` to be installed globally via `uv tool install --editable .` from the project directory. If `kb` is not on PATH in your MCP client's environment, use the full path: `uv --directory "/path/to/project" run kb mcp`.
 
 ## MCP Tools
 

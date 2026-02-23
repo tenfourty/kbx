@@ -1,4 +1,4 @@
-"""MCP server for kb — exposes knowledge base tools and resources via FastMCP."""
+"""MCP server for kbx — exposes knowledge base tools and resources via FastMCP."""
 
 from __future__ import annotations
 
@@ -499,7 +499,7 @@ def handle_kb_usage(db: Database) -> str:
 # FastMCP server setup
 # ---------------------------------------------------------------------------
 
-mcp = FastMCP("kb")
+mcp = FastMCP("kbx")
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 

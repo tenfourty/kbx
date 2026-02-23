@@ -1060,7 +1060,7 @@ class TestEntityCreateDuplicateError:
                 "---\ntitle: Wren Smith\n---\n# Wren Smith\n"
             )
 
-            data_dir = project_root / "kb" / "data"
+            data_dir = project_root / "kbx" / "data"
             db = Database(data_dir)
             conn = db.get_sqlite_conn()
             conn.execute(
@@ -1153,7 +1153,7 @@ class TestGlossaryDeleteNotFound:
                 "| AC | Lattice Co | |\n"
             )
 
-            db = Database(project_root / "kb" / "data")
+            db = Database(project_root / "kbx" / "data")
             db.close()
 
             runner = CliRunner()
@@ -1161,7 +1161,7 @@ class TestGlossaryDeleteNotFound:
                 result = runner.invoke(
                     cli,
                     ["glossary", "delete", "NONEXISTENT"],
-                    env={"KB_DATA_DIR": str(project_root / "kb" / "data")},
+                    env={"KB_DATA_DIR": str(project_root / "kbx" / "data")},
                 )
             assert result.exit_code != 0
 
@@ -1235,7 +1235,7 @@ class TestRenderHumanFull:
                 "| Wards | Main GIM repo |\n"
             )
 
-            db = Database(root / "kb" / "data")
+            db = Database(root / "kbx" / "data")
             conn = db.get_sqlite_conn()
 
             # Insert docs, with one pinned
@@ -1434,7 +1434,7 @@ class TestMcpMemoryAddNoteWithEntity:
             notes_dir = root / "memory" / "notes"
             notes_dir.mkdir(parents=True)
 
-            db = Database(root / "kb" / "data")
+            db = Database(root / "kbx" / "data")
             conn = db.get_sqlite_conn()
             conn.execute(
                 "INSERT INTO entities (name, entity_type, aliases, metadata) VALUES (?, ?, ?, ?)",
@@ -1469,7 +1469,7 @@ class TestNoteCollision:
             notes_dir = root / "memory" / "notes"
             notes_dir.mkdir(parents=True)
 
-            db = Database(root / "kb" / "data")
+            db = Database(root / "kbx" / "data")
             db.close()
 
             runner = CliRunner()
@@ -1478,7 +1478,7 @@ class TestNoteCollision:
                 result1 = runner.invoke(
                     cli,
                     ["memory", "add", "Test note", "--date", "2026-01-01"],
-                    env={"KB_DATA_DIR": str(root / "kb" / "data")},
+                    env={"KB_DATA_DIR": str(root / "kbx" / "data")},
                     catch_exceptions=False,
                 )
                 assert result1.exit_code == 0
@@ -1487,7 +1487,7 @@ class TestNoteCollision:
                 result2 = runner.invoke(
                     cli,
                     ["memory", "add", "Test note", "--date", "2026-01-01"],
-                    env={"KB_DATA_DIR": str(root / "kb" / "data")},
+                    env={"KB_DATA_DIR": str(root / "kbx" / "data")},
                     catch_exceptions=False,
                 )
                 assert result2.exit_code == 0
@@ -1665,7 +1665,7 @@ class TestRenderCompactLinePacking:
             glossary.parent.mkdir(parents=True)
             glossary.write_text("# Glossary\n")
 
-            db = Database(root / "kb" / "data")
+            db = Database(root / "kbx" / "data")
             conn = db.get_sqlite_conn()
 
             conn.execute(
@@ -1958,7 +1958,7 @@ class TestEntityUnpinNotFound:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            db = Database(root / "kb" / "data")
+            db = Database(root / "kbx" / "data")
             db.close()
 
             runner = CliRunner()
@@ -1966,7 +1966,7 @@ class TestEntityUnpinNotFound:
                 result = runner.invoke(
                     cli,
                     ["person", "unpin", "NonexistentPerson"],
-                    env={"KB_DATA_DIR": str(root / "kb" / "data")},
+                    env={"KB_DATA_DIR": str(root / "kbx" / "data")},
                 )
             assert result.exit_code != 0
 
@@ -1991,7 +1991,7 @@ class TestRenderHumanLineWrapping:
                 jargon_lines += f"| JargonTerm{i}LongName | Meaning {i} |\n"
             glossary.write_text("# Glossary\n\n## Internal Language\n\n" + jargon_lines)
 
-            db = Database(root / "kb" / "data")
+            db = Database(root / "kbx" / "data")
             conn = db.get_sqlite_conn()
 
             conn.execute(

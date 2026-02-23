@@ -139,15 +139,15 @@ def test_resolve_data_dir_env_override(tmp_path, monkeypatch):
     assert data_dir == (tmp_path / "env-data").resolve()
 
 
-def test_resolve_data_dir_default_xdg(tmp_path, monkeypatch):
-    """Without config, data dir defaults to XDG data home."""
+def test_resolve_data_dir_default(tmp_path, monkeypatch):
+    """Without config, data dir defaults to ~/.config/kbx/."""
     from kb.user_config import KbxConfig, resolve_data_dir
 
-    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
     monkeypatch.delenv("KB_DATA_DIR", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
     cfg = KbxConfig()
     data_dir = resolve_data_dir(cfg, config_path=None)
-    assert data_dir == tmp_path / "data" / "kbx"
+    assert data_dir == (tmp_path / ".config" / "kbx").resolve()
 
 
 def test_resolve_source_dir_relative(tmp_path):
@@ -194,7 +194,7 @@ def test_find_project_root_legacy_fallback(tmp_path, monkeypatch):
     from kb.config import find_project_root
 
     # Create legacy layout
-    (tmp_path / "kb").mkdir()
+    (tmp_path / "kbx").mkdir()
     (tmp_path / "memory").mkdir()
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("KBX_CONFIG", raising=False)
@@ -224,17 +224,16 @@ def test_get_data_dir_with_config(tmp_path, monkeypatch):
     assert get_data_dir() == (tmp_path / ".kbx-data").resolve()
 
 
-def test_get_data_dir_legacy(tmp_path, monkeypatch):
-    """get_data_dir() uses legacy kb/data when no config."""
+def test_get_data_dir_default(tmp_path, monkeypatch):
+    """get_data_dir() uses ~/.config/kbx/ when no config or env var."""
     from kb.config import get_data_dir
 
-    (tmp_path / "kb").mkdir()
-    (tmp_path / "memory").mkdir()
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("KBX_CONFIG", raising=False)
     monkeypatch.delenv("KB_DATA_DIR", raising=False)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "no-config"))
-    assert get_data_dir() == tmp_path / "kb" / "data"
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert get_data_dir() == (tmp_path / ".config" / "kbx").resolve()
 
 
 def test_get_data_dir_env_override_legacy(tmp_path, monkeypatch):

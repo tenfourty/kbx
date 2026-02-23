@@ -66,7 +66,7 @@ Migrations run automatically on next `Database()` instantiation. No manual steps
 uv run python kb/tests/eval_queries.py      # from project root directory
 ```
 
-Runs 20 test queries against the real indexed data (`kb/data/`). Reports Hit@1, Hit@3, Hit@5 metrics. Exits 0 if all queries have at least Hit@5, exits 1 otherwise.
+Runs 20 test queries against the real indexed data (default `~/.config/kbx/`). Reports Hit@1, Hit@3, Hit@5 metrics. Exits 0 if all queries have at least Hit@5, exits 1 otherwise.
 
 To test against a different database:
 
@@ -82,8 +82,8 @@ KB_DATA_DIR=/path/to/db uv run python kb/tests/eval_queries.py
 
 The project root `.gitignore` excludes:
 
-- `kb/data/` — database files, vectors, model cache
-- `kb/.venv/` and `.venv/` — virtual environments
+- `~/.config/kbx/` — database files, vectors, model cache (default location)
+- `.venv/` — virtual environments
 - `__pycache__/`, `*.pyc`, `*.pyo` — Python bytecode
 - `.DS_Store` — macOS metadata
 

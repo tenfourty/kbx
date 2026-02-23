@@ -6,7 +6,7 @@
 
 ## Storage Layer
 
-Two storage engines, co-located in `kb/data/`:
+Two storage engines, co-located in the data directory (default `~/.config/kbx/`):
 
 ### SQLite (`metadata.db`)
 
@@ -115,7 +115,7 @@ Instructions used:
 - `EMBED_BATCH = 16` — texts per embedding batch
 - MPS watermark: 50% high / 30% low (prevents GPU memory exhaustion on macOS)
 
-Model cached at `kb/data/model/` (~1.1GB).
+Model cached at `~/.config/kbx/model/` (~1.1GB).
 
 ## Source Adapters
 
