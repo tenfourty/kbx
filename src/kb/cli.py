@@ -635,6 +635,44 @@ def _resolve_me(name: str) -> str:
     raise SystemExit(1)
 
 
+def _format_entity_profile(entity: dict[str, Any]) -> str:
+    """Format a single entity as a human-readable profile."""
+    lines: list[str] = []
+    name = entity["name"]
+    etype = entity["entity_type"]
+    aliases = entity.get("aliases", [])
+
+    # Header
+    alias_str = f"  aka {', '.join(aliases)}" if aliases else ""
+    lines.append(f"{name} ({etype}){alias_str}")
+    lines.append("")
+
+    # Metadata
+    meta = entity.get("metadata", {})
+    if meta:
+        for key, val in meta.items():
+            lines.append(f"  {key}: {val}")
+        lines.append("")
+
+    # Facts
+    facts = entity.get("facts", [])
+    if facts:
+        lines.append("Facts:")
+        for f in facts:
+            d = f.get("date") or "?"
+            lines.append(f"  - [{d}] {f['text']}")
+        lines.append("")
+
+    # Stats + breadcrumbs
+    doc_count = entity.get("document_count", 0)
+    lines.append(f"{doc_count} linked documents")
+    breadcrumbs = entity.get("breadcrumbs", {})
+    for val in breadcrumbs.values():
+        lines.append(f"  -> {val}")
+
+    return "\n".join(lines)
+
+
 def _entity_find_impl(
     name: str, entity_type: str | None, fmt: str, fields: list[str] | None, jq_expr: str | None
 ) -> None:
@@ -660,6 +698,18 @@ def _entity_find_impl(
                 "note": f"Multiple entities match '{name}'. Use a more specific name.",
             },
         }
+
+    # Custom human-readable format for table output
+    if fmt == "table" and not fields and not jq_expr:
+        if isinstance(result, dict) and "results" not in result:
+            click.echo(_format_entity_profile(result))
+        elif isinstance(result, dict) and "results" in result:
+            for i, entity in enumerate(result["results"]):
+                if i > 0:
+                    click.echo("---")
+                click.echo(_format_entity_profile(entity))
+        return
+
     kb_output(result, fmt=fmt, fields=fields, jq_expr=jq_expr)
 
 
