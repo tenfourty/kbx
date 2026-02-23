@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/tenfourty/kbx/compare/kbx-v0.1.1...kbx-v0.1.2) (2026-02-23)
+
+
+### Bug Fixes
+
+* **embeddings:** use config data dir for model cache ([9875465](https://github.com/tenfourty/kbx/commit/9875465f885fa6a93ed45184a4f96dd2f45132ae))
+
 ## [0.1.1](https://github.com/tenfourty/kbx/compare/kbx-v0.1.0...kbx-v0.1.1) (2026-02-23)
 
 
