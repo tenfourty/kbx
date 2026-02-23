@@ -436,6 +436,32 @@ class TestEmbedderDelegation:
 
 
 class TestMLXBackendMocked:
+    @pytest.fixture(autouse=True)
+    def _fake_mlx(self):
+        """Inject fake mlx modules so patch targets resolve on non-Apple platforms."""
+        import sys
+        from types import ModuleType
+
+        fake_metal = ModuleType("mlx.core.metal")
+        fake_metal.clear_cache = lambda: None  # type: ignore[attr-defined]
+        fake_core = ModuleType("mlx.core")
+        fake_core.metal = fake_metal  # type: ignore[attr-defined]
+        fake_core.array = lambda x: x  # type: ignore[attr-defined]
+        fake_core.eval = lambda *a: None  # type: ignore[attr-defined]
+        fake_core.float32 = "float32"  # type: ignore[attr-defined]
+        fake_mlx = ModuleType("mlx")
+        fake_mlx.core = fake_core  # type: ignore[attr-defined]
+        originals = {k: sys.modules.get(k) for k in ("mlx", "mlx.core", "mlx.core.metal")}
+        sys.modules["mlx"] = fake_mlx
+        sys.modules["mlx.core"] = fake_core
+        sys.modules["mlx.core.metal"] = fake_metal
+        yield
+        for k, v in originals.items():
+            if v is None:
+                sys.modules.pop(k, None)
+            else:
+                sys.modules[k] = v
+
     def test_mlx_selected_when_available(self):
         """MLX backend selected when _mlx_available() returns True."""
         from kb.embeddings import Embedder
@@ -449,43 +475,19 @@ class TestMLXBackendMocked:
 
     def test_mlx_release_gpu_memory(self):
         """MLX release_gpu_memory calls mx.metal.clear_cache."""
-        import sys
-        from types import ModuleType
-        from unittest.mock import MagicMock
-
         from kb.embeddings import _MLXBackend
 
-        # Inject fake mlx.core.metal into sys.modules so patch target exists
-        mock_metal = MagicMock()
-        fake_core = ModuleType("mlx.core")
-        fake_core.metal = mock_metal  # type: ignore[attr-defined]
-        fake_mlx = ModuleType("mlx")
-        fake_mlx.core = fake_core  # type: ignore[attr-defined]
-        with patch.dict(
-            sys.modules, {"mlx": fake_mlx, "mlx.core": fake_core, "mlx.core.metal": mock_metal}
-        ):
-            backend = _MLXBackend.__new__(_MLXBackend)
+        backend = _MLXBackend.__new__(_MLXBackend)
+        with patch("mlx.core.metal.clear_cache") as mock_clear:
             backend.release_gpu_memory()
-            mock_metal.clear_cache.assert_called_once()
+            mock_clear.assert_called_once()
 
     def test_mlx_release_swallows_exception(self):
         """MLX release_gpu_memory catches exceptions."""
-        import sys
-        from types import ModuleType
-        from unittest.mock import MagicMock
-
         from kb.embeddings import _MLXBackend
 
-        mock_metal = MagicMock()
-        mock_metal.clear_cache.side_effect = RuntimeError("Metal error")
-        fake_core = ModuleType("mlx.core")
-        fake_core.metal = mock_metal  # type: ignore[attr-defined]
-        fake_mlx = ModuleType("mlx")
-        fake_mlx.core = fake_core  # type: ignore[attr-defined]
-        with patch.dict(
-            sys.modules, {"mlx": fake_mlx, "mlx.core": fake_core, "mlx.core.metal": mock_metal}
-        ):
-            backend = _MLXBackend.__new__(_MLXBackend)
+        backend = _MLXBackend.__new__(_MLXBackend)
+        with patch("mlx.core.metal.clear_cache", side_effect=RuntimeError("Metal error")):
             # Should not raise
             backend.release_gpu_memory()
 
