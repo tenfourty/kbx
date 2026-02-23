@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     import numpy as np
+    import numpy.typing as npt
     from sentence_transformers import SentenceTransformer
 
 # Silence HuggingFace telemetry/auth warnings (model is cached locally)
@@ -72,9 +73,9 @@ class _EmbedderBackend(Protocol):
         texts: list[str],
         batch_size: int | None = None,
         instruction: str = INDEX_INSTRUCTION,
-    ) -> np.ndarray: ...
+    ) -> npt.NDArray[np.float32]: ...
 
-    def embed_query(self, query: str) -> np.ndarray: ...
+    def embed_query(self, query: str) -> npt.NDArray[np.float32]: ...
 
     def release_gpu_memory(self) -> None: ...
 
@@ -125,7 +126,7 @@ class _PyTorchBackend:
         texts: list[str],
         batch_size: int | None = None,
         instruction: str = INDEX_INSTRUCTION,
-    ) -> np.ndarray:
+    ) -> npt.NDArray[np.float32]:
         """Embed a list of texts for indexing.
 
         Returns L2-normalized float32 array of shape (n, 1024).
@@ -178,7 +179,7 @@ class _PyTorchBackend:
 
             return np.concatenate(chunks, axis=0)
 
-    def embed_query(self, query: str) -> np.ndarray:
+    def embed_query(self, query: str) -> npt.NDArray[np.float32]:
         """Embed a search query.
 
         Returns L2-normalized float32 array of shape (1, 1024).
@@ -228,7 +229,7 @@ class _MLXBackend:
 
     def _tokenize_and_run(
         self, texts: list[str], max_length: int = 512, instruction: str | None = None
-    ) -> np.ndarray:
+    ) -> npt.NDArray[np.float32]:
         """Tokenize texts, run through the MLX model, return numpy float32."""
         import mlx.core as mx
         import numpy as np
@@ -264,7 +265,7 @@ class _MLXBackend:
         texts: list[str],
         batch_size: int | None = None,
         instruction: str = INDEX_INSTRUCTION,
-    ) -> np.ndarray:
+    ) -> npt.NDArray[np.float32]:
         """Embed texts using MLX. Returns L2-normalized float32 (n, 1024)."""
         import numpy as np
 
@@ -285,7 +286,7 @@ class _MLXBackend:
             return all_embeddings[0]
         return np.concatenate(all_embeddings, axis=0)
 
-    def embed_query(self, query: str) -> np.ndarray:
+    def embed_query(self, query: str) -> npt.NDArray[np.float32]:
         """Embed a search query with instruction prefix."""
         return self._tokenize_and_run([query], instruction=QUERY_INSTRUCTION)
 
@@ -345,14 +346,14 @@ class Embedder:
         texts: list[str],
         batch_size: int | None = None,
         instruction: str = INDEX_INSTRUCTION,
-    ) -> np.ndarray:
+    ) -> npt.NDArray[np.float32]:
         """Embed a list of texts for indexing.
 
         Returns L2-normalized float32 array of shape (n, 1024).
         """
         return self._get_backend().embed(texts, batch_size=batch_size, instruction=instruction)
 
-    def embed_query(self, query: str) -> np.ndarray:
+    def embed_query(self, query: str) -> npt.NDArray[np.float32]:
         """Embed a search query.
 
         Returns L2-normalized float32 array of shape (1, 1024).
