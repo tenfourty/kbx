@@ -573,31 +573,49 @@ def _entity_list_impl(
 
 
 def _build_entity_result(conn: sqlite3.Connection, entity_row: sqlite3.Row) -> dict[str, Any]:
-    """Build a full entity result dict with linked documents."""
-    docs = conn.execute(
-        """SELECT d.id, d.path, d.title, d.doc_date, d.doc_type, em.mention_type
-           FROM documents d
-           JOIN entity_mentions em ON d.id = em.document_id
-           WHERE em.entity_id = ?
-           ORDER BY d.doc_date DESC""",
-        (entity_row["id"],),
+    """Build a compact entity result with facts, doc count, and breadcrumbs."""
+    entity_id = entity_row["id"]
+    entity_name = str(entity_row["name"])
+    entity_type = str(entity_row["entity_type"])
+    source_path = str(entity_row["source_path"]) if entity_row["source_path"] else None
+
+    # Facts from the facts table
+    fact_rows = conn.execute(
+        "SELECT fact_text, fact_date FROM facts WHERE entity_id = ? ORDER BY fact_date DESC, id DESC",
+        (entity_id,),
     ).fetchall()
+    facts = [{"text": str(r["fact_text"]), "date": r["fact_date"]} for r in fact_rows]
+
+    # Document count (not the full list)
+    doc_count_row = conn.execute(
+        "SELECT COUNT(DISTINCT document_id) as cnt FROM entity_mentions WHERE entity_id = ?",
+        (entity_id,),
+    ).fetchone()
+    document_count = int(doc_count_row["cnt"])
+
+    # Breadcrumbs — commands for deeper exploration
+    breadcrumbs: dict[str, str] = {}
+    if entity_type in ("person", "project"):
+        breadcrumbs["timeline"] = f'kbx {entity_type} timeline "{entity_name}" --limit 20'
+        from datetime import date, timedelta
+
+        thirty_ago = (date.today() - timedelta(days=30)).isoformat()
+        breadcrumbs["recent"] = f'kbx {entity_type} timeline "{entity_name}" --from {thirty_ago}'
+    else:
+        breadcrumbs["search"] = f'kbx search "{entity_name}" --limit 20'
+    if source_path:
+        breadcrumbs["profile"] = f"kbx view {source_path}"
+
     return {
-        "id": entity_row["id"],
-        "name": entity_row["name"],
-        "entity_type": entity_row["entity_type"],
+        "id": entity_id,
+        "name": entity_name,
+        "entity_type": entity_type,
         "aliases": json.loads(entity_row["aliases"]) if entity_row["aliases"] else [],
         "metadata": json.loads(entity_row["metadata"]) if entity_row["metadata"] else {},
-        "documents": [
-            {
-                "path": d["path"],
-                "title": d["title"],
-                "date": d["doc_date"],
-                "doc_type": d["doc_type"],
-                "mention_type": d["mention_type"],
-            }
-            for d in docs
-        ],
+        "facts": facts,
+        "source_path": source_path,
+        "document_count": document_count,
+        "breadcrumbs": breadcrumbs,
     }
 
 

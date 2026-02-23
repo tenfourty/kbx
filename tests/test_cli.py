@@ -382,13 +382,21 @@ class TestPersonCommands:
             assert e["entity_type"] == "person"
 
     def test_person_find_json(self, runner, cli_db):
-        """kb person find 'Talia' --json returns profile + linked docs."""
+        """kb person find 'Talia' --json returns compact profile."""
         _db, db_path = cli_db
         result = invoke_cli(runner, ["person", "find", "Talia", "--json"], db_path)
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["name"] == "Talia Ström"
-        assert "documents" in data
+        # New compact shape
+        assert "facts" in data
+        assert isinstance(data["facts"], list)
+        assert "document_count" in data
+        assert isinstance(data["document_count"], int)
+        assert "source_path" in data
+        assert "breadcrumbs" in data
+        # Old shape is gone
+        assert "documents" not in data
 
     def test_person_find_partial_match(self, runner, cli_db):
         """kb person find with partial name (case-insensitive)."""
