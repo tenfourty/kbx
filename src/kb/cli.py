@@ -5,7 +5,9 @@ from __future__ import annotations
 import contextlib
 import functools
 import json
+import shlex
 import sys
+from datetime import date, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -594,15 +596,14 @@ def _build_entity_result(conn: sqlite3.Connection, entity_row: sqlite3.Row) -> d
     document_count = int(doc_count_row["cnt"])
 
     # Breadcrumbs — commands for deeper exploration
+    quoted_name = shlex.quote(entity_name)
     breadcrumbs: dict[str, str] = {}
     if entity_type in ("person", "project"):
-        breadcrumbs["timeline"] = f'kbx {entity_type} timeline "{entity_name}" --limit 20'
-        from datetime import date, timedelta
-
+        breadcrumbs["timeline"] = f"kbx {entity_type} timeline {quoted_name} --limit 20"
         thirty_ago = (date.today() - timedelta(days=30)).isoformat()
-        breadcrumbs["recent"] = f'kbx {entity_type} timeline "{entity_name}" --from {thirty_ago}'
+        breadcrumbs["recent"] = f"kbx {entity_type} timeline {quoted_name} --from {thirty_ago}"
     else:
-        breadcrumbs["search"] = f'kbx search "{entity_name}" --limit 20'
+        breadcrumbs["search"] = f"kbx search {quoted_name} --limit 20"
     if source_path:
         breadcrumbs["profile"] = f"kbx view {source_path}"
 
@@ -1202,8 +1203,6 @@ def index_status(fmt: str, fields: list[str] | None, jq_expr: str | None) -> Non
 @index.command("compact")
 def index_compact() -> None:
     """Compact LanceDB vectors: merge fragments and prune old versions."""
-    from datetime import timedelta
-
     db = _get_db()
     lance_table = db.get_lance_table()
     if lance_table is None:
@@ -1498,7 +1497,6 @@ def memory_add(
       everything else                        → note file in memory/notes/
     """
     import os
-    from datetime import date as date_cls
 
     from kb.db import normalize_path
 
@@ -1507,7 +1505,7 @@ def memory_add(
     project_root = _find_project_root()
 
     if fact_date is None:
-        fact_date = date_cls.today().isoformat()
+        fact_date = date.today().isoformat()
 
     # Decision tree: fact path vs note path
     is_note = body is not None or tags_str is not None or pin_flag or entity_name is None

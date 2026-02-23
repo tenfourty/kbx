@@ -398,6 +398,55 @@ class TestPersonCommands:
         # Old shape is gone
         assert "documents" not in data
 
+    def test_person_find_includes_facts(self, runner, cli_db):
+        """kb person find includes facts from the facts table."""
+        db, db_path = cli_db
+        conn = db.get_sqlite_conn()
+        # Insert a fact for Talia (entity_id=1)
+        conn.execute(
+            "INSERT INTO facts (entity_id, fact_text, fact_date) VALUES (1, 'Leads platform team', '2026-02-23')"
+        )
+        conn.commit()
+        result = invoke_cli(runner, ["person", "find", "Talia", "--json"], db_path)
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert len(data["facts"]) == 1
+        assert data["facts"][0]["text"] == "Leads platform team"
+        assert data["facts"][0]["date"] == "2026-02-23"
+
+    def test_person_find_breadcrumbs(self, runner, cli_db):
+        """kb person find includes breadcrumbs for deeper exploration."""
+        import datetime
+
+        _db, db_path = cli_db
+
+        # Mock date.today() to make breadcrumbs deterministic
+        fake_today = datetime.date(2026, 2, 23)
+        with patch("kb.cli.date") as mock_date:
+            mock_date.today.return_value = fake_today
+            mock_date.side_effect = lambda *a, **kw: datetime.date(*a, **kw)
+            result = invoke_cli(runner, ["person", "find", "Talia", "--json"], db_path)
+
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        bc = data["breadcrumbs"]
+        assert "timeline" in bc
+        assert "Talia Ström" in bc["timeline"]
+        assert "recent" in bc
+        assert "--from 2026-01-24" in bc["recent"]
+        assert "profile" in bc
+        assert bc["profile"] == "kbx view memory/people/eve.md"
+
+    def test_person_find_document_count(self, runner, cli_db):
+        """kb person find shows document_count instead of full doc list."""
+        _db, db_path = cli_db
+        result = invoke_cli(runner, ["person", "find", "Talia", "--json"], db_path)
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        # Talia has 1 mention in cli_db fixture (entity_id=1 -> doc_id=2)
+        assert data["document_count"] == 1
+        assert "documents" not in data
+
     def test_person_find_partial_match(self, runner, cli_db):
         """kb person find with partial name (case-insensitive)."""
         _db, db_path = cli_db
@@ -458,6 +507,18 @@ class TestProjectCommands:
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert "Helix Refactor" in data["name"]
+
+    def test_project_find_compact(self, runner, cli_db):
+        """kb project find also uses compact output."""
+        _db, db_path = cli_db
+        result = invoke_cli(runner, ["project", "find", "Helix Refactor", "--json"], db_path)
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "facts" in data
+        assert "document_count" in data
+        assert "breadcrumbs" in data
+        assert "documents" not in data
+        assert "timeline" in data["breadcrumbs"]
 
     def test_project_create_json(self, runner):
         """kb project create 'New Project' --json creates entity."""
