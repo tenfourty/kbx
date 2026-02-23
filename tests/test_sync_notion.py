@@ -247,3 +247,96 @@ class TestAPIClient:
         """get_current_user_id extracts first user key from /getSpaces."""
         with patch.object(client, "_request", return_value={"user-42": {}}):
             assert client.get_current_user_id() == "user-42"
+
+
+class TestContentExtraction:
+    """Phase 3: Extract transcript, notes, and summary from blocks."""
+
+    def test_transcript_to_markdown_with_speakers(self) -> None:
+        """Transcript segments produce speaker-attributed markdown."""
+        from kb.sync.notion import transcript_to_markdown
+
+        blocks = {
+            "seg-1": {
+                "value": {
+                    "type": "text",
+                    "properties": {"title": [["Hello, how are you?"]]},
+                    "format": {"transcript_metadata": {"speaker_name": "speaker0"}},
+                    "parent_id": "transcript-block",
+                }
+            },
+            "seg-2": {
+                "value": {
+                    "type": "text",
+                    "properties": {"title": [["I'm good, thanks."]]},
+                    "format": {"transcript_metadata": {"speaker_name": "speaker1"}},
+                    "parent_id": "transcript-block",
+                }
+            },
+        }
+        child_order = ["seg-1", "seg-2"]
+
+        result = transcript_to_markdown(blocks, child_order)
+        assert "**Speaker 1**: Hello, how are you?" in result
+        assert "**Speaker 2**: I'm good, thanks." in result
+
+    def test_transcript_merges_consecutive_same_speaker(self) -> None:
+        """Consecutive segments from the same speaker are merged."""
+        from kb.sync.notion import transcript_to_markdown
+
+        blocks = {
+            "seg-1": {
+                "value": {
+                    "type": "text",
+                    "properties": {"title": [["First part."]]},
+                    "format": {"transcript_metadata": {"speaker_name": "speaker0"}},
+                    "parent_id": "t",
+                }
+            },
+            "seg-2": {
+                "value": {
+                    "type": "text",
+                    "properties": {"title": [["Second part."]]},
+                    "format": {"transcript_metadata": {"speaker_name": "speaker0"}},
+                    "parent_id": "t",
+                }
+            },
+        }
+        result = transcript_to_markdown(blocks, ["seg-1", "seg-2"])
+        assert result.count("**Speaker 1**") == 1
+        assert "First part. Second part." in result
+
+    def test_notes_blocks_to_markdown(self) -> None:
+        """Notes child blocks produce markdown text."""
+        from kb.sync.notion import notes_to_markdown
+
+        blocks = {
+            "n1": {
+                "value": {
+                    "type": "sub_sub_header",
+                    "properties": {"title": [["Action Items"]]},
+                    "parent_id": "notes-block",
+                }
+            },
+            "n2": {
+                "value": {
+                    "type": "to_do",
+                    "properties": {"title": [["Follow up with team"]], "checked": [["Yes"]]},
+                    "parent_id": "notes-block",
+                }
+            },
+        }
+        result = notes_to_markdown(blocks, ["n1", "n2"])
+        assert "### Action Items" in result
+        assert "- [x] Follow up with team" in result
+
+    def test_extract_text_from_title_property(self) -> None:
+        """Notion's title property array is flattened to text."""
+        from kb.sync.notion import _extract_text
+
+        # Simple text
+        assert _extract_text([["Hello world"]]) == "Hello world"
+        # Multi-part with formatting markers
+        assert _extract_text([["Hello "], ["world"]]) == "Hello world"
+        # Empty
+        assert _extract_text([]) == ""

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import sqlite3
 import subprocess
 import urllib.parse
@@ -260,3 +261,85 @@ class NotionClient:
         if not user_ids:
             raise ValueError("No user found in API response")
         return user_ids[0]
+
+
+# ---------------------------------------------------------------------------
+# Content extraction helpers
+# ---------------------------------------------------------------------------
+
+_SPEAKER_LABEL_RE = re.compile(r"^speaker(\d+)$")
+
+
+def _extract_text(title_prop: list[Any]) -> str:
+    """Extract plain text from Notion's title property array.
+
+    Notion stores text as: [["Hello "], ["world", [["b"]]]]
+    We extract just the text parts (index 0 of each sub-array).
+    """
+    parts: list[str] = []
+    for part in title_prop:
+        if isinstance(part, list) and part and isinstance(part[0], str):
+            parts.append(part[0])
+    return "".join(parts)
+
+
+def transcript_to_markdown(blocks: dict[str, Any], child_order: list[str]) -> str:
+    """Convert transcript blocks to speaker-attributed markdown.
+
+    Speaker names like 'speaker0' become 'Speaker 1', 'speaker1' -> 'Speaker 2', etc.
+    Consecutive segments from the same speaker are merged.
+    """
+    merged: list[dict[str, str]] = []
+    for child_id in child_order:
+        record = blocks.get(child_id, {})
+        val = record.get("value", {})
+        if val.get("type") != "text":
+            continue
+
+        props = val.get("properties", {})
+        text = _extract_text(props.get("title", [])).strip()
+        if not text:
+            continue
+
+        fmt = val.get("format", {})
+        raw_speaker = fmt.get("transcript_metadata", {}).get("speaker_name", "unknown")
+        m = _SPEAKER_LABEL_RE.match(raw_speaker)
+        speaker = f"Speaker {int(m.group(1)) + 1}" if m else raw_speaker
+
+        if merged and merged[-1]["speaker"] == speaker:
+            merged[-1]["text"] += " " + text
+        else:
+            merged.append({"speaker": speaker, "text": text})
+
+    return "\n\n".join(f"**{seg['speaker']}**: {seg['text']}" for seg in merged)
+
+
+def notes_to_markdown(blocks: dict[str, Any], child_order: list[str]) -> str:
+    """Convert Notion notes blocks to markdown.
+
+    Handles: sub_sub_header (###), to_do, bulleted_list, text, header_4 (####).
+    """
+    lines: list[str] = []
+    for child_id in child_order:
+        record = blocks.get(child_id, {})
+        val = record.get("value", {})
+        btype = val.get("type", "")
+        props = val.get("properties", {})
+        text = _extract_text(props.get("title", []))
+
+        if btype == "sub_sub_header":
+            lines.append(f"### {text}")
+        elif btype == "header_4":
+            lines.append(f"#### {text}")
+        elif btype == "to_do":
+            checked = _extract_text(props.get("checked", [])) == "Yes"
+            marker = "[x]" if checked else "[ ]"
+            lines.append(f"- {marker} {text}")
+        elif btype == "bulleted_list":
+            lines.append(f"- {text}")
+        elif btype == "numbered_list":
+            lines.append(f"1. {text}")
+        elif btype == "text" and text:
+            lines.append(text)
+
+    return "\n\n".join(lines)
