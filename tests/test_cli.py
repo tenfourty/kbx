@@ -463,6 +463,19 @@ class TestPersonCommands:
         data = json.loads(result.output)
         assert data["name"] == "Talia Ström"
 
+    def test_me_shortcut(self, runner, cli_db, tmp_path):
+        """kb me is a shortcut for person find me."""
+        _db, db_path = cli_db
+        config = tmp_path / "kbx.toml"
+        config.write_text('[user]\nname = "Talia Ström"\n')
+        env = {"KB_DATA_DIR": str(db_path), "KBX_CONFIG": str(config)}
+        from kb.cli import cli
+
+        result = runner.invoke(cli, ["me", "--json"], env=env, catch_exceptions=False)
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["name"] == "Talia Ström"
+
     def test_person_find_partial_match(self, runner, cli_db):
         """kb person find with partial name (case-insensitive)."""
         _db, db_path = cli_db

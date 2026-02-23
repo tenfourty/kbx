@@ -827,6 +827,16 @@ def _entity_delete_impl(name: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+@cli.command()
+@output_options
+def me(fmt: str, fields: list[str] | None, jq_expr: str | None) -> None:
+    """Shortcut for 'person find me' — show your own profile."""
+    _entity_find_impl("me", "person", fmt, fields, jq_expr)
+
+
+# ---------------------------------------------------------------------------
+
+
 @cli.group()
 def person() -> None:
     """Person commands — create, edit, delete, find, list, timeline."""
@@ -1375,8 +1385,8 @@ def usage() -> None:
   Score Interpretation: 0.8+ strong | 0.5-0.8 worth reading | <0.5 noise
 
 ## 7. People & Projects
+  kb me --json                       # your own profile (shortcut for person find me)
   kb person find "Name" --json       # compact profile (facts, metadata, breadcrumbs)
-  kb person find me --json           # shortcut: resolves [user] name from kbx.toml
   kb person timeline "Name" --json   # chronological doc list
   kb person create "Name" --role "Role" --team "Team"
   kb person edit "Name" --role "New Role"
