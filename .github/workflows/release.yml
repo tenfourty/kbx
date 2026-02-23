@@ -3,12 +3,6 @@ name: Release
 on:
   push:
     branches: [main]
-  workflow_dispatch:
-    inputs:
-      publish:
-        description: "Publish to PyPI (manual trigger)"
-        type: boolean
-        default: false
 
 permissions:
   contents: write
@@ -16,7 +10,6 @@ permissions:
 
 jobs:
   release-please:
-    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
@@ -38,7 +31,7 @@ jobs:
 
   publish:
     needs: release-please
-    if: always() && (needs.release-please.outputs.release_created == 'true' || (github.event_name == 'workflow_dispatch' && inputs.publish))
+    if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
