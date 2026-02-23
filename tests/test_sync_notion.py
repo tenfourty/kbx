@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import sqlite3
 import tempfile
 from pathlib import Path
@@ -758,6 +759,142 @@ class TestSyncOrchestration:
             _setup_mock(MockClient)
             r3 = sync_notion(project_root=tmp_dir, data_dir=tmp_dir)
         assert r3["skipped"] == 1
+
+
+class TestEndToEnd:
+    """Phase 7: Full pipeline integration test."""
+
+    def test_full_sync_writes_files_and_state(
+        self, tmp_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Full sync pipeline writes notes and transcript files with correct content."""
+        monkeypatch.setenv("NOTION_TOKEN_V2", "test-token")
+        from kb.sync.notion import sync_notion
+
+        # Mock the NotionClient entirely
+        with patch("kb.sync.notion.NotionClient") as MockClient:
+            client = MockClient.return_value
+            client.get_current_user_id.return_value = "user-1"
+            client.get_space_id.return_value = "space-1"
+
+            # search_pages returns one page
+            client.search_pages.return_value = (
+                [{"id": "page-abc"}],
+                {},
+            )
+
+            # load_page_chunk returns page with transcription block
+            client.load_page_chunk.return_value = {
+                "page-abc": {
+                    "value": {
+                        "type": "page",
+                        "content": ["trans-1"],
+                        "properties": {"title": [["Weekly Team Sync"]]},
+                    }
+                },
+                "trans-1": {
+                    "value": {
+                        "type": "transcription",
+                        "format": {
+                            "transcription_state": {"state": "idle"},
+                            "transcription_transcript_id": "t-block",
+                            "transcription_summary_id": "s-block",
+                            "transcription_notes_id": "n-block",
+                            "transcription_calendar_event": {
+                                "uid": "cal12345@google.com",
+                                "startTime": "2026-02-23T10:00:00+01:00",
+                                "endTime": "2026-02-23T10:30:00+01:00",
+                                "attendeeIds": ["user-a", "user-b"],
+                            },
+                        },
+                        "last_edited_time": 1771881551056,
+                    }
+                },
+            }
+
+            # get_users resolves attendees
+            client.get_users.return_value = {
+                "user-a": {"name": "Wren Smith", "email": "alice@example.com"},
+                "user-b": {"name": "Soren Jones", "email": "bob@example.com"},
+            }
+
+            # load_block_children for transcript and notes
+            def mock_load_children(block_id: str, limit: int = 200) -> dict[str, Any]:
+                if block_id == "t-block":
+                    return {
+                        "t-block": {"value": {"type": "text", "content": ["seg-1", "seg-2"]}},
+                        "seg-1": {
+                            "value": {
+                                "type": "text",
+                                "properties": {"title": [["Hello everyone"]]},
+                                "format": {"transcript_metadata": {"speaker_name": "speaker0"}},
+                            }
+                        },
+                        "seg-2": {
+                            "value": {
+                                "type": "text",
+                                "properties": {"title": [["Thanks for joining"]]},
+                                "format": {"transcript_metadata": {"speaker_name": "speaker1"}},
+                            }
+                        },
+                    }
+                elif block_id == "n-block":
+                    return {
+                        "n-block": {"value": {"type": "text", "content": ["n1"]}},
+                        "n1": {
+                            "value": {
+                                "type": "bulleted_list",
+                                "properties": {"title": [["Review action items"]]},
+                            }
+                        },
+                    }
+                return {}
+
+            client.load_block_children.side_effect = mock_load_children
+
+            # Disable time.sleep for speed
+            with patch("kb.sync.notion.time.sleep"):
+                result = sync_notion(
+                    project_root=tmp_dir,
+                    data_dir=tmp_dir,
+                )
+
+        # Verify result counts
+        assert result["created"] == 1
+        assert result["total"] == 1
+        assert result["skipped"] == 0
+
+        # Verify files exist (date from last_edited_time epoch → 2026-02-23 UTC)
+        md_files = list(tmp_dir.rglob("*.notion.notes.md"))
+        assert len(md_files) == 1, f"Expected 1 notes file, found: {md_files}"
+
+        transcript_files = list(tmp_dir.rglob("*.notion.transcript.md"))
+        assert len(transcript_files) == 1, f"Expected 1 transcript file, found: {transcript_files}"
+
+        # Verify notes content
+        notes_content = md_files[0].read_text()
+        assert "title: Weekly Team Sync" in notes_content
+        assert "source: notion-api" in notes_content
+        assert "calendar_uid: cal12345@google.com" in notes_content
+        assert "alice@example.com" in notes_content
+
+        # Verify transcript content
+        transcript_content = transcript_files[0].read_text()
+        assert "**Speaker 1**: Hello everyone" in transcript_content
+        assert "**Speaker 2**: Thanks for joining" in transcript_content
+        assert "type: transcript" in transcript_content
+
+        # Verify sync state was saved
+        state_file = tmp_dir / ".notion_sync_state.json"
+        assert state_file.exists()
+        state = json.loads(state_file.read_text())
+        assert state["docs_synced"] == 1
+        assert "last_sync" in state
+
+        # Verify filename convention: starts with calendar UID prefix
+        notes_name = md_files[0].name
+        assert notes_name.startswith("cal12345")
+        assert ".notion.notes.md" in notes_name
 
 
 class TestCLI:
