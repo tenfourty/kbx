@@ -54,9 +54,24 @@ def handle_kb_search(
         return json.dumps({"error": str(e), "results": []})
 
 
+def _resolve_me(name: str) -> str:
+    """Resolve 'me' to the configured user name."""
+    if name.lower() != "me":
+        return name
+    from kb.user_config import find_config, load_config
+
+    config_path = find_config()
+    if config_path:
+        cfg = load_config(config_path)
+        if cfg.user.name:
+            return cfg.user.name
+    return name  # fall through — let find_entity handle "me" as a literal name
+
+
 def handle_kb_person_find(db: Database, name: str) -> str:
     """Look up a person profile. Returns JSON string."""
     try:
+        name = _resolve_me(name)
         conn = db.get_sqlite_conn()
         entity_row = find_entity(conn, name)
         if entity_row is None:
@@ -120,6 +135,7 @@ def handle_kb_person_timeline(
 ) -> str:
     """Chronological docs mentioning a person. Returns JSON string."""
     try:
+        name = _resolve_me(name)
         conn = db.get_sqlite_conn()
         entity_row = find_entity(conn, name)
         if entity_row is None:

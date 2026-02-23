@@ -447,6 +447,22 @@ class TestPersonCommands:
         assert data["document_count"] == 1
         assert "documents" not in data
 
+    def test_person_find_me(self, runner, cli_db, tmp_path):
+        """kb person find me resolves to [user] name from config."""
+        _db, db_path = cli_db
+        # Write a config with [user] name
+        config = tmp_path / "kbx.toml"
+        config.write_text('[user]\nname = "Talia Ström"\n')
+        env = {"KB_DATA_DIR": str(db_path), "KBX_CONFIG": str(config)}
+        from kb.cli import cli
+
+        result = runner.invoke(
+            cli, ["person", "find", "me", "--json"], env=env, catch_exceptions=False
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["name"] == "Talia Ström"
+
     def test_person_find_partial_match(self, runner, cli_db):
         """kb person find with partial name (case-insensitive)."""
         _db, db_path = cli_db

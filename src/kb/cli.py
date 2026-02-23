@@ -620,10 +620,26 @@ def _build_entity_result(conn: sqlite3.Connection, entity_row: sqlite3.Row) -> d
     }
 
 
+def _resolve_me(name: str) -> str:
+    """Resolve 'me' to the configured user name."""
+    if name.lower() != "me":
+        return name
+    from kb.user_config import find_config, load_config
+
+    config_path = find_config()
+    if config_path:
+        cfg = load_config(config_path)
+        if cfg.user.name:
+            return cfg.user.name
+    click.echo("'me' requires [user] name in kbx.toml or ~/.config/kbx/config.toml", err=True)
+    raise SystemExit(1)
+
+
 def _entity_find_impl(
     name: str, entity_type: str | None, fmt: str, fields: list[str] | None, jq_expr: str | None
 ) -> None:
     """Find entity by name, optionally filtering by type."""
+    name = _resolve_me(name)
     db = _get_db()
     conn = db.get_sqlite_conn()
 
@@ -690,6 +706,7 @@ def _entity_timeline_impl(
     jq_expr: str | None,
 ) -> None:
     """Chronological docs mentioning an entity."""
+    name = _resolve_me(name)
     db = _get_db()
     conn = db.get_sqlite_conn()
 
@@ -1359,6 +1376,7 @@ def usage() -> None:
 
 ## 7. People & Projects
   kb person find "Name" --json       # compact profile (facts, metadata, breadcrumbs)
+  kb person find me --json           # shortcut: resolves [user] name from kbx.toml
   kb person timeline "Name" --json   # chronological doc list
   kb person create "Name" --role "Role" --team "Team"
   kb person edit "Name" --role "New Role"

@@ -33,11 +33,18 @@ class DataConfig(BaseModel):
     dir: str | None = None  # None = auto-detect via XDG
 
 
+class UserConfig(BaseModel):
+    """User identity configuration."""
+
+    name: str | None = None  # e.g. "Idris Kalmar" — resolved when name == "me"
+
+
 class KbxConfig(BaseModel):
     """Top-level kbx configuration."""
 
     sources: SourcesConfig = SourcesConfig()
     data: DataConfig = DataConfig()
+    user: UserConfig = UserConfig()
 
 
 def find_config(cwd: Path | None = None) -> Path | None:
