@@ -343,3 +343,169 @@ def notes_to_markdown(blocks: dict[str, Any], child_order: list[str]) -> str:
             lines.append(text)
 
     return "\n\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Frontmatter
+# ---------------------------------------------------------------------------
+
+
+def build_frontmatter(
+    title: str,
+    page_id: str,
+    last_edited_time: int,
+    calendar_event: dict[str, Any] | None = None,
+    attendees: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
+    """Build YAML frontmatter dict from Notion meeting data."""
+    from datetime import datetime, timezone
+
+    dt = datetime.fromtimestamp(last_edited_time / 1000, tz=timezone.utc)
+    date = dt.strftime("%Y-%m-%d")
+
+    tags: list[str] = []
+    for a in attendees or []:
+        name = a.get("name", "")
+        if name:
+            parts = name.split()
+            tags.append(parts[0] if len(parts) >= 2 else name)
+
+    fm: dict[str, Any] = {
+        "title": title,
+        "date": date,
+        "type": "notes",
+        "source": "notion-api",
+        "notion_page_id": page_id,
+        "notion_updated_at": dt.isoformat(),
+        "tags": tags,
+        "attendees": attendees or [],
+    }
+
+    if calendar_event:
+        fm["calendar_uid"] = calendar_event.get("uid", "")
+        fm["calendar_event"] = {
+            "title": title,
+            "scheduled_start": calendar_event.get("startTime", ""),
+            "scheduled_end": calendar_event.get("endTime", ""),
+        }
+    else:
+        fm["calendar_event"] = None
+
+    return fm
+
+
+# ---------------------------------------------------------------------------
+# File naming
+# ---------------------------------------------------------------------------
+
+
+def _sanitize_title(title: str) -> str:
+    """Sanitize a title for use in filenames."""
+    sanitized = re.sub(r"\s*/\s*", "___", title)
+    sanitized = re.sub(r"[^\w\-]", "_", sanitized)
+    sanitized = sanitized.replace("___", "\x00")
+    sanitized = re.sub(r"_+", "_", sanitized)
+    sanitized = sanitized.replace("\x00", "___")
+    return sanitized.strip("_")
+
+
+def make_filename(
+    title: str,
+    calendar_uid: str | None = None,
+    source_id: str | None = None,
+    source: str = "notion",
+) -> str:
+    """Create a filename base from title and UID.
+
+    Format: {uid_prefix}_{Sanitized_Title}
+    uid_prefix: first 8 chars of calendar_uid, or first 8 of source_id.
+    """
+    if calendar_uid:
+        prefix = calendar_uid[:8]
+    elif source_id:
+        prefix = source_id[:8]
+    else:
+        prefix = "unknown"
+
+    sanitized = _sanitize_title(title)
+    return f"{prefix}_{sanitized}"
+
+
+# ---------------------------------------------------------------------------
+# Write meeting files
+# ---------------------------------------------------------------------------
+
+
+def _frontmatter_to_yaml(fm: dict[str, Any]) -> str:
+    """Serialize frontmatter dict to YAML string."""
+    import yaml
+
+    clean = {k: v for k, v in fm.items() if v is not None}
+    yaml_str: str = yaml.dump(clean, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    return "---\n" + yaml_str + "---"
+
+
+def write_meeting(
+    frontmatter: dict[str, Any],
+    notes_md: str,
+    transcript_md: str,
+    base_name: str,
+    source: str,
+    project_root: Path,
+    force: bool = False,
+) -> dict[str, Any]:
+    """Write meeting files to organised directory.
+
+    Returns dict with notes_path, transcript_path, status.
+    """
+    date = frontmatter.get("date", "")
+    parts = date.split("-")
+    if len(parts) == 3:
+        year, month, day = parts
+    else:
+        year, month, day = "unknown", "00", "00"
+
+    out_dir = project_root / "meetings" / "organised" / year / month / day
+
+    notes_path = out_dir / f"{base_name}.{source}.notes.md"
+    transcript_path = out_dir / f"{base_name}.{source}.transcript.md"
+
+    # Check if we should skip
+    if notes_path.exists() and not force:
+        existing = notes_path.read_text(encoding="utf-8")
+        existing_updated = _extract_notion_updated_at(existing)
+        new_updated = frontmatter.get("notion_updated_at", "")
+        if existing_updated and new_updated and new_updated <= existing_updated:
+            return {
+                "notes_path": notes_path,
+                "transcript_path": transcript_path,
+                "status": "skipped",
+            }
+
+    status = "updated" if notes_path.exists() else "created"
+
+    # Build content
+    notes_fm = _frontmatter_to_yaml(frontmatter)
+    notes_content = f"{notes_fm}\n\n{notes_md}"
+
+    transcript_fm_dict = {**frontmatter, "type": "transcript"}
+    transcript_fm = _frontmatter_to_yaml(transcript_fm_dict)
+    transcript_content = f"{transcript_fm}\n\n{transcript_md}"
+
+    # Write files
+    _write_file(notes_path, notes_content)
+    _write_file(transcript_path, transcript_content)
+
+    return {"notes_path": notes_path, "transcript_path": transcript_path, "status": status}
+
+
+def _extract_notion_updated_at(content: str) -> str | None:
+    """Extract notion_updated_at from frontmatter."""
+    m = re.search(r"notion_updated_at:\s*['\"]?([^'\"\n]+)", content)
+    return m.group(1).strip() if m else None
+
+
+def _write_file(path: Path, content: str) -> None:
+    """Write content to file, creating parent directories."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")

@@ -340,3 +340,65 @@ class TestContentExtraction:
         assert _extract_text([["Hello "], ["world"]]) == "Hello world"
         # Empty
         assert _extract_text([]) == ""
+
+
+class TestFrontmatterAndWrite:
+    """Phase 4: Frontmatter building and file writing."""
+
+    def test_build_frontmatter(self) -> None:
+        """Frontmatter includes all required fields."""
+        from kb.sync.notion import build_frontmatter
+
+        fm = build_frontmatter(
+            title="Weekly Sync",
+            page_id="page-123",
+            last_edited_time=1771881551056,
+            calendar_event={
+                "uid": "abc123@google.com",
+                "startTime": "2026-02-23T10:00:00.000+01:00",
+                "endTime": "2026-02-23T10:30:00.000+01:00",
+            },
+            attendees=[
+                {"name": "Wren Smith", "email": "alice@example.com"},
+                {"name": "Soren Jones", "email": "bob@example.com"},
+            ],
+        )
+        assert fm["title"] == "Weekly Sync"
+        assert fm["source"] == "notion-api"
+        assert fm["notion_page_id"] == "page-123"
+        assert fm["calendar_uid"] == "abc123@google.com"
+        assert len(fm["attendees"]) == 2
+        assert fm["calendar_event"]["scheduled_start"] == "2026-02-23T10:00:00.000+01:00"
+        assert "Wren" in fm["tags"]
+
+    def test_make_filename_with_calendar_uid(self) -> None:
+        """Filename uses calendar UID prefix when available."""
+        from kb.sync.notion import make_filename
+
+        result = make_filename("Weekly Sync", calendar_uid="abc123def@google.com", source="notion")
+        assert result == "abc123de_Weekly_Sync"
+
+    def test_make_filename_without_calendar_uid(self) -> None:
+        """Filename falls back to source ID prefix."""
+        from kb.sync.notion import make_filename
+
+        result = make_filename("Weekly Sync", source_id="page-123-456-789", source="notion")
+        assert result == "page-123_Weekly_Sync"
+
+    def test_write_meeting_creates_files(self, tmp_dir: Path) -> None:
+        """write_meeting creates notes and transcript files."""
+        from kb.sync.notion import write_meeting
+
+        result = write_meeting(
+            frontmatter={"title": "Test", "date": "2026-02-23", "source": "notion-api"},
+            notes_md="## Notes\nSome notes",
+            transcript_md="**Speaker 1**: Hello",
+            base_name="abc12345_Test",
+            source="notion",
+            project_root=tmp_dir,
+        )
+        assert result["status"] == "created"
+        assert result["notes_path"].exists()
+        assert result["transcript_path"].exists()
+        assert ".notion.notes.md" in result["notes_path"].name
+        assert ".notion.transcript.md" in result["transcript_path"].name
