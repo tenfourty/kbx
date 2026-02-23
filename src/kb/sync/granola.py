@@ -567,6 +567,10 @@ def build_frontmatter(
     else:
         fm["calendar_event"] = None
 
+    # Calendar UID for cross-source dedup (Granola <-> Notion matching)
+    if gcal and gcal.get("iCalUID"):
+        fm["calendar_uid"] = gcal["iCalUID"]
+
     if summary:
         fm["granola_summary"] = summary
     else:

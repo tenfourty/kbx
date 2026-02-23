@@ -454,6 +454,39 @@ class TestBuildFrontmatter:
         assert "calendar_event" not in fm or fm["calendar_event"] is None
         assert "granola_summary" not in fm or fm["granola_summary"] is None
 
+    def test_calendar_uid_from_icaluid(self):
+        """calendar_uid is extracted from google_calendar_event.iCalUID."""
+        from kb.sync.granola import build_frontmatter
+
+        doc = {
+            "id": "doc-1",
+            "title": "Test",
+            "created_at": "2026-02-23T10:00:00Z",
+            "updated_at": "2026-02-23T10:30:00Z",
+            "google_calendar_event": {
+                "summary": "Test",
+                "iCalUID": "abc123@google.com",
+                "organizer": {"email": "a@example.com"},
+                "start": {"dateTime": "2026-02-23T10:00:00+01:00"},
+                "end": {"dateTime": "2026-02-23T10:30:00+01:00"},
+            },
+        }
+        fm = build_frontmatter(doc, {})
+        assert fm["calendar_uid"] == "abc123@google.com"
+
+    def test_calendar_uid_absent_without_icaluid(self):
+        """calendar_uid is not set when iCalUID is missing."""
+        from kb.sync.granola import build_frontmatter
+
+        doc = {
+            "id": "doc-1",
+            "title": "Test",
+            "created_at": "2026-02-23T10:00:00Z",
+            "updated_at": "2026-02-23T10:30:00Z",
+        }
+        fm = build_frontmatter(doc, {})
+        assert "calendar_uid" not in fm
+
 
 class TestWriteMeeting:
     def test_write_meeting_file(self, tmp_dir):
