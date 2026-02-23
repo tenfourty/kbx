@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.1.3](https://github.com/tenfourty/kbx/compare/kbx-v0.1.2...kbx-v0.1.3) (2026-02-23)
+
+
+### Features
+
+* **cli:** add 'kbx me' top-level shortcut ([#3](https://github.com/tenfourty/kbx/issues/3)) ([82045ab](https://github.com/tenfourty/kbx/commit/82045abd745a112cf3aad7ff0b034d475cb73c76))
+* **entity-find:** add 'me' shortcut resolving [user] name from config ([#3](https://github.com/tenfourty/kbx/issues/3)) ([a24d8d3](https://github.com/tenfourty/kbx/commit/a24d8d3c74a2730ddf58f31dc6a588cb946cd79e))
+
+
+### Bug Fixes
+
+* **entity-find:** human-readable table format for entity profiles ([#3](https://github.com/tenfourty/kbx/issues/3)) ([504bae3](https://github.com/tenfourty/kbx/commit/504bae3f52a14034f0bf72280c7e7fa57a09eb16))
+* **entity-find:** replace doc dump with compact profile ([#3](https://github.com/tenfourty/kbx/issues/3)) ([ae986d6](https://github.com/tenfourty/kbx/commit/ae986d6d22d2e71a9c268d2070f059fa28b4fc8c))
+* **mcp:** update person find to compact output + update usage text ([#3](https://github.com/tenfourty/kbx/issues/3)) ([6b8f0ea](https://github.com/tenfourty/kbx/commit/6b8f0eaf9d327625c68d374d6b30d9ac5cc8b6e6))
+
 ## [0.1.2](https://github.com/tenfourty/kbx/compare/kbx-v0.1.1...kbx-v0.1.2) (2026-02-23)
 
 
