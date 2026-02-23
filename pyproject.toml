@@ -147,7 +147,7 @@ filterwarnings = [
 ]
 
 [tool.coverage.run]
-source = ["kb"]
+source = ["src/kb"]
 omit = ["src/kb/__main__.py"]
 
 [tool.coverage.report]
