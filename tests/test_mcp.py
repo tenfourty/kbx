@@ -269,14 +269,21 @@ class TestMcpPersonFind:
         data = json.loads(result)
         assert data["name"] == "Talia Ström"
 
-    def test_person_find_includes_documents(self, mcp_db):
-        """kb_person_find should include linked documents."""
+    def test_person_find_compact_output(self, mcp_db):
+        """kb_person_find should return compact output with facts, doc count, breadcrumbs."""
         from kb.mcp_server import handle_kb_person_find
 
         db, _ = mcp_db
         result = handle_kb_person_find(db, "Talia")
         data = json.loads(result)
-        assert "documents" in data
+        assert "document_count" in data
+        assert "breadcrumbs" in data
+        assert "facts" in data
+        assert isinstance(data["document_count"], int)
+        assert isinstance(data["breadcrumbs"], dict)
+        assert isinstance(data["facts"], list)
+        # Should NOT have the old full documents list
+        assert "documents" not in data
 
     def test_person_find_not_found(self, mcp_db):
         """kb_person_find should return error for unknown person."""

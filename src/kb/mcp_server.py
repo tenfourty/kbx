@@ -62,31 +62,51 @@ def handle_kb_person_find(db: Database, name: str) -> str:
         if entity_row is None:
             return json.dumps({"error": f"Entity not found: {name}"})
 
-        docs = conn.execute(
-            """SELECT d.id, d.path, d.title, d.doc_date, d.doc_type, em.mention_type
-               FROM documents d
-               JOIN entity_mentions em ON d.id = em.document_id
-               WHERE em.entity_id = ?
-               ORDER BY d.doc_date DESC""",
-            (entity_row["id"],),
+        entity_id = entity_row["id"]
+        entity_name = str(entity_row["name"])
+        entity_type = str(entity_row["entity_type"])
+        source_path = str(entity_row["source_path"]) if entity_row["source_path"] else None
+
+        # Facts
+        fact_rows = conn.execute(
+            "SELECT fact_text, fact_date FROM facts WHERE entity_id = ? "
+            "ORDER BY fact_date DESC, id DESC",
+            (entity_id,),
         ).fetchall()
+        facts = [{"text": str(r["fact_text"]), "date": r["fact_date"]} for r in fact_rows]
+
+        # Document count
+        doc_count_row = conn.execute(
+            "SELECT COUNT(DISTINCT document_id) as cnt FROM entity_mentions WHERE entity_id = ?",
+            (entity_id,),
+        ).fetchone()
+        document_count = int(doc_count_row["cnt"])
+
+        # Breadcrumbs
+        import shlex
+        from datetime import date, timedelta
+
+        quoted_name = shlex.quote(entity_name)
+        thirty_ago = (date.today() - timedelta(days=30)).isoformat()
+        breadcrumbs: dict[str, str] = {}
+        if entity_type in ("person", "project"):
+            breadcrumbs["timeline"] = f"kbx {entity_type} timeline {quoted_name} --limit 20"
+            breadcrumbs["recent"] = f"kbx {entity_type} timeline {quoted_name} --from {thirty_ago}"
+        else:
+            breadcrumbs["search"] = f"kbx search {quoted_name} --limit 20"
+        if source_path:
+            breadcrumbs["profile"] = f"kbx view {source_path}"
 
         result = {
-            "id": entity_row["id"],
-            "name": entity_row["name"],
-            "entity_type": entity_row["entity_type"],
+            "id": entity_id,
+            "name": entity_name,
+            "entity_type": entity_type,
             "aliases": json.loads(entity_row["aliases"]) if entity_row["aliases"] else [],
             "metadata": json.loads(entity_row["metadata"]) if entity_row["metadata"] else {},
-            "documents": [
-                {
-                    "path": d["path"],
-                    "title": d["title"],
-                    "date": d["doc_date"],
-                    "doc_type": d["doc_type"],
-                    "mention_type": d["mention_type"],
-                }
-                for d in docs
-            ],
+            "facts": facts,
+            "source_path": source_path,
+            "document_count": document_count,
+            "breadcrumbs": breadcrumbs,
         }
         return json.dumps(result, default=str, ensure_ascii=False)
     except Exception as e:
@@ -477,7 +497,7 @@ def handle_kb_usage(db: Database) -> str:
   Score Interpretation: 0.8+ strong | 0.5-0.8 worth reading | <0.5 noise
 
 ## 7. People & Projects
-  kb_person_find("Name")              # profile + linked documents
+  kb_person_find("Name")              # compact profile (facts, metadata, breadcrumbs)
   kb_person_timeline("Name")          # chronological doc list
   kb_context()                        # full entity overview
   CLI: kb person/project create/edit/delete, kb glossary add/list/delete
@@ -548,7 +568,7 @@ def kb_search(
 
 @mcp.tool()
 def kb_person_find(name: str) -> str:
-    """Look up a person profile and linked documents.
+    """Look up a person profile — compact output with facts, metadata, and breadcrumbs.
     Supports exact name, alias, or partial match."""
     db = get_db()
     return handle_kb_person_find(db, name)
@@ -642,7 +662,7 @@ def get_context() -> str:
 
 @mcp.resource("kb://person/{name}")
 def get_person(name: str) -> str:
-    """Person profile and linked documents."""
+    """Person profile — compact output with facts, metadata, and breadcrumbs."""
     db = get_db()
     return handle_kb_person_find(db, name)
 

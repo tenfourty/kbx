@@ -1358,12 +1358,12 @@ def usage() -> None:
   Score Interpretation: 0.8+ strong | 0.5-0.8 worth reading | <0.5 noise
 
 ## 7. People & Projects
-  kb person find "Name" --json       # profile + linked documents
+  kb person find "Name" --json       # compact profile (facts, metadata, breadcrumbs)
   kb person timeline "Name" --json   # chronological doc list
   kb person create "Name" --role "Role" --team "Team"
   kb person edit "Name" --role "New Role"
   kb person list --json              # all people
-  kb project find "Name" --json      # project profile
+  kb project find "Name" --json      # compact profile (facts, metadata, breadcrumbs)
   kb project create "Name" --status "Active" --lead "Name"
   kb project list --json             # all projects
   kb glossary add "TERM" "expansion"
