@@ -17,6 +17,15 @@ if TYPE_CHECKING:
 
     from kb.db import Database
 
+
+def _snake_to_title(key: str) -> str:
+    """Convert snake_case metadata key to Title Case label.
+
+    Examples: 'preferred_lang' -> 'Preferred Lang', 'timezone' -> 'Timezone'
+    """
+    return " ".join(word.capitalize() for word in key.split("_"))
+
+
 # Person fields in output order (field_name, metadata_key)
 _PERSON_FIELDS = [
     ("Also known as", None),  # special: from aliases list
@@ -74,12 +83,18 @@ def _derive_aliases(entity: Entity) -> list[str]:
 
 
 def _rebuild_person_header(entity: Entity) -> str:
-    """Rebuild the structured header for a person entity file."""
+    """Rebuild the structured header for a person entity file.
+
+    Writes registered fields first, then any custom metadata keys.
+    """
     lines = [f"# {entity.name}", ""]
 
     aliases = _derive_aliases(entity)
 
+    registered_keys: set[str] = set()
     for field_name, meta_key in _PERSON_FIELDS:
+        if meta_key:
+            registered_keys.add(meta_key)
         if field_name == "Also known as":
             if aliases:
                 lines.append(f"**Also known as:** {', '.join(aliases)}")
@@ -91,17 +106,28 @@ def _rebuild_person_header(entity: Entity) -> str:
             if value:
                 lines.append(f"**{field_name}:** {value}")
 
+    # Custom fields (not in registry) — Title Case labels
+    for key, value in entity.metadata.items():
+        if key not in registered_keys and value:
+            lines.append(f"**{_snake_to_title(key)}:** {value}")
+
     lines.append("")
     return "\n".join(lines)
 
 
 def _rebuild_project_header(entity: Entity) -> str:
-    """Rebuild the structured header for a project entity file."""
+    """Rebuild the structured header for a project entity file.
+
+    Writes registered fields first, then any custom metadata keys.
+    """
     lines = [f"# {entity.name}", ""]
 
     aliases = _derive_aliases(entity)
 
+    registered_keys: set[str] = set()
     for field_name, meta_key in _PROJECT_FIELDS:
+        if meta_key:
+            registered_keys.add(meta_key)
         if field_name == "Codename/Also called":
             if aliases:
                 lines.append(f"**Codename/Also called:** {', '.join(aliases)}")
@@ -112,6 +138,11 @@ def _rebuild_project_header(entity: Entity) -> str:
             value = entity.metadata.get(meta_key) if meta_key else None
             if value:
                 lines.append(f"**{field_name}:** {value}")
+
+    # Custom fields (not in registry) — Title Case labels
+    for key, value in entity.metadata.items():
+        if key not in registered_keys and value:
+            lines.append(f"**{_snake_to_title(key)}:** {value}")
 
     lines.append("")
     return "\n".join(lines)

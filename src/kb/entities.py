@@ -22,6 +22,28 @@ def _parse_field(text: str, field_name: str) -> str | None:
     return m.group(1).strip() if m else None
 
 
+def _parse_all_fields(text: str) -> dict[str, str]:
+    """Extract all **Key:** Value lines from the header block of markdown text.
+
+    Returns a dict mapping snake_case keys to their values.
+    Only parses lines before the first ## heading (the header block).
+    """
+    # Only look at the header (before first ## heading)
+    header = text
+    match = re.search(r"^## ", text, re.MULTILINE)
+    if match:
+        header = text[: match.start()]
+
+    fields: dict[str, str] = {}
+    for m in re.finditer(r"\*\*(.+?):\*\*\s*(.+)", header):
+        label = m.group(1).strip()
+        value = m.group(2).strip()
+        # Convert Title Case label to snake_case key
+        key = "_".join(label.lower().split())
+        fields[key] = value
+    return fields
+
+
 def _parse_title(text: str) -> str | None:
     """Extract the # Title from markdown."""
     m = re.search(r"^#\s+(.+)", text, re.MULTILINE)
@@ -36,17 +58,23 @@ def _stem_to_first_name(name: str) -> str | None:
     return None
 
 
+# Fields that are handled specially (not metadata) for person files
+_PERSON_SPECIAL_FIELDS = frozenset({"also_known_as", "pinned"})
+
+# Fields that are handled specially (not metadata) for project files
+_PROJECT_SPECIAL_FIELDS = frozenset({"codename/also_called", "pinned"})
+
+
 def _parse_person_file(path: Path) -> EntityData:
-    """Parse a memory/people/*.md file into entity data."""
+    """Parse a memory/people/*.md file into entity data.
+
+    Picks up all **Key:** Value lines in the header block, not just hardcoded
+    fields. Special fields (Also known as, Pinned) are handled separately.
+    """
     text = path.read_text(encoding="utf-8")
     name = _parse_title(text) or path.stem.replace("-", " ").title()
 
     also_known = _parse_field(text, "Also known as")
-    email = _parse_field(text, "Email")
-    role = _parse_field(text, "Role")
-    team = _parse_field(text, "Team")
-    reports_to = _parse_field(text, "Reports to")
-    company = _parse_field(text, "Company")
 
     aliases: list[str] = []
     if also_known:
@@ -63,17 +91,11 @@ def _parse_person_file(path: Path) -> EntityData:
     pinned_str = _parse_field(text, "Pinned")
     is_pinned = bool(pinned_str and pinned_str.lower() in ("true", "yes", "1"))
 
-    metadata: dict[str, str] = {}
-    if email:
-        metadata["email"] = email
-    if role:
-        metadata["role"] = role
-    if team:
-        metadata["team"] = team
-    if reports_to:
-        metadata["reports_to"] = reports_to
-    if company:
-        metadata["company"] = company
+    # Parse all **Key:** Value fields — includes both known and custom fields
+    all_fields = _parse_all_fields(text)
+    metadata: dict[str, str] = {
+        k: v for k, v in all_fields.items() if k not in _PERSON_SPECIAL_FIELDS
+    }
 
     return EntityData(
         name=name,
@@ -86,14 +108,15 @@ def _parse_person_file(path: Path) -> EntityData:
 
 
 def _parse_project_file(path: Path) -> EntityData:
-    """Parse a memory/projects/*.md file into entity data."""
+    """Parse a memory/projects/*.md file into entity data.
+
+    Picks up all **Key:** Value lines in the header block, not just hardcoded
+    fields. Special fields (Codename/Also called, Pinned) are handled separately.
+    """
     text = path.read_text(encoding="utf-8")
     name = _parse_title(text) or path.stem.replace("-", " ").title()
 
     codename = _parse_field(text, "Codename/Also called")
-    status = _parse_field(text, "Status")
-    started = _parse_field(text, "Started")
-    lead = _parse_field(text, "Lead")
 
     pinned_str = _parse_field(text, "Pinned")
     is_pinned = bool(pinned_str and pinned_str.lower() in ("true", "yes", "1"))
@@ -106,13 +129,11 @@ def _parse_project_file(path: Path) -> EntityData:
     if file_stem not in aliases:
         aliases.append(file_stem)
 
-    metadata: dict[str, str] = {}
-    if status:
-        metadata["status"] = status
-    if started:
-        metadata["started"] = started
-    if lead:
-        metadata["lead"] = lead
+    # Parse all **Key:** Value fields — includes both known and custom fields
+    all_fields = _parse_all_fields(text)
+    metadata: dict[str, str] = {
+        k: v for k, v in all_fields.items() if k not in _PROJECT_SPECIAL_FIELDS
+    }
 
     return EntityData(
         name=name,

@@ -16,6 +16,22 @@ if TYPE_CHECKING:
     from kb.db import Database
 
 
+def _snake_to_title(key: str) -> str:
+    """Convert snake_case metadata key to Title Case label.
+
+    Examples: 'preferred_lang' -> 'Preferred Lang', 'timezone' -> 'Timezone'
+    """
+    return " ".join(word.capitalize() for word in key.split("_"))
+
+
+def _title_to_snake(label: str) -> str:
+    """Convert Title Case label to snake_case metadata key.
+
+    Examples: 'Preferred Lang' -> 'preferred_lang', 'Reports to' -> 'reports_to'
+    """
+    return "_".join(label.lower().split())
+
+
 class EntityExistsError(Exception):
     """Raised when creating an entity that already exists."""
 
@@ -71,7 +87,11 @@ def _build_markdown(
     metadata: dict[str, str] | None = None,
     aliases: list[str] | None = None,
 ) -> str:
-    """Build a markdown file for an entity."""
+    """Build a markdown file for an entity.
+
+    Writes registered fields first (in their defined order), then any custom
+    metadata keys not in the registry (in insertion order, Title Case labels).
+    """
     metadata = metadata or {}
     aliases = aliases or []
     reg = _TYPE_REGISTRY[entity_type]
@@ -81,10 +101,17 @@ def _build_markdown(
     if aliases:
         lines.append(f"**{reg.alias_label}:** {', '.join(aliases)}")
 
+    # Registered fields first
+    registered_keys = {key for _label, key in reg.fields}
     for label, key in reg.fields:
         value = metadata.get(key)
         if value:
             lines.append(f"**{label}:** {value}")
+
+    # Custom fields (not in registry) — Title Case labels
+    for key, value in metadata.items():
+        if key not in registered_keys and value:
+            lines.append(f"**{_snake_to_title(key)}:** {value}")
 
     lines.append("")
     return "\n".join(lines)
@@ -154,10 +181,13 @@ def edit_entity(
     if entity is None:
         raise EntityNotFoundError(f"Entity not found: {name}")
 
-    # Merge metadata updates
+    # Merge metadata updates (empty string = remove key)
     if metadata:
         for key, value in metadata.items():
-            entity.metadata[key] = value
+            if value == "":
+                entity.metadata.pop(key, None)
+            else:
+                entity.metadata[key] = value
 
     # Merge alias updates
     if aliases:

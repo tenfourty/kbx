@@ -146,6 +146,185 @@ class TestEntityEdit:
             edit_entity(db, root, "Nobody", metadata={"role": "CEO"})
 
 
+class TestCustomMetadata:
+    """Tests for custom metadata via --meta flag (Issue #15)."""
+
+    def test_edit_sets_custom_metadata(self, crud_env):
+        """Setting custom metadata via edit_entity stores it in DB and file."""
+        from kb.crud import create_entity, edit_entity
+
+        db, root = crud_env
+        create_entity(db, root, "person", "Jane Doe", metadata={"role": "Engineer"})
+        edit_entity(db, root, "Jane Doe", metadata={"preferred_lang": "French"})
+
+        # Check file
+        content = (root / "memory" / "people" / "jane-doe.md").read_text()
+        assert "**Preferred Lang:** French" in content
+
+        # Check DB
+        conn = db.get_sqlite_conn()
+        import json
+
+        row = conn.execute("SELECT metadata FROM entities WHERE name = 'Jane Doe'").fetchone()
+        meta = json.loads(row["metadata"])
+        assert meta["preferred_lang"] == "French"
+        assert meta["role"] == "Engineer"  # original still there
+
+    def test_edit_multiple_custom_fields(self, crud_env):
+        """Multiple custom metadata fields can be set in one call."""
+        from kb.crud import create_entity, edit_entity
+
+        db, root = crud_env
+        create_entity(db, root, "person", "Jane Doe", metadata={"role": "Engineer"})
+        edit_entity(
+            db,
+            root,
+            "Jane Doe",
+            metadata={"preferred_lang": "French", "timezone": "CET"},
+        )
+        content = (root / "memory" / "people" / "jane-doe.md").read_text()
+        assert "**Preferred Lang:** French" in content
+        assert "**Timezone:** CET" in content
+
+    def test_edit_remove_custom_field(self, crud_env):
+        """Setting a custom field to empty string removes it."""
+        from kb.crud import create_entity, edit_entity
+
+        db, root = crud_env
+        create_entity(db, root, "person", "Jane Doe", metadata={"role": "Engineer"})
+        edit_entity(db, root, "Jane Doe", metadata={"preferred_lang": "French"})
+
+        # Verify it's there
+        content = (root / "memory" / "people" / "jane-doe.md").read_text()
+        assert "**Preferred Lang:** French" in content
+
+        # Remove it
+        edit_entity(db, root, "Jane Doe", metadata={"preferred_lang": ""})
+        content = (root / "memory" / "people" / "jane-doe.md").read_text()
+        assert "**Preferred Lang:**" not in content
+
+        # Verify DB
+        import json
+
+        conn = db.get_sqlite_conn()
+        row = conn.execute("SELECT metadata FROM entities WHERE name = 'Jane Doe'").fetchone()
+        meta = json.loads(row["metadata"])
+        assert "preferred_lang" not in meta
+
+    def test_custom_metadata_in_find_json(self, crud_env):
+        """Custom metadata appears in entity metadata dict."""
+        from kb.crud import create_entity, edit_entity
+
+        db, root = crud_env
+        create_entity(db, root, "person", "Jane Doe", metadata={"role": "Engineer"})
+        edit_entity(db, root, "Jane Doe", metadata={"preferred_lang": "French"})
+
+        from kb.entities import load_entity_by_id
+
+        conn = db.get_sqlite_conn()
+        row = conn.execute("SELECT id FROM entities WHERE name = 'Jane Doe'").fetchone()
+        entity = load_entity_by_id(db, row["id"])
+        assert entity is not None
+        assert entity.metadata["preferred_lang"] == "French"
+        assert entity.metadata["role"] == "Engineer"
+
+    def test_parser_picks_up_arbitrary_fields(self, crud_env):
+        """Parser reads any **Key:** Value line from person files."""
+        from kb.entities import _parse_person_file
+
+        _db, root = crud_env
+        path = root / "memory" / "people" / "jane-doe.md"
+        path.write_text(
+            "# Jane Doe\n\n**Role:** Engineer\n**Preferred Lang:** French\n**Timezone:** CET\n"
+        )
+        data = _parse_person_file(path)
+        assert data.metadata["role"] == "Engineer"
+        assert data.metadata["preferred_lang"] == "French"
+        assert data.metadata["timezone"] == "CET"
+
+    def test_parser_picks_up_arbitrary_project_fields(self, crud_env):
+        """Parser reads any **Key:** Value line from project files."""
+        from kb.entities import _parse_project_file
+
+        _db, root = crud_env
+        path = root / "memory" / "projects" / "my-project.md"
+        path.write_text(
+            "# My Project\n\n**Status:** Active\n**Priority:** High\n**Budget:** 100k\n"
+        )
+        data = _parse_project_file(path)
+        assert data.metadata["status"] == "Active"
+        assert data.metadata["priority"] == "High"
+        assert data.metadata["budget"] == "100k"
+
+    def test_custom_metadata_on_project_edit(self, crud_env):
+        """Custom metadata works on projects too."""
+        from kb.crud import create_entity, edit_entity
+
+        db, root = crud_env
+        create_entity(db, root, "project", "AI Adoption", metadata={"status": "Active"})
+        edit_entity(db, root, "AI Adoption", metadata={"priority": "High"})
+
+        content = (root / "memory" / "projects" / "ai-adoption.md").read_text()
+        assert "**Priority:** High" in content
+        assert "**Status:** Active" in content
+
+    def test_custom_metadata_roundtrip(self, crud_env):
+        """Custom metadata survives create -> edit -> re-seed cycle."""
+        from kb.crud import create_entity, edit_entity
+        from kb.entities import seed_entities
+
+        db, root = crud_env
+        create_entity(db, root, "person", "Jane Doe", metadata={"role": "Engineer"})
+        edit_entity(db, root, "Jane Doe", metadata={"preferred_lang": "French"})
+
+        # Re-seed from files (simulates restart)
+        seed_entities(db, root)
+
+        import json
+
+        conn = db.get_sqlite_conn()
+        row = conn.execute("SELECT metadata FROM entities WHERE name = 'Jane Doe'").fetchone()
+        meta = json.loads(row["metadata"])
+        assert meta["role"] == "Engineer"
+        assert meta["preferred_lang"] == "French"
+
+    def test_custom_key_normalization(self, crud_env):
+        """Custom keys use snake_case in metadata dict, Title Case in file."""
+        from kb.crud import create_entity, edit_entity
+
+        db, root = crud_env
+        create_entity(db, root, "person", "Jane Doe")
+        edit_entity(db, root, "Jane Doe", metadata={"preferred_lang": "French"})
+
+        content = (root / "memory" / "people" / "jane-doe.md").read_text()
+        # File should have Title Case
+        assert "**Preferred Lang:** French" in content
+
+        # DB should have snake_case
+        import json
+
+        conn = db.get_sqlite_conn()
+        row = conn.execute("SELECT metadata FROM entities WHERE name = 'Jane Doe'").fetchone()
+        meta = json.loads(row["metadata"])
+        assert "preferred_lang" in meta
+
+    def test_create_with_custom_metadata(self, crud_env):
+        """Custom metadata can be set during entity creation."""
+        from kb.crud import create_entity
+
+        db, root = crud_env
+        create_entity(
+            db,
+            root,
+            "person",
+            "Jane Doe",
+            metadata={"role": "Engineer", "preferred_lang": "French"},
+        )
+        content = (root / "memory" / "people" / "jane-doe.md").read_text()
+        assert "**Role:** Engineer" in content
+        assert "**Preferred Lang:** French" in content
+
+
 class TestEntityDelete:
     def test_delete_removes_file_and_db(self, crud_env):
         from kb.crud import create_entity, delete_entity

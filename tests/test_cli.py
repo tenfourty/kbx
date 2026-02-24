@@ -604,6 +604,194 @@ class TestPersonCommands:
             assert data["name"] == "Test Person"
 
 
+class TestMetaFlag:
+    """Tests for --meta flag on person edit and project edit (Issue #15)."""
+
+    def test_person_edit_meta_flag(self, runner):
+        """kb person edit --meta 'key=value' sets custom metadata."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "memory" / "people").mkdir(parents=True)
+            (root / "memory" / "projects").mkdir(parents=True)
+            db_path = root / "data"
+            Database(db_path)
+
+            with patch("kb.cli._find_project_root", return_value=root):
+                # Create first
+                result = invoke_cli(
+                    runner,
+                    ["person", "create", "Test Person", "--role", "Engineer", "--json"],
+                    str(db_path),
+                )
+                assert result.exit_code == 0
+
+                # Edit with --meta
+                result = invoke_cli(
+                    runner,
+                    [
+                        "person",
+                        "edit",
+                        "Test Person",
+                        "--meta",
+                        "preferred_lang=French",
+                        "--meta",
+                        "timezone=CET",
+                        "--json",
+                    ],
+                    str(db_path),
+                )
+            assert result.exit_code == 0
+            data = json.loads(result.output)
+            assert data["updated"] is True
+
+            # Verify file
+            content = (root / "memory" / "people" / "test-person.md").read_text()
+            assert "**Preferred Lang:** French" in content
+            assert "**Timezone:** CET" in content
+
+    def test_person_edit_meta_remove(self, runner):
+        """kb person edit --meta 'key=' removes a custom field."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "memory" / "people").mkdir(parents=True)
+            (root / "memory" / "projects").mkdir(parents=True)
+            db_path = root / "data"
+            Database(db_path)
+
+            with patch("kb.cli._find_project_root", return_value=root):
+                invoke_cli(
+                    runner,
+                    ["person", "create", "Test Person", "--role", "Engineer", "--json"],
+                    str(db_path),
+                )
+                invoke_cli(
+                    runner,
+                    [
+                        "person",
+                        "edit",
+                        "Test Person",
+                        "--meta",
+                        "preferred_lang=French",
+                        "--json",
+                    ],
+                    str(db_path),
+                )
+                # Remove
+                result = invoke_cli(
+                    runner,
+                    [
+                        "person",
+                        "edit",
+                        "Test Person",
+                        "--meta",
+                        "preferred_lang=",
+                        "--json",
+                    ],
+                    str(db_path),
+                )
+            assert result.exit_code == 0
+            content = (root / "memory" / "people" / "test-person.md").read_text()
+            assert "**Preferred Lang:**" not in content
+
+    def test_project_edit_meta_flag(self, runner):
+        """kb project edit --meta 'key=value' sets custom metadata."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "memory" / "people").mkdir(parents=True)
+            (root / "memory" / "projects").mkdir(parents=True)
+            db_path = root / "data"
+            Database(db_path)
+
+            with patch("kb.cli._find_project_root", return_value=root):
+                invoke_cli(
+                    runner,
+                    ["project", "create", "New Project", "--status", "Active", "--json"],
+                    str(db_path),
+                )
+                result = invoke_cli(
+                    runner,
+                    [
+                        "project",
+                        "edit",
+                        "New Project",
+                        "--meta",
+                        "priority=High",
+                        "--json",
+                    ],
+                    str(db_path),
+                )
+            assert result.exit_code == 0
+            content = (root / "memory" / "projects" / "new-project.md").read_text()
+            assert "**Priority:** High" in content
+            assert "**Status:** Active" in content
+
+    def test_person_find_includes_custom_metadata(self, runner):
+        """kb person find --json includes custom metadata in output."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "memory" / "people").mkdir(parents=True)
+            (root / "memory" / "projects").mkdir(parents=True)
+            db_path = root / "data"
+            Database(db_path)
+
+            with patch("kb.cli._find_project_root", return_value=root):
+                invoke_cli(
+                    runner,
+                    ["person", "create", "Test Person", "--role", "Engineer", "--json"],
+                    str(db_path),
+                )
+                invoke_cli(
+                    runner,
+                    [
+                        "person",
+                        "edit",
+                        "Test Person",
+                        "--meta",
+                        "preferred_lang=French",
+                        "--json",
+                    ],
+                    str(db_path),
+                )
+                result = invoke_cli(
+                    runner,
+                    ["person", "find", "Test Person", "--json"],
+                    str(db_path),
+                )
+            assert result.exit_code == 0
+            data = json.loads(result.output)
+            assert data["metadata"]["preferred_lang"] == "French"
+            assert data["metadata"]["role"] == "Engineer"
+
+    def test_meta_invalid_format(self, runner):
+        """kb person edit --meta 'bad' (no =) exits with error."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "memory" / "people").mkdir(parents=True)
+            (root / "memory" / "projects").mkdir(parents=True)
+            db_path = root / "data"
+            Database(db_path)
+
+            with patch("kb.cli._find_project_root", return_value=root):
+                invoke_cli(
+                    runner,
+                    ["person", "create", "Test Person", "--json"],
+                    str(db_path),
+                )
+                result = invoke_cli(
+                    runner,
+                    ["person", "edit", "Test Person", "--meta", "bad_no_equals", "--json"],
+                    str(db_path),
+                )
+            assert result.exit_code != 0
+
+    def test_usage_documents_meta_flag(self, runner, cli_db):
+        """kb usage output documents the --meta flag."""
+        _db, db_path = cli_db
+        result = invoke_cli(runner, ["usage"], db_path)
+        assert result.exit_code == 0
+        assert "--meta" in result.output
+
+
 class TestProjectCommands:
     def test_project_list_json(self, runner, cli_db):
         """kb project list --json returns only projects."""

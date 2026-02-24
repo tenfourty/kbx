@@ -840,6 +840,26 @@ def _entity_create_impl(
     kb_output(result, fmt=fmt, fields=fields, jq_expr=jq_expr)
 
 
+def _merge_meta_pairs(metadata: dict[str, str], meta_pairs: tuple[str, ...]) -> None:
+    """Parse --meta 'key=value' pairs into the metadata dict.
+
+    Empty value (e.g. 'key=') is preserved as '' to signal deletion.
+    """
+    for pair in meta_pairs:
+        if "=" not in pair:
+            click.echo(f"Invalid --meta format (expected key=value): {pair}", err=True)
+            raise SystemExit(1)
+        key, _, value = pair.partition("=")
+        key = key.strip()
+        value = value.strip()
+        if not key:
+            click.echo(f"Invalid --meta format (empty key): {pair}", err=True)
+            raise SystemExit(1)
+        # Normalize to snake_case
+        key = "_".join(key.lower().split())
+        metadata[key] = value
+
+
 def _entity_edit_impl(
     name: str,
     metadata: dict[str, str],
@@ -942,6 +962,7 @@ def person_create(
 @click.option("--alias", "aliases", multiple=True)
 @click.option("--reports-to", default=None)
 @click.option("--company", default=None)
+@click.option("--meta", "meta_pairs", multiple=True, help="Custom key=value metadata.")
 @output_options
 def person_edit(
     name: str,
@@ -951,6 +972,7 @@ def person_edit(
     aliases: tuple[str, ...],
     reports_to: str | None,
     company: str | None,
+    meta_pairs: tuple[str, ...],
     fmt: str,
     fields: list[str] | None,
     jq_expr: str | None,
@@ -967,6 +989,7 @@ def person_edit(
         }.items()
         if v
     }
+    _merge_meta_pairs(metadata, meta_pairs)
     _entity_edit_impl(name, metadata, list(aliases), fmt, fields, jq_expr)
 
 
@@ -1066,6 +1089,7 @@ def project_create(
 @click.option("--lead", default=None)
 @click.option("--codename", default=None)
 @click.option("--started", default=None, help="Start date (YYYY-MM).")
+@click.option("--meta", "meta_pairs", multiple=True, help="Custom key=value metadata.")
 @output_options
 def project_edit(
     name: str,
@@ -1073,12 +1097,14 @@ def project_edit(
     lead: str | None,
     codename: str | None,
     started: str | None,
+    meta_pairs: tuple[str, ...],
     fmt: str,
     fields: list[str] | None,
     jq_expr: str | None,
 ) -> None:
     """Edit a project's metadata."""
     metadata = {k: v for k, v in {"status": status, "lead": lead, "started": started}.items() if v}
+    _merge_meta_pairs(metadata, meta_pairs)
     aliases = [codename] if codename else []
     _entity_edit_impl(name, metadata, aliases, fmt, fields, jq_expr)
 
@@ -1452,9 +1478,12 @@ def usage() -> None:
   kb person timeline "Name" --json   # chronological doc list
   kb person create "Name" --role "Role" --team "Team"
   kb person edit "Name" --role "New Role"
+  kb person edit "Name" --meta "preferred_lang=French" --meta "timezone=CET"
+  kb person edit "Name" --meta "timezone="   # remove a custom field
   kb person list --json              # all people
   kb project find "Name" --json      # compact profile (facts, metadata, breadcrumbs)
   kb project create "Name" --status "Active" --lead "Name"
+  kb project edit "Name" --meta "priority=High"
   kb project list --json             # all projects
   kb glossary add "TERM" "expansion"
   kb glossary list --json
