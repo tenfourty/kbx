@@ -1422,11 +1422,17 @@ def usage() -> None:
   kb memory add "title" --pin        # create + pin in one step
   kb person pin "Name"               # pin a person to context
 
-## 5. Browsing Notes
+## 5. Browsing & Editing Notes
   kb note list --json                   # all notes
   kb note list --tag decision --json    # filter by tag (AND: --tag a,b)
   kb note list --pinned --json          # pinned notes only
   kb note list --tag ops --pinned       # combine filters
+  kb note edit "title" --body "new content"  # replace body
+  kb note edit "title" --append "extra"      # append to body
+  kb note edit "title" --tags "a,b,c"        # replace tags
+  kb note edit "title" --pin                 # pin note
+  kb note edit "title" --unpin               # unpin note
+  kb note edit "#hash" --tags "x" --pin      # combine edits
 
 ## 6. Finding Things
   kb search "query" --fast --json             # keyword (FTS, instant)
@@ -1874,6 +1880,165 @@ def note_list(
         jq_expr=jq_expr,
         columns=["title", "date", "tags", "pinned"],
     )
+
+
+@note.command("edit")
+@click.argument("target")
+@click.option("--body", default=None, help="Replace note body with this content.")
+@click.option("--append", "append_text", default=None, help="Append this content to note body.")
+@click.option("--tags", "tags_str", default=None, help="Comma-separated tags (replaces existing).")
+@click.option("--pin/--unpin", "pin_flag", default=None, help="Pin or unpin note.")
+@output_options
+def note_edit(
+    target: str,
+    body: str | None,
+    append_text: str | None,
+    tags_str: str | None,
+    pin_flag: bool | None,
+    fmt: str,
+    fields: list[str] | None,
+    jq_expr: str | None,
+) -> None:
+    """Edit an existing memory note (body, tags, pin status)."""
+    import os
+    import re as _re
+
+    from kb.db import normalize_path
+
+    # Validate options
+    if body is not None and append_text is not None:
+        click.echo("Cannot specify both --body and --append.", err=True)
+        raise SystemExit(1)
+    if body is None and append_text is None and tags_str is None and pin_flag is None:
+        click.echo(
+            "No edit options specified. Use --body, --append, --tags, or --pin/--unpin.", err=True
+        )
+        raise SystemExit(1)
+
+    db = _get_db()
+    conn = db.get_sqlite_conn()
+    project_root = _find_project_root()
+
+    # Resolve target
+    doc = _find_document_by_target(conn, target)
+    if doc is None:
+        click.echo(f"Note not found: {target}", err=True)
+        raise SystemExit(1)
+
+    # Validate it's a note (not a meeting transcript etc)
+    if doc["doc_type"] not in ("memory_note", "memory_doc"):
+        click.echo(
+            f"Not a memory note (doc_type={doc['doc_type']}). "
+            "Only memory notes can be edited with this command.",
+            err=True,
+        )
+        raise SystemExit(1)
+
+    # Read the actual file from disk
+    file_path = Path(doc["path"])
+    if not file_path.is_absolute():
+        file_path = project_root / doc["path"]
+    if not file_path.exists():
+        click.echo(f"Note file not found on disk: {doc['path']}", err=True)
+        raise SystemExit(1)
+
+    content = file_path.read_text(encoding="utf-8")
+
+    # Parse frontmatter and body
+    fm_match = _re.match(r"^---\s*\n(.*?)\n---\s*\n", content, _re.DOTALL)
+    if fm_match:
+        fm_block = fm_match.group(1)
+        note_body = content[fm_match.end() :]
+    else:
+        fm_block = ""
+        note_body = content
+
+    # Apply body edits
+    if body is not None:
+        note_body = body + "\n"
+    elif append_text is not None:
+        note_body = note_body.rstrip("\n") + append_text + "\n"
+
+    # Apply tag edits to frontmatter
+    if tags_str is not None:
+        new_tags = [t.strip() for t in tags_str.split(",") if t.strip()]
+        tags_line = f"tags: [{', '.join(new_tags)}]"
+        if _re.search(r"^tags:\s", fm_block, _re.MULTILINE):
+            fm_block = _re.sub(
+                r"^tags:\s.*$",
+                tags_line,
+                fm_block,
+                count=1,
+                flags=_re.MULTILINE,
+            )
+        elif fm_block:
+            fm_block = fm_block.rstrip("\n") + f"\n{tags_line}"
+        else:
+            fm_block = tags_line
+
+    # Apply pin/unpin to frontmatter
+    if pin_flag is not None:
+        pinned_str = "true" if pin_flag else "false"
+        pinned_line = f"pinned: {pinned_str}"
+        if _re.search(r"^pinned:\s", fm_block, _re.MULTILINE):
+            fm_block = _re.sub(
+                r"^pinned:\s.*$",
+                pinned_line,
+                fm_block,
+                count=1,
+                flags=_re.MULTILINE,
+            )
+        elif fm_block:
+            fm_block = fm_block.rstrip("\n") + f"\n{pinned_line}"
+        else:
+            fm_block = pinned_line
+
+    # Rebuild file content
+    if fm_block:
+        new_content = f"---\n{fm_block}\n---\n{note_body}"
+    else:
+        new_content = note_body
+
+    # Atomic write
+    tmp_path = file_path.with_suffix(".md.tmp")
+    tmp_path.write_text(new_content, encoding="utf-8")
+    os.replace(str(tmp_path), str(file_path))
+
+    rel_path = normalize_path(str(file_path.relative_to(project_root)))
+
+    # Re-index to pick up changes
+    from kb.indexer import index_all
+
+    index_all(db, None, project_root, memory_only=True, skip_seed=True)
+
+    # Update pinned flag in DB if changed
+    if pin_flag is not None:
+        conn.execute(
+            "UPDATE documents SET pinned = ? WHERE path = ?",
+            (1 if pin_flag else 0, rel_path),
+        )
+        conn.commit()
+
+    # Parse tags from updated frontmatter for output
+    output_tags: list[str] = []
+    if tags_str is not None:
+        output_tags = [t.strip() for t in tags_str.split(",") if t.strip()]
+    else:
+        # Read back from DB
+        doc_row = conn.execute("SELECT tags FROM documents WHERE path = ?", (rel_path,)).fetchone()
+        if doc_row and doc_row["tags"]:
+            output_tags = json.loads(doc_row["tags"])
+
+    result_data: dict[str, Any] = {
+        "path": rel_path,
+        "title": doc["title"],
+        "tags": output_tags,
+        "pinned": bool(pin_flag) if pin_flag is not None else bool(doc.get("pinned")),
+    }
+    if fmt == "table" and not fields and not jq_expr:
+        click.echo(f"Updated: {rel_path}", err=True)
+    else:
+        kb_output(result_data, fmt=fmt, fields=fields, jq_expr=jq_expr)
 
 
 # ---------------------------------------------------------------------------

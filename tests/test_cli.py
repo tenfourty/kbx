@@ -1874,3 +1874,232 @@ class TestNoteList:
         titles = [r["title"] for r in data["results"]]
         assert any("Pinned" in t for t in titles)
         assert not any("Unpinned" in t for t in titles)
+
+
+# ---------------------------------------------------------------------------
+# Note edit command
+# ---------------------------------------------------------------------------
+
+
+class TestNoteEdit:
+    def _create_note(
+        self, runner, root, data_dir, title, body="Some content", tags=None, pin=False
+    ):
+        """Helper: create a note and return the note file path."""
+        args = ["memory", "add", title, "--body", body]
+        if tags:
+            args.extend(["--tags", tags])
+        if pin:
+            args.append("--pin")
+        result = invoke_cli_with_root(runner, args, data_dir, root)
+        assert result.exit_code == 0
+        return result
+
+    def test_note_edit_replace_body(self, runner, notes_env):
+        """kb note edit <target> --body 'new' replaces body content."""
+        _, root, data_dir = notes_env
+        self._create_note(runner, root, data_dir, "Editable note", body="Original body")
+
+        result = invoke_cli_with_root(
+            runner,
+            ["note", "edit", "Editable note", "--body", "Replaced body"],
+            data_dir,
+            root,
+        )
+        assert result.exit_code == 0
+        assert "Updated" in result.output
+
+        # Verify file on disk has new body
+        note_files = list((root / "memory" / "notes").glob("*editable-note*.md"))
+        assert len(note_files) == 1
+        content = note_files[0].read_text()
+        assert "Replaced body" in content
+        assert "Original body" not in content
+
+    def test_note_edit_append(self, runner, notes_env):
+        """kb note edit <target> --append 'extra' appends to body."""
+        _, root, data_dir = notes_env
+        self._create_note(runner, root, data_dir, "Appendable note", body="First line")
+
+        result = invoke_cli_with_root(
+            runner,
+            ["note", "edit", "Appendable note", "--append", "\nSecond line"],
+            data_dir,
+            root,
+        )
+        assert result.exit_code == 0
+        assert "Updated" in result.output
+
+        note_files = list((root / "memory" / "notes").glob("*appendable-note*.md"))
+        assert len(note_files) == 1
+        content = note_files[0].read_text()
+        assert "First line" in content
+        assert "Second line" in content
+
+    def test_note_edit_update_tags(self, runner, notes_env):
+        """kb note edit <target> --tags 'new,tags' replaces tags."""
+        _, root, data_dir = notes_env
+        self._create_note(runner, root, data_dir, "Tagged note", tags="old,outdated")
+
+        result = invoke_cli_with_root(
+            runner,
+            ["note", "edit", "Tagged note", "--tags", "fresh,updated"],
+            data_dir,
+            root,
+        )
+        assert result.exit_code == 0
+
+        note_files = list((root / "memory" / "notes").glob("*tagged-note*.md"))
+        assert len(note_files) == 1
+        content = note_files[0].read_text()
+        assert "fresh" in content
+        assert "updated" in content
+        assert "old" not in content
+        assert "outdated" not in content
+
+    def test_note_edit_pin(self, runner, notes_env):
+        """kb note edit <target> --pin pins the note."""
+        _, root, data_dir = notes_env
+        self._create_note(runner, root, data_dir, "Pinnable note")
+
+        result = invoke_cli_with_root(
+            runner,
+            ["note", "edit", "Pinnable note", "--pin"],
+            data_dir,
+            root,
+        )
+        assert result.exit_code == 0
+
+        note_files = list((root / "memory" / "notes").glob("*pinnable-note*.md"))
+        assert len(note_files) == 1
+        content = note_files[0].read_text()
+        assert "pinned: true" in content
+
+    def test_note_edit_unpin(self, runner, notes_env):
+        """kb note edit <target> --unpin unpins the note."""
+        _, root, data_dir = notes_env
+        self._create_note(runner, root, data_dir, "Unpinnable note", pin=True)
+
+        # Verify it's pinned first
+        note_files = list((root / "memory" / "notes").glob("*unpinnable-note*.md"))
+        assert len(note_files) == 1
+        assert "pinned: true" in note_files[0].read_text()
+
+        result = invoke_cli_with_root(
+            runner,
+            ["note", "edit", "Unpinnable note", "--unpin"],
+            data_dir,
+            root,
+        )
+        assert result.exit_code == 0
+
+        content = note_files[0].read_text()
+        assert "pinned: true" not in content
+
+    def test_note_edit_not_found(self, runner, notes_env):
+        """kb note edit on unknown target exits with error."""
+        _, root, data_dir = notes_env
+        result = invoke_cli_with_root(
+            runner,
+            ["note", "edit", "nonexistent note", "--body", "hello"],
+            data_dir,
+            root,
+        )
+        assert result.exit_code == 1
+
+    def test_note_edit_not_a_note(self, runner, notes_env):
+        """kb note edit on a meeting doc (not a note) exits with error."""
+        db, root, data_dir = notes_env
+        conn = db.get_sqlite_conn()
+        # Insert a meeting doc
+        conn.execute(
+            """INSERT INTO documents (path, title, doc_date, doc_type, source_system, tags, content_hash, chunk_count)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                "meetings/2026/02/10/standup.notes.md",
+                "Standup",
+                "2026-02-10",
+                "notes",
+                "granola",
+                "[]",
+                "mtg111222333",
+                1,
+            ),
+        )
+        conn.commit()
+
+        result = invoke_cli_with_root(
+            runner,
+            ["note", "edit", "Standup", "--body", "hacked"],
+            data_dir,
+            root,
+        )
+        assert result.exit_code == 1
+        assert "not a note" in result.output.lower() or "not a memory note" in result.output.lower()
+
+    def test_note_edit_body_and_append_conflict(self, runner, notes_env):
+        """kb note edit with both --body and --append exits with error."""
+        _, root, data_dir = notes_env
+        self._create_note(runner, root, data_dir, "Conflict note")
+
+        result = invoke_cli_with_root(
+            runner,
+            ["note", "edit", "Conflict note", "--body", "new", "--append", "extra"],
+            data_dir,
+            root,
+        )
+        assert result.exit_code == 1
+        assert "cannot" in result.output.lower() or "conflict" in result.output.lower()
+
+    def test_note_edit_no_options(self, runner, notes_env):
+        """kb note edit with no edit options shows current info or error."""
+        _, root, data_dir = notes_env
+        self._create_note(runner, root, data_dir, "No edit note")
+
+        result = invoke_cli_with_root(
+            runner,
+            ["note", "edit", "No edit note"],
+            data_dir,
+            root,
+        )
+        assert result.exit_code == 1
+        assert "no edit" in result.output.lower() or "specify" in result.output.lower()
+
+    def test_note_edit_json_output(self, runner, notes_env):
+        """kb note edit --json returns structured output."""
+        _, root, data_dir = notes_env
+        self._create_note(runner, root, data_dir, "JSON note", body="Content", tags="test")
+
+        result = invoke_cli_with_root(
+            runner,
+            ["note", "edit", "JSON note", "--body", "New content", "--json"],
+            data_dir,
+            root,
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "path" in data
+        assert "title" in data
+
+    def test_note_edit_reindexes(self, runner, notes_env):
+        """After note edit, the document is re-indexed with updated content."""
+        db, root, data_dir = notes_env
+        self._create_note(runner, root, data_dir, "Reindex note", body="Before edit")
+
+        result = invoke_cli_with_root(
+            runner,
+            ["note", "edit", "Reindex note", "--body", "After edit"],
+            data_dir,
+            root,
+        )
+        assert result.exit_code == 0
+
+        # Verify the chunk content was updated by re-indexing
+        conn = db.get_sqlite_conn()
+        doc = conn.execute("SELECT id FROM documents WHERE title = 'Reindex note'").fetchone()
+        assert doc is not None
+        chunks = conn.execute(
+            "SELECT content FROM chunks WHERE document_id = ?", (doc["id"],)
+        ).fetchall()
+        chunk_text = " ".join(c["content"] for c in chunks)
+        assert "After edit" in chunk_text
