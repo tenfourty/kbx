@@ -423,6 +423,47 @@ class TestContext:
         assert isinstance(result, ContextOutput)
 
 
+class TestWarmEmbedder:
+    def test_warm_embedder_loads_model(self, kb_instance, monkeypatch):
+        """warm_embedder() returns True and calls embed_query on the embedder."""
+        calls: list[str] = []
+
+        class FakeEmbedder:
+            def embed_query(self, text: str):
+                calls.append(text)
+                import numpy as np
+
+                return np.zeros((1, 1024), dtype=np.float32)
+
+            def release_gpu_memory(self) -> None:
+                pass
+
+        monkeypatch.setattr(kb_instance, "_get_embedder", lambda: FakeEmbedder())
+        result = kb_instance.warm_embedder()
+        assert result is True
+        assert calls == ["warmup"]
+
+    def test_warm_embedder_returns_false_when_no_embed(self, kb_instance, monkeypatch):
+        """warm_embedder() returns False when embedder is unavailable."""
+        monkeypatch.setattr(kb_instance, "_get_embedder", lambda: None)
+        result = kb_instance.warm_embedder()
+        assert result is False
+
+    def test_warm_embedder_does_not_trigger_reindex(self, kb_instance, monkeypatch):
+        """warm_embedder() must NOT call auto_reindex_if_stale."""
+        reindex_called = False
+
+        def fake_reindex(*args, **kwargs):
+            nonlocal reindex_called
+            reindex_called = True
+
+        monkeypatch.setattr("kb.staleness.auto_reindex_if_stale", fake_reindex)
+        # Ensure embedder is unavailable so we don't need real model
+        monkeypatch.setattr(kb_instance, "_get_embedder", lambda: None)
+        kb_instance.warm_embedder()
+        assert reindex_called is False
+
+
 class TestIndex:
     def test_index_with_glossary(self, kb_instance):
         # project_root fixture creates memory/glossary.md, so indexer finds it
