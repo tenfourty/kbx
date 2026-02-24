@@ -23,6 +23,8 @@ from kb.types import (
     EntityFact,
     EntityPinResult,
     EntitySummary,
+    GlossaryEntry,
+    MemoryTreeNode,
     PinnedDocument,
     TimelineEntry,
 )
@@ -31,6 +33,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from kb.embeddings import Embedder
+    from kb.types import ContextOutput, IndexResult, SearchResponse
 
 
 class KnowledgeBase:
@@ -314,3 +317,173 @@ class KnowledgeBase:
             headings = [h["heading"] for h in headings_rows]
             pinned.append(PinnedDocument(path=r["path"], title=r["title"], headings=headings))
         return pinned
+
+    # ------------------------------------------------------------------
+    # Memory file operations
+    # ------------------------------------------------------------------
+
+    def _memory_dir(self) -> Path:
+        return self._project_root / "memory"
+
+    def _validate_memory_path(self, relative_path: str) -> Path | None:
+        """Validate a relative path within memory/. Returns None if invalid."""
+        if ".." in relative_path:
+            return None
+        if not relative_path.endswith(".md"):
+            return None
+        mem_dir = self._memory_dir()
+        resolved = (mem_dir / relative_path).resolve()
+        if not resolved.is_relative_to(mem_dir.resolve()):
+            return None
+        return resolved
+
+    def read_memory_file(self, relative_path: str) -> str | None:
+        """Read a markdown file from memory/. Returns None if invalid or not found."""
+        resolved = self._validate_memory_path(relative_path)
+        if resolved is None or not resolved.is_file():
+            return None
+        return resolved.read_text(encoding="utf-8")
+
+    def write_memory_file(self, relative_path: str, content: str) -> bool:
+        """Write content to an existing markdown file in memory/.
+
+        Returns False if the path is invalid or the file doesn't exist.
+        Does not create new files.
+        """
+        resolved = self._validate_memory_path(relative_path)
+        if resolved is None or not resolved.is_file():
+            return False
+        resolved.write_text(content, encoding="utf-8")
+        return True
+
+    def list_memory_tree(self) -> list[MemoryTreeNode]:
+        """Return the memory/ directory as a nested tree with pinned state."""
+        mem_dir = self._memory_dir()
+        if not mem_dir.is_dir():
+            return []
+
+        pinned_paths: set[str] = set()
+        try:
+            rows = (
+                self._get_conn().execute("SELECT path FROM documents WHERE pinned = 1").fetchall()
+            )
+            pinned_paths = {r["path"] for r in rows}
+        except Exception:
+            pass
+
+        def _scan(directory: Path, prefix: str = "") -> list[MemoryTreeNode]:
+            items: list[MemoryTreeNode] = []
+            try:
+                entries = sorted(directory.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
+            except PermissionError:
+                return items
+
+            for entry in entries:
+                rel = f"{prefix}/{entry.name}".lstrip("/") if prefix else entry.name
+                full_rel = f"memory/{rel}"
+
+                if entry.is_dir():
+                    children = _scan(entry, rel)
+                    file_count = sum(1 for c in children if c.node_type == "file") + sum(
+                        c.count for c in children if c.node_type == "dir"
+                    )
+                    items.append(
+                        MemoryTreeNode(
+                            name=entry.name,
+                            node_type="dir",
+                            path=rel,
+                            children=children,
+                            count=file_count,
+                        )
+                    )
+                elif entry.suffix == ".md":
+                    items.append(
+                        MemoryTreeNode(
+                            name=entry.name,
+                            node_type="file",
+                            path=rel,
+                            pinned=full_rel in pinned_paths,
+                        )
+                    )
+            return items
+
+        return _scan(mem_dir)
+
+    # ------------------------------------------------------------------
+    # Glossary
+    # ------------------------------------------------------------------
+
+    def list_glossary_terms(self) -> list[GlossaryEntry]:
+        """Return all glossary terms from memory/glossary.md."""
+        from kb.glossary import list_terms
+
+        return list_terms(self._project_root)
+
+    # ------------------------------------------------------------------
+    # Search
+    # ------------------------------------------------------------------
+
+    def search(
+        self,
+        query: str,
+        *,
+        limit: int = 10,
+        fast: bool = False,
+        recency: float = 0.15,
+        doc_type: str | None = None,
+        from_date: str | None = None,
+        to_date: str | None = None,
+        tag: str | None = None,
+        sort_by: str = "score",
+    ) -> SearchResponse:
+        """Run a hybrid search (FTS5 + vector + RRF fusion).
+
+        Set ``fast=True`` for FTS-only (no embedder loaded).
+        The embedder is lazy-loaded on first non-fast search and reused.
+        """
+        from kb.search import search as do_search
+        from kb.staleness import auto_reindex_if_stale
+
+        auto_reindex_if_stale(self._db, self._project_root)
+
+        embedder = None if fast else self._get_embedder()
+        return do_search(
+            self._db,
+            embedder,
+            query,
+            limit=limit,
+            fast=fast or embedder is None,
+            recency=recency,
+            doc_type=doc_type,
+            from_date=from_date,
+            to_date=to_date,
+            tag=tag,
+            sort_by=sort_by,
+        )
+
+    # ------------------------------------------------------------------
+    # Context
+    # ------------------------------------------------------------------
+
+    def context(
+        self,
+        topic: str | None = None,
+        fmt: str = "compact",
+    ) -> ContextOutput:
+        """Generate compressed entity context for AI agents."""
+        from kb.context import generate_context
+        from kb.staleness import auto_reindex_if_stale
+
+        auto_reindex_if_stale(self._db, self._project_root)
+        return generate_context(self._db, self._project_root, topic=topic, fmt=fmt)
+
+    # ------------------------------------------------------------------
+    # Indexing
+    # ------------------------------------------------------------------
+
+    def index(self, *, full: bool = False) -> IndexResult:
+        """Run the indexing pipeline. Reuses the shared embedder instance."""
+        from kb.indexer import index_all
+
+        embedder = self._get_embedder()
+        return index_all(self._db, embedder, self._project_root, full=full)

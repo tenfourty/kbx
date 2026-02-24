@@ -292,3 +292,140 @@ class TestDocumentOperations:
 
     def test_count_documents(self, kb_with_entities):
         assert kb_with_entities.count_documents() == 1
+
+
+class TestMemoryOperations:
+    def test_read_memory_file(self, kb_instance, project_root):
+        (project_root / "memory" / "notes").mkdir(parents=True, exist_ok=True)
+        (project_root / "memory" / "notes" / "test.md").write_text("# Test\nHello")
+        result = kb_instance.read_memory_file("notes/test.md")
+        assert result == "# Test\nHello"
+
+    def test_read_memory_file_not_found(self, kb_instance):
+        result = kb_instance.read_memory_file("notes/nonexistent.md")
+        assert result is None
+
+    def test_read_memory_file_traversal_blocked(self, kb_instance):
+        result = kb_instance.read_memory_file("../../../etc/passwd")
+        assert result is None
+
+    def test_read_memory_file_non_md_blocked(self, kb_instance):
+        result = kb_instance.read_memory_file("notes/test.txt")
+        assert result is None
+
+    def test_write_memory_file(self, kb_instance, project_root):
+        (project_root / "memory" / "notes").mkdir(parents=True, exist_ok=True)
+        (project_root / "memory" / "notes" / "test.md").write_text("old")
+        ok = kb_instance.write_memory_file("notes/test.md", "new content")
+        assert ok is True
+        assert (project_root / "memory" / "notes" / "test.md").read_text() == "new content"
+
+    def test_write_memory_file_no_create(self, kb_instance):
+        ok = kb_instance.write_memory_file("notes/new.md", "content")
+        assert ok is False
+
+    def test_list_memory_tree(self, kb_instance, project_root):
+        from kb.types import MemoryTreeNode
+
+        (project_root / "memory" / "notes").mkdir(parents=True, exist_ok=True)
+        (project_root / "memory" / "notes" / "a.md").write_text("# A")
+        (project_root / "memory" / "notes" / "b.md").write_text("# B")
+        result = kb_instance.list_memory_tree()
+        assert len(result) >= 1
+        notes = [n for n in result if n.name == "notes"]
+        assert len(notes) == 1
+        assert notes[0].node_type == "dir"
+        assert notes[0].count == 2
+        assert isinstance(notes[0], MemoryTreeNode)
+
+    def test_list_memory_tree_pinned_state(self, kb_instance, project_root):
+        (project_root / "memory" / "notes").mkdir(parents=True, exist_ok=True)
+        (project_root / "memory" / "notes" / "pinned.md").write_text("# Pinned")
+        conn = kb_instance._db.get_sqlite_conn()
+        conn.execute(
+            "INSERT INTO documents (path, title, doc_date, doc_type, source_system,"
+            " source_id, content_hash) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                "memory/notes/pinned.md",
+                "Pinned",
+                None,
+                "memory",
+                "memory",
+                "memory/notes/pinned.md",
+                "hash",
+            ),
+        )
+        conn.execute("UPDATE documents SET pinned = 1 WHERE path = 'memory/notes/pinned.md'")
+        conn.commit()
+        result = kb_instance.list_memory_tree()
+        notes = next(n for n in result if n.name == "notes")
+        pinned_file = next(c for c in notes.children if c.name == "pinned.md")
+        assert pinned_file.pinned is True
+
+
+class TestGlossary:
+    def test_list_glossary_terms_empty(self, kb_instance):
+        result = kb_instance.list_glossary_terms()
+        assert result == []
+
+    def test_list_glossary_terms(self, kb_instance, project_root):
+        (project_root / "memory" / "glossary.md").write_text(
+            "# Glossary\n\n## Acronyms\n\n| Term | Expansion |\n"
+            "|------|----------|\n| API | Application Programming Interface |\n"
+        )
+        result = kb_instance.list_glossary_terms()
+        assert len(result) == 1
+        assert result[0].term == "API"
+
+    def test_list_glossary_returns_glossary_entry(self, kb_instance, project_root):
+        from kb.types import GlossaryEntry
+
+        (project_root / "memory" / "glossary.md").write_text(
+            "# Glossary\n\n## Acronyms\n\n| Term | Expansion |\n"
+            "|------|----------|\n| API | Application Programming Interface |\n"
+        )
+        result = kb_instance.list_glossary_terms()
+        assert isinstance(result[0], GlossaryEntry)
+
+
+class TestSearch:
+    def test_search_empty_db(self, kb_instance):
+        result = kb_instance.search("anything", fast=True)
+        assert result.results == []
+        assert result.meta.query == "anything"
+
+    def test_search_returns_search_response(self, kb_instance):
+        from kb.types import SearchResponse
+
+        result = kb_instance.search("test", fast=True)
+        assert isinstance(result, SearchResponse)
+
+
+class TestContext:
+    def test_context_empty_db(self, kb_instance):
+        result = kb_instance.context()
+        assert result.text is not None
+        assert result.stats.documents == 0
+
+    def test_context_human_format(self, kb_instance):
+        result = kb_instance.context(fmt="human")
+        assert isinstance(result.text, str)
+
+    def test_context_returns_context_output(self, kb_instance):
+        from kb.types import ContextOutput
+
+        result = kb_instance.context()
+        assert isinstance(result, ContextOutput)
+
+
+class TestIndex:
+    def test_index_with_glossary(self, kb_instance):
+        # project_root fixture creates memory/glossary.md, so indexer finds it
+        result = kb_instance.index()
+        assert result.documents_indexed >= 0
+
+    def test_index_returns_index_result(self, kb_instance):
+        from kb.types import IndexResult
+
+        result = kb_instance.index()
+        assert isinstance(result, IndexResult)
