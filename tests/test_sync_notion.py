@@ -189,15 +189,17 @@ class TestAPIClient:
         return NotionClient()
 
     def test_search_pages(self, client: NotionClient) -> None:
-        """Search returns page results with pagination."""
+        """Search returns page results with pagination token."""
         mock_response = {
             "results": [{"id": "page-1"}, {"id": "page-2"}],
             "total": 2,
             "recordMap": {"block": {}},
+            "paginationToken": 1740000000000,
         }
         with patch.object(client, "_request", return_value=mock_response) as mock_req:
-            results, _record_map = client.search_pages(space_id="space-1", limit=10)
+            results, _record_map, next_token = client.search_pages(space_id="space-1", limit=10)
             assert len(results) == 2
+            assert next_token == "1740000000000"
             mock_req.assert_called_once()
             call_args = mock_req.call_args
             assert call_args[0][0] == "/search"
@@ -248,6 +250,38 @@ class TestAPIClient:
         """get_current_user_id extracts first user key from /getSpaces."""
         with patch.object(client, "_request", return_value={"user-42": {}}):
             assert client.get_current_user_id() == "user-42"
+
+    def test_request_retries_on_429(self, client: NotionClient) -> None:
+        """_request retries with backoff on 429 rate limit."""
+        import httpx
+
+        resp_429 = httpx.Response(429, request=httpx.Request("POST", "http://x"))
+        resp_200 = httpx.Response(200, json={"ok": True}, request=httpx.Request("POST", "http://x"))
+
+        with (
+            patch("httpx.request", side_effect=[resp_429, resp_200]) as mock_req,
+            patch("kb.sync.notion.time") as mock_time,
+        ):
+            mock_time.monotonic.return_value = 1000.0
+            mock_time.sleep = patch("time.sleep").start()
+            result = client._request("/test", max_retries=2)
+            assert result == {"ok": True}
+            assert mock_req.call_count == 2
+            # Should have called sleep with the 429 backoff (10 seconds)
+            backoff_calls = [c for c in mock_time.sleep.call_args_list if c[0][0] >= 10]
+            assert len(backoff_calls) == 1
+            assert backoff_calls[0][0][0] == 10
+
+    def test_search_pages_no_pagination_token(self, client: NotionClient) -> None:
+        """search_pages returns None token when API omits paginationToken."""
+        mock_response = {
+            "results": [{"id": "page-1"}],
+            "recordMap": {"block": {}},
+        }
+        with patch.object(client, "_request", return_value=mock_response):
+            results, _, next_token = client.search_pages(space_id="space-1")
+            assert len(results) == 1
+            assert next_token is None
 
 
 class TestContentExtraction:
@@ -408,6 +442,12 @@ class TestFrontmatterAndWrite:
 class TestSyncOrchestration:
     """Phase 5: High-level sync pipeline."""
 
+    @pytest.fixture(autouse=True)
+    def _no_sleep(self) -> Any:
+        """Disable time.sleep in sync module to keep tests fast."""
+        with patch("kb.sync.notion.time.sleep"):
+            yield
+
     def test_sync_state_persistence(self, tmp_dir: Path) -> None:
         """Sync state is saved and loaded correctly."""
         from kb.sync.notion import load_sync_state, save_sync_state
@@ -446,6 +486,7 @@ class TestSyncOrchestration:
                         }
                     }
                 },
+                None,
             )
 
             result = sync_notion(
@@ -539,7 +580,7 @@ class TestSyncOrchestration:
             client = MockClient.return_value
             client.get_current_user_id.return_value = "user-1"
             client.get_space_id.return_value = "space-1"
-            client.search_pages.return_value = ([{"id": page_id}], {})
+            client.search_pages.return_value = ([{"id": page_id}], {}, None)
 
             def _load_page_chunk(pid: str, limit: int = 5) -> dict:
                 if pid == page_id:
@@ -622,7 +663,7 @@ class TestSyncOrchestration:
             client = MockClient.return_value
             client.get_current_user_id.return_value = "user-1"
             client.get_space_id.return_value = "space-1"
-            client.search_pages.return_value = ([{"id": "page-1"}], {})
+            client.search_pages.return_value = ([{"id": "page-1"}], {}, None)
             client.load_page_chunk.return_value = page_blocks
 
             result = sync_notion(
@@ -648,7 +689,7 @@ class TestSyncOrchestration:
             client = MockClient.return_value
             client.get_current_user_id.return_value = "user-1"
             client.get_space_id.return_value = "space-1"
-            client.search_pages.return_value = ([], {})
+            client.search_pages.return_value = ([], {}, None)
 
             sync_notion(
                 project_root=tmp_dir,
@@ -672,7 +713,7 @@ class TestSyncOrchestration:
             client = MockClient.return_value
             client.get_current_user_id.return_value = "user-1"
             client.get_space_id.return_value = "space-1"
-            client.search_pages.return_value = ([], {})
+            client.search_pages.return_value = ([], {}, None)
 
             sync_notion(
                 project_root=tmp_dir,
@@ -737,7 +778,7 @@ class TestSyncOrchestration:
             client = mock_cls.return_value
             client.get_current_user_id.return_value = "user-1"
             client.get_space_id.return_value = "space-1"
-            client.search_pages.return_value = ([{"id": page_id}], {})
+            client.search_pages.return_value = ([{"id": page_id}], {}, None)
             client.load_page_chunk.return_value = page_blocks
             client.load_block_children.return_value = transcript_blocks
             client.get_users.return_value = {}
@@ -764,6 +805,12 @@ class TestSyncOrchestration:
 class TestEndToEnd:
     """Phase 7: Full pipeline integration test."""
 
+    @pytest.fixture(autouse=True)
+    def _no_sleep(self) -> Any:
+        """Disable time.sleep in sync module to keep tests fast."""
+        with patch("kb.sync.notion.time.sleep"):
+            yield
+
     def test_full_sync_writes_files_and_state(
         self, tmp_dir: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -781,6 +828,7 @@ class TestEndToEnd:
             client.search_pages.return_value = (
                 [{"id": "page-abc"}],
                 {},
+                None,
             )
 
             # load_page_chunk returns page with transcription block

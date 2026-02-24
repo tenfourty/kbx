@@ -33,8 +33,10 @@ DEFAULT_COOKIE_PATH = (
 KEYCHAIN_SERVICE = "Notion Safe Storage"
 
 # Rate limiting
-BATCH_SIZE = 15
-BATCH_DELAY = 0.5
+BATCH_SIZE = 10
+BATCH_DELAY = 1.0
+# Minimum interval between API requests (global rate limit)
+MIN_REQUEST_INTERVAL = 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -104,6 +106,7 @@ class NotionClient:
     def __init__(self, cookie_path: Path | None = None) -> None:
         self._cookie_path = cookie_path or DEFAULT_COOKIE_PATH
         self._token: str | None = None
+        self._last_request_time: float = 0.0
 
     def _get_token(self) -> str:
         """Get the token_v2, preferring env var over cookie store."""
@@ -143,21 +146,39 @@ class NotionClient:
         self,
         path: str,
         json_data: dict[str, Any] | None = None,
+        *,
+        max_retries: int = 5,
     ) -> Any:
-        """Make an authenticated API request to Notion's internal API."""
+        """Make an authenticated API request to Notion's internal API.
+
+        Retries on 429 (rate limit) with exponential backoff.
+        """
         import httpx
 
         token = self._get_token()
-        response = httpx.request(
-            "POST",
-            f"{NOTION_API_BASE}{path}",
-            json=json_data or {},
-            headers={"Content-Type": "application/json"},
-            cookies={"token_v2": token},
-            timeout=30.0,
-        )
-        response.raise_for_status()
-        return response.json()
+        for attempt in range(max_retries + 1):
+            # Global rate limiter: space requests MIN_REQUEST_INTERVAL apart
+            elapsed = time.monotonic() - self._last_request_time
+            if elapsed < MIN_REQUEST_INTERVAL:
+                time.sleep(MIN_REQUEST_INTERVAL - elapsed)
+            self._last_request_time = time.monotonic()
+
+            response = httpx.request(
+                "POST",
+                f"{NOTION_API_BASE}{path}",
+                json=json_data or {},
+                headers={"Content-Type": "application/json"},
+                cookies={"token_v2": token},
+                timeout=30.0,
+            )
+            if response.status_code == 429 and attempt < max_retries:
+                wait = 10 * 2**attempt  # 10, 20, 40, 80, 160 seconds
+                time.sleep(wait)
+                continue
+            response.raise_for_status()
+            return response.json()
+        # unreachable, but keeps mypy happy
+        raise RuntimeError("Exhausted retries")
 
     # ------------------------------------------------------------------
     # Public API methods
@@ -170,10 +191,10 @@ class NotionClient:
         created_by: str | None = None,
         limit: int = 100,
         pagination_token: str | None = None,
-    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    ) -> tuple[list[dict[str, Any]], dict[str, Any], str | None]:
         """Search for pages in a workspace.
 
-        Returns (results_list, block_record_map).
+        Returns (results_list, block_record_map, next_pagination_token).
         """
         filters: dict[str, Any] = {
             "isDeletedOnly": False,
@@ -207,7 +228,9 @@ class NotionClient:
         data = self._request("/search", json_data=payload)
         results = data.get("results", [])
         record_map = data.get("recordMap", {}).get("block", {})
-        return results, record_map
+        next_token = data.get("paginationToken")
+        # API returns the token as an int timestamp; stringify for consistency
+        return results, record_map, str(next_token) if next_token is not None else None
 
     def load_page_chunk(self, page_id: str, limit: int = 5) -> dict[str, Any]:
         """Load a page's blocks. Returns block record map."""
@@ -579,21 +602,24 @@ def sync_notion(
 
     _log(f"Searching pages{' since ' + effective_since if effective_since else ' (full sync)'}...")
 
-    # Discover all pages
+    # Discover all pages — collect recordMaps from search to avoid extra API calls
     all_pages: list[dict[str, Any]] = []
-    pagination_token = None
+    cached_blocks: dict[str, Any] = {}
+    pagination_token: str | None = None
     while True:
-        results, _ = client.search_pages(
+        results, record_map, next_token = client.search_pages(
             space_id=space_id,
             since=effective_since,
             created_by=user_id,
             pagination_token=pagination_token,
         )
         all_pages.extend(results)
+        cached_blocks.update(record_map)
 
-        if len(results) < 100:
+        # Pagination ends when: no token returned, no results, or token repeats
+        if not next_token or not results or next_token == pagination_token:
             break
-        pagination_token = results[-1].get("id")
+        pagination_token = next_token
         time.sleep(BATCH_DELAY)
 
     _log(f"Found {len(all_pages)} pages. Checking for meeting transcripts...")
@@ -608,13 +634,25 @@ def sync_notion(
             "dry_run": True,
         }
 
-    # Process each page — find transcription blocks
+    # Process each page — find transcription blocks.
+    # Use cached recordMap from search when children are available; else API.
     all_attendee_ids: set[str] = set()
     meetings: list[dict[str, Any]] = []
-
-    for i, page_result in enumerate(all_pages):
+    for page_result in all_pages:
         page_id = page_result["id"]
-        blocks = client.load_page_chunk(page_id, limit=5)
+
+        # Try cached blocks if page AND its children are in the cache
+        blocks: dict[str, Any] | None = None
+        if page_id in cached_blocks:
+            page_val = cached_blocks[page_id].get("value", {})
+            content_ids = page_val.get("content", [])
+            if content_ids and all(cid in cached_blocks for cid in content_ids):
+                blocks = {page_id: cached_blocks[page_id]}
+                for cid in content_ids:
+                    blocks[cid] = cached_blocks[cid]
+
+        if blocks is None:
+            blocks = client.load_page_chunk(page_id, limit=5)
 
         # Find transcription block
         transcription = None
@@ -647,9 +685,6 @@ def sync_notion(
                 "last_edited_time": transcription.get("last_edited_time", 0),
             }
         )
-
-        if (i + 1) % BATCH_SIZE == 0:
-            time.sleep(BATCH_DELAY)
 
     _log(f"Found {len(meetings)} meetings with transcripts.")
 
@@ -726,8 +761,8 @@ def sync_notion(
         else:
             skipped += 1
 
-        if (i + 1) % BATCH_SIZE == 0:
-            time.sleep(BATCH_DELAY)
+        # Throttle: each meeting needs 1-2 API calls (transcript + notes)
+        time.sleep(BATCH_DELAY)
 
     # Save sync state
     save_sync_state(
