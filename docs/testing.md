@@ -15,6 +15,7 @@ No network or API keys needed — all tests use mocked data.
 
 | File | Focus |
 |------|-------|
+| `test_api.py` | KnowledgeBase public API: lifecycle, entities, documents, memory, search, context, index |
 | `test_cli.py` | CLI commands: search, view, list, entity, index, usage, notes, pin |
 | `test_search.py` | Search pipeline: BM25, RRF, recency, filtering, hooks |
 | `test_indexing.py` | Indexing: seed, chunk, embed batch, incremental vs full |
@@ -30,7 +31,7 @@ No network or API keys needed — all tests use mocked data.
 | `test_smoke.py` | Quick sanity: db init, entity crud, basic index |
 | `test_properties.py` | Hypothesis property-based tests |
 | `test_dateparse.py` | Natural date parsing edge cases |
-| `test_types.py` | Pydantic model validation |
+| `test_types.py` | Pydantic model validation, API response types |
 | `test_staleness.py` | Stale file detection + auto-reindex |
 | `test_glossary.py` | Glossary CRUD |
 | `test_db_extras.py` | Database edge cases, migrations |

@@ -167,15 +167,35 @@ flowchart LR
     EMB --> LDB["LanceDB<br/>(embeddings)"]
 ```
 
+## Public Python API
+
+`api.py` exposes a `KnowledgeBase` service class — the single entry point for external consumers (e.g. brief-deck, FastAPI apps). Owns DB + config + embedder lifecycle.
+
+```python
+from kb import KnowledgeBase
+
+with KnowledgeBase(thread_safe=True) as kb:
+    results = kb.search("cloud migration")
+    people = kb.list_entities(entity_type="person")
+```
+
+- **`thread_safe=True`** — opens connection with `check_same_thread=False` + WAL + `busy_timeout`
+- **Embedder lifecycle** — lazy-loaded on first `search()`/`index()`, shared across both, GPU memory released on `close()`
+- **Auto-staleness** — changed memory files auto-reindexed before search/context
+- All methods return Pydantic models (see `types.py`)
+
+Design doc: `docs/plans/2026-02-24-python-api-design.md`
+
 ## File Structure
 
 ```
 src/kb/
-├── __init__.py
+├── __init__.py        # Re-exports KnowledgeBase
 ├── __main__.py        # Entry point (`python -m kb`)
+├── api.py             # KnowledgeBase service class (public Python API)
 ├── cli.py             # Click CLI — all user-facing commands
 ├── config.py          # Paths, constants, configuration
-├── types.py           # Shared dataclasses (ParsedDocument, Chunk, etc.)
+├── types.py           # Pydantic strict models (ParsedDocument, Chunk, API types, etc.)
 ├── db.py              # SQLite + LanceDB management
 ├── indexer.py          # Orchestrates indexing pipeline
 ├── search.py          # Hybrid search (FTS + vector + reranking)
@@ -212,6 +232,7 @@ kb/
 
 ```mermaid
 graph TD
+    api["api.py<br/>(public API)"]
     cli["cli.py"]
     config["config.py"]
     search["search.py"]
@@ -228,6 +249,15 @@ graph TD
     dateparse["dateparse.py"]
     writeback["writeback.py"]
     sources["sources/"]
+
+    api --> db
+    api --> config
+    api --> search
+    api --> context
+    api --> indexer
+    api --> glossary
+    api --> embeddings
+    api --> types
 
     cli --> config
     cli --> search
