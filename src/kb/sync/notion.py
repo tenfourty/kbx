@@ -749,14 +749,25 @@ def sync_notion(
             child_order = parent_block.get("content", [])
             transcript_md = transcript_to_markdown(transcript_blocks, child_order)
 
-        # Fetch notes
+        # Fetch AI summary (preferred) and manual notes (fallback)
+        summary_id = fmt.get("transcription_summary_id", "")
+        summary_md = ""
+        if summary_id:
+            summary_blocks = client.load_block_children(summary_id, limit=200)
+            parent_block = summary_blocks.get(summary_id, {}).get("value", {})
+            child_order = parent_block.get("content", [])
+            summary_md = notes_to_markdown(summary_blocks, child_order)
+
         notes_id = fmt.get("transcription_notes_id", "")
-        notes_md = ""
+        manual_notes_md = ""
         if notes_id:
             notes_blocks = client.load_block_children(notes_id, limit=200)
             parent_block = notes_blocks.get(notes_id, {}).get("value", {})
             child_order = parent_block.get("content", [])
-            notes_md = notes_to_markdown(notes_blocks, child_order)
+            manual_notes_md = notes_to_markdown(notes_blocks, child_order)
+
+        # Use AI summary as primary body; fall back to manual notes if empty
+        notes_md = summary_md if summary_md.strip() else manual_notes_md
 
         result = write_meeting(
             frontmatter=fm,
@@ -775,7 +786,7 @@ def sync_notion(
         else:
             skipped += 1
 
-        # Throttle: each meeting needs 1-2 API calls (transcript + notes)
+        # Throttle: each meeting needs 1-3 API calls (transcript + summary + notes)
         time.sleep(BATCH_DELAY)
 
     # Save sync state

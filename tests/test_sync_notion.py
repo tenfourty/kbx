@@ -866,39 +866,53 @@ class TestEndToEnd:
                 "user-b": {"name": "Soren Jones", "email": "bob@example.com"},
             }
 
-            # load_block_children for transcript and notes
-            def mock_load_children(block_id: str, limit: int = 200) -> dict[str, Any]:
-                if block_id == "t-block":
-                    return {
-                        "t-block": {"value": {"type": "text", "content": ["seg-1", "seg-2"]}},
-                        "seg-1": {
-                            "value": {
-                                "type": "text",
-                                "properties": {"title": [["Hello everyone"]]},
-                                "format": {"transcript_metadata": {"speaker_name": "speaker0"}},
-                            }
-                        },
-                        "seg-2": {
-                            "value": {
-                                "type": "text",
-                                "properties": {"title": [["Thanks for joining"]]},
-                                "format": {"transcript_metadata": {"speaker_name": "speaker1"}},
-                            }
-                        },
-                    }
-                elif block_id == "n-block":
-                    return {
-                        "n-block": {"value": {"type": "text", "content": ["n1"]}},
-                        "n1": {
-                            "value": {
-                                "type": "bulleted_list",
-                                "properties": {"title": [["Review action items"]]},
-                            }
-                        },
-                    }
-                return {}
-
-            client.load_block_children.side_effect = mock_load_children
+            # load_block_children for transcript, summary, and notes
+            block_responses: dict[str, dict[str, Any]] = {
+                "t-block": {
+                    "t-block": {"value": {"type": "text", "content": ["seg-1", "seg-2"]}},
+                    "seg-1": {
+                        "value": {
+                            "type": "text",
+                            "properties": {"title": [["Hello everyone"]]},
+                            "format": {"transcript_metadata": {"speaker_name": "speaker0"}},
+                        }
+                    },
+                    "seg-2": {
+                        "value": {
+                            "type": "text",
+                            "properties": {"title": [["Thanks for joining"]]},
+                            "format": {"transcript_metadata": {"speaker_name": "speaker1"}},
+                        }
+                    },
+                },
+                "s-block": {
+                    "s-block": {"value": {"type": "text", "content": ["s1", "s2"]}},
+                    "s1": {
+                        "value": {
+                            "type": "sub_sub_header",
+                            "properties": {"title": [["Key Decisions"]]},
+                        }
+                    },
+                    "s2": {
+                        "value": {
+                            "type": "bulleted_list",
+                            "properties": {"title": [["Agreed to ship v2 next week"]]},
+                        }
+                    },
+                },
+                "n-block": {
+                    "n-block": {"value": {"type": "text", "content": ["n1"]}},
+                    "n1": {
+                        "value": {
+                            "type": "bulleted_list",
+                            "properties": {"title": [["Review action items"]]},
+                        }
+                    },
+                },
+            }
+            client.load_block_children.side_effect = lambda block_id, limit=200: (
+                block_responses.get(block_id, {})
+            )
 
             # Disable time.sleep for speed
             with patch("kb.sync.notion.time.sleep"):
@@ -919,12 +933,14 @@ class TestEndToEnd:
         transcript_files = list(tmp_dir.rglob("*.notion.transcript.md"))
         assert len(transcript_files) == 1, f"Expected 1 transcript file, found: {transcript_files}"
 
-        # Verify notes content
+        # Verify notes content — AI summary is primary body
         notes_content = md_files[0].read_text()
         assert "title: Weekly Team Sync" in notes_content
         assert "source: notion-api" in notes_content
         assert "calendar_uid: cal12345@google.com" in notes_content
         assert "alice@example.com" in notes_content
+        assert "### Key Decisions" in notes_content
+        assert "Agreed to ship v2 next week" in notes_content
 
         # Verify transcript content
         transcript_content = transcript_files[0].read_text()
@@ -943,6 +959,96 @@ class TestEndToEnd:
         notes_name = md_files[0].name
         assert notes_name.startswith("cal12345")
         assert ".notion.notes.md" in notes_name
+
+    def test_summary_fallback_to_notes_when_empty(
+        self, tmp_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When AI summary block is empty, falls back to manual notes."""
+        monkeypatch.setenv("NOTION_TOKEN_V2", "test-token")
+        from kb.sync.notion import sync_notion
+
+        with patch("kb.sync.notion.NotionClient") as MockClient:
+            client = MockClient.return_value
+            client.get_current_user_id.return_value = "user-1"
+            client.get_space_id.return_value = "space-1"
+
+            client.search_pages.return_value = (
+                [{"id": "page-def"}],
+                {},
+                None,
+            )
+
+            client.load_page_chunk.return_value = {
+                "page-def": {
+                    "value": {
+                        "type": "page",
+                        "content": ["trans-2"],
+                        "properties": {"title": [["Design Review"]]},
+                    }
+                },
+                "trans-2": {
+                    "value": {
+                        "type": "transcription",
+                        "format": {
+                            "transcription_state": {"state": "idle"},
+                            "transcription_transcript_id": "t2-block",
+                            "transcription_summary_id": "s2-block",
+                            "transcription_notes_id": "n2-block",
+                            "transcription_calendar_event": {
+                                "uid": "cal67890@google.com",
+                                "startTime": "2026-02-23T14:00:00+01:00",
+                                "endTime": "2026-02-23T14:30:00+01:00",
+                                "attendeeIds": [],
+                            },
+                        },
+                        "last_edited_time": 1771881551056,
+                    }
+                },
+            }
+
+            client.get_users.return_value = {}
+
+            block_responses: dict[str, dict[str, Any]] = {
+                "t2-block": {
+                    "t2-block": {"value": {"type": "text", "content": ["seg-a"]}},
+                    "seg-a": {
+                        "value": {
+                            "type": "text",
+                            "properties": {"title": [["Discussion started"]]},
+                            "format": {"transcript_metadata": {"speaker_name": "speaker0"}},
+                        }
+                    },
+                },
+                # Summary block exists but has no children (empty)
+                "s2-block": {
+                    "s2-block": {"value": {"type": "text", "content": []}},
+                },
+                "n2-block": {
+                    "n2-block": {"value": {"type": "text", "content": ["nb1"]}},
+                    "nb1": {
+                        "value": {
+                            "type": "bulleted_list",
+                            "properties": {"title": [["Manual note from user"]]},
+                        }
+                    },
+                },
+            }
+            client.load_block_children.side_effect = lambda block_id, limit=200: (
+                block_responses.get(block_id, {})
+            )
+
+            result = sync_notion(
+                project_root=tmp_dir,
+                data_dir=tmp_dir,
+            )
+
+        assert result["created"] == 1
+
+        md_files = list(tmp_dir.rglob("*.notion.notes.md"))
+        assert len(md_files) == 1
+
+        notes_content = md_files[0].read_text()
+        assert "Manual note from user" in notes_content
 
 
 class TestCLI:
