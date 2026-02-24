@@ -442,6 +442,21 @@ class KnowledgeBase:
         return list_terms(self._project_root)
 
     # ------------------------------------------------------------------
+    # Embedder
+    # ------------------------------------------------------------------
+
+    def warm_embedder(self) -> bool:
+        """Pre-load the embedding model without triggering search or reindex.
+
+        Returns True if the embedder was loaded, False if embeddings are disabled.
+        """
+        embedder = self._get_embedder()
+        if embedder is None:
+            return False
+        embedder.embed_query("warmup")
+        return True
+
+    # ------------------------------------------------------------------
     # Search
     # ------------------------------------------------------------------
 
