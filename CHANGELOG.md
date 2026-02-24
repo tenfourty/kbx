@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.5](https://github.com/tenfourty/kbx/compare/kbx-v0.1.4...kbx-v0.1.5) (2026-02-24)
+
+
+### Features
+
+* **sync:** merge Notion sync with emoji-consistent naming ([a9d7677](https://github.com/tenfourty/kbx/commit/a9d767724c349ce3b9b0b0181d815b0913132b93))
+
 ## [0.1.4](https://github.com/tenfourty/kbx/compare/kbx-v0.1.3...kbx-v0.1.4) (2026-02-24)
 
 
