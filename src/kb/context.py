@@ -462,7 +462,9 @@ def _render_compact(
     earliest: str | None,
     latest: str | None,
     pinned_docs: list[PinnedDocument],
-    people: list[ContextEntity],
+    pinned_people: list[ContextEntity],
+    key_people: list[ContextEntity],
+    topic_people: list[ContextEntity],
     projects: list[ContextEntity],
     teams: list[ContextEntity],
     gg_acronyms: list[tuple[str, str, str]],
@@ -482,13 +484,23 @@ def _render_compact(
             headings_str = f" ({' | '.join(pd.headings)})" if pd.headings else ""
             lines.append(f'  {pd.path} "{pd.title}"{headings_str}')
 
-    # People
-    if people:
-        total_people = len(people)
-        lines.append(f"[People:{total_people} by mentions]")
-        person_strs = [_format_person_compact(p) for p in people]
+    # People (topic mode: flat list; full mode: pinned + key tiers)
+    if topic_people:
+        lines.append(f"[People:{len(topic_people)} by mentions]")
+        person_strs = [_format_person_compact(p) for p in topic_people]
         lines.extend(_pack_items(person_strs))
         lines.append('\u2192kb entity find "name" --json')
+    else:
+        if pinned_people:
+            lines.append("[People:pinned]")
+            person_strs = [_format_person_pinned(p) for p in pinned_people]
+            lines.extend(person_strs)  # one per line for readability
+        if key_people:
+            lines.append("[People:key]")
+            person_strs = [_format_person_key(p) for p in key_people]
+            lines.extend(_pack_items(person_strs))
+        if pinned_people or key_people:
+            lines.append('\u2192kb entity find "name" --json')
 
     # Projects
     if projects:
@@ -538,7 +550,9 @@ def _render_human(
     earliest: str | None,
     latest: str | None,
     pinned_docs: list[PinnedDocument],
-    people: list[ContextEntity],
+    pinned_people: list[ContextEntity],
+    key_people: list[ContextEntity],
+    topic_people: list[ContextEntity],
     projects: list[ContextEntity],
     teams: list[ContextEntity],
     gg_acronyms: list[tuple[str, str, str]],
@@ -562,15 +576,15 @@ def _render_human(
         lines.append(f"## Pinned Documents ({len(pinned_docs)})")
         for pd in pinned_docs:
             headings_str = f"  Sections: {', '.join(pd.headings)}" if pd.headings else ""
-            lines.append(f"- **{pd.title}** — `{pd.path}`")
+            lines.append(f"- **{pd.title}** \u2014 `{pd.path}`")
             if headings_str:
                 lines.append(headings_str)
         lines.append("")
 
-    # People section
-    if people:
-        lines.append(f"## People ({len(people)})")
-        person_strs = [_format_person(p) for p in people]
+    # People sections (topic mode: flat; full mode: pinned + key tiers)
+    if topic_people:
+        lines.append(f"## People ({len(topic_people)})")
+        person_strs = [_format_person(p) for p in topic_people]
         current_line = "|"
         for ps in person_strs:
             if len(current_line) + len(ps) + 1 > 80 and current_line != "|":
@@ -581,6 +595,21 @@ def _render_human(
             lines.append(current_line)
         lines.append('\u2192 Details: `kb entity find "name" --json`')
         lines.append("")
+    else:
+        if pinned_people:
+            lines.append(f"## Pinned People ({len(pinned_people)})")
+            person_strs = [_format_person_pinned(p) for p in pinned_people]
+            for ps in person_strs:
+                lines.append(ps)
+            lines.append("")
+        if key_people:
+            lines.append(f"## Key People ({len(key_people)})")
+            person_strs = [_format_person_key(p) for p in key_people]
+            lines.extend(_pack_items(person_strs))
+            lines.append("")
+        if pinned_people or key_people:
+            lines.append('\u2192 Details: `kb entity find "name" --json`')
+            lines.append("")
 
     # Projects section
     if projects:
@@ -694,6 +723,8 @@ def generate_context(
         filtered = all_entities
 
     # Group by type with smart filtering (only in full context, not topic mode)
+    pinned_people: list[ContextEntity] = []
+    key_people: list[ContextEntity] = []
     if topic:
         people = sorted(
             [e for e in filtered if e.entity_type == "person"],
@@ -703,19 +734,20 @@ def generate_context(
         projects = [e for e in filtered if e.entity_type == "project"]
         teams = [e for e in filtered if e.entity_type == "team"]
     else:
-        # People: pinned first, then by mention count, drop 0-mention unpinned, cap at 15
+        # People: split into pinned and key tiers (drop "others")
         all_people = [e for e in filtered if e.entity_type == "person"]
+        fact_counts = _get_fact_counts(conn)
         pinned_people = sorted(
             [e for e in all_people if e.pinned],
             key=lambda e: e.mention_count,
             reverse=True,
         )
-        unpinned_people = sorted(
-            [e for e in all_people if not e.pinned and e.mention_count > 0],
+        key_people = sorted(
+            [e for e in all_people if not e.pinned and _is_key_person(e, fact_counts)],
             key=lambda e: e.mention_count,
             reverse=True,
         )
-        people = (pinned_people + unpinned_people)[:15]
+        people = pinned_people + key_people  # for entity summaries
 
         # Projects: drop completed
         projects = [
@@ -754,7 +786,9 @@ def generate_context(
         earliest=earliest,
         latest=latest,
         pinned_docs=pinned_docs,
-        people=people,
+        pinned_people=pinned_people if not topic else [],
+        key_people=key_people if not topic else [],
+        topic_people=people if topic else [],
         projects=projects,
         teams=teams,
         gg_acronyms=gg_acronyms,

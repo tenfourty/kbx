@@ -107,7 +107,7 @@ def cli_db():
                 "Talia Ström",
                 "person",
                 '["Talia"]',
-                '{"team": "Platform"}',
+                '{"role": "Engineering Leader", "team": "Platform"}',
                 "memory/people/eve.md",
             ),
             (
@@ -1182,7 +1182,7 @@ class TestContextHumanFlag:
         with patch("kb.cli._find_project_root", return_value=Path("/nonexistent")):
             result = invoke_cli(runner, ["context"], db_path)
         assert result.exit_code == 0
-        assert "[People:" in result.output
+        assert "[People:key]" in result.output
 
     def test_context_human_flag(self, runner, cli_db):
         """kb context --human should output markdown format."""
@@ -1190,7 +1190,7 @@ class TestContextHumanFlag:
         with patch("kb.cli._find_project_root", return_value=Path("/nonexistent")):
             result = invoke_cli(runner, ["context", "--human"], db_path)
         assert result.exit_code == 0
-        assert "## People" in result.output
+        assert "## Key People" in result.output
 
 
 class TestPersonPinUnpin:

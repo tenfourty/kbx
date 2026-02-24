@@ -1302,7 +1302,7 @@ class TestRenderHumanFull:
             text = result.text
 
             # Human format should have markdown headings
-            assert "## People" in text
+            assert "## Key People" in text
             assert "## Projects" in text
             assert "## Teams" in text
             assert "## GG Acronyms" in text
@@ -1678,11 +1678,16 @@ class TestRenderCompactLinePacking:
                 (1, 0, None, "Content"),
             )
 
-            # Insert many people to force line wrapping
+            # Insert many people to force line wrapping (2+ fields to qualify as key)
             for i in range(15):
                 conn.execute(
                     "INSERT INTO entities (name, entity_type, aliases, metadata) VALUES (?, ?, ?, ?)",
-                    (f"Person{i} Longname{i}", "person", f'["P{i}"]', f'{{"role": "Role {i}"}}'),
+                    (
+                        f"Person{i} Longname{i}",
+                        "person",
+                        f'["P{i}"]',
+                        f'{{"role": "Role {i}", "team": "Team{i}"}}',
+                    ),
                 )
             # Insert a team
             conn.execute(
@@ -1698,7 +1703,7 @@ class TestRenderCompactLinePacking:
             conn.commit()
 
             result = generate_context(db, root, fmt="compact")
-            assert "[People:" in result.text
+            assert "[People:key]" in result.text
             assert "[Teams:" in result.text
             db.close()
 
@@ -2012,7 +2017,7 @@ class TestRenderHumanLineWrapping:
                         f"Person{i} VeryLongLastName{i}",
                         "person",
                         f'["P{i}"]',
-                        f'{{"role": "Very Long Role Name Here {i}"}}',
+                        f'{{"role": "Very Long Role Name Here {i}", "team": "Team{i}"}}',
                     ),
                 )
                 conn.execute(
@@ -2040,7 +2045,7 @@ class TestRenderHumanLineWrapping:
             result = generate_context(db, root, fmt="human")
             text = result.text
 
-            assert "## People" in text
+            assert "## Key People" in text
             assert "## Projects" in text
             assert "## GG Jargon" in text
             # Check that output has multiple lines (wrapping happened)

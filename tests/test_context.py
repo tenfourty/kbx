@@ -726,7 +726,7 @@ class TestContextFormat:
         db, _ = context_db
         result = generate_context(db, project_root_with_glossary, fmt="human")
         text = result.text
-        assert "## People" in text
+        assert "## Key People" in text
 
     def test_compact_pinned_marker(self, context_db, project_root_with_glossary):
         """Pinned entities should show star in compact format."""
@@ -865,7 +865,7 @@ class TestContextPydantic:
         db, _ = context_db
         result = generate_context(db, project_root_with_glossary, fmt="human")
         assert isinstance(result, ContextOutput)
-        assert "## People" in result.text
+        assert "## Key People" in result.text
 
 
 class TestPeopleTierHelpers:
@@ -1070,3 +1070,64 @@ class TestPersonFormatters:
         )
         result = _format_person_key(entity)
         assert result == "Linnea(Helix Refactor Lead,1m)"
+
+
+class TestPeopleTierSplitting:
+    """People are split into pinned and key tiers in full context mode."""
+
+    def test_pinned_person_in_output(self, context_db, project_root_with_glossary):
+        """Pinned person always appears regardless of mention count."""
+        from kb.context import generate_context
+
+        db, _ = context_db
+        conn = db.get_sqlite_conn()
+        conn.execute("UPDATE entities SET pinned = 1 WHERE name = 'Soren Vance'")
+        conn.commit()
+        result = generate_context(db, project_root_with_glossary)
+        assert "Soren" in result.text
+        assert "[People:pinned]" in result.text
+
+    def test_key_person_in_output(self, context_db, project_root_with_glossary):
+        """Key person (2+ metadata fields, not pinned) appears in key section."""
+        from kb.context import generate_context
+
+        db, _ = context_db
+        result = generate_context(db, project_root_with_glossary)
+        assert "Talia" in result.text
+        assert "[People:key]" in result.text
+
+    def test_non_key_person_excluded(self, context_db, project_root_with_glossary):
+        """Person with <2 metadata fields and no facts is excluded."""
+        from kb.context import generate_context
+
+        db, _ = context_db
+        result = generate_context(db, project_root_with_glossary)
+        assert "Soren" not in result.text
+
+    def test_fact_makes_person_key(self, context_db, project_root_with_glossary):
+        """Person with 1 metadata field but facts becomes key."""
+        from kb.context import generate_context
+
+        db, _ = context_db
+        conn = db.get_sqlite_conn()
+        conn.execute(
+            "INSERT INTO facts (entity_id, fact_text, fact_date)"
+            " VALUES (3, 'Led migration', '2026-02-01')"
+        )
+        conn.commit()
+        result = generate_context(db, project_root_with_glossary)
+        assert "Soren" in result.text
+
+    def test_topic_mode_unchanged(self, context_db, project_root_with_glossary):
+        """Topic mode uses flat [People:N by mentions], never pinned/key tiers."""
+        from kb.context import generate_context
+
+        db, _ = context_db
+        # Use "Talia" as topic so name-matching strategy finds the person entity
+        result = generate_context(db, project_root_with_glossary, topic="Talia")
+        # Topic mode should use the flat "N by mentions" format
+        assert "[People:" in result.text
+        assert "by mentions" in result.text
+        # And never show tier headers
+        assert "[People:pinned]" not in result.text
+        assert "[People:key]" not in result.text

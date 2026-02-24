@@ -121,7 +121,7 @@ def mcp_db():
                 "Talia Ström",
                 "person",
                 '["Talia"]',
-                '{"team": "Platform"}',
+                '{"role": "Engineering Leader", "team": "Platform"}',
                 "memory/people/eve.md",
             ),
             (
@@ -425,8 +425,8 @@ class TestMcpContextFmt:
         result = handle_kb_context(db, project_root=Path("/tmp"))
         data = json.loads(result)
         assert "text" in data
-        # Compact format uses [People: ...] style
-        assert "[People:" in data["text"]
+        # Compact format uses [People:key] style
+        assert "[People:key]" in data["text"]
 
     def test_context_human_fmt(self, mcp_db):
         """handle_kb_context with fmt='human' should return markdown format."""
@@ -437,7 +437,7 @@ class TestMcpContextFmt:
         data = json.loads(result)
         assert "text" in data
         # Human format uses ## headings
-        assert "## People" in data["text"]
+        assert "## Key People" in data["text"]
 
     def test_context_mcp_tool_accepts_fmt(self, mcp_db):
         """kb_context MCP tool should accept fmt parameter."""
