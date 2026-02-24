@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.4](https://github.com/tenfourty/kbx/compare/kbx-v0.1.3...kbx-v0.1.4) (2026-02-24)
+
+
+### Features
+
+* **sync:** adopt {uid}_{Title}.granola.{type}.md file naming convention ([adf804d](https://github.com/tenfourty/kbx/commit/adf804defb5f2fcf3cc861fa44f6b2a3a1ce677a))
+
+
+### Documentation
+
+* add Notion transcript sync design ([b9b695a](https://github.com/tenfourty/kbx/commit/b9b695a704d2f2dbc90d04ddb21d7fa7f12f245b))
+* add Notion transcript sync implementation plan ([5596b91](https://github.com/tenfourty/kbx/commit/5596b91df21a0ad920aeada73742b6254646e5c9))
+
 ## [0.1.3](https://github.com/tenfourty/kbx/compare/kbx-v0.1.2...kbx-v0.1.3) (2026-02-23)
 
 
