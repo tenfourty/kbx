@@ -377,6 +377,60 @@ def _format_person_compact(entity: ContextEntity) -> str:
     return f"{short_name}{pinned}({','.join(parts)})"
 
 
+def _short_name(name: str, aliases: list[str]) -> str:
+    """Pick shortest recognisable name from aliases."""
+    short = name
+    for a in aliases:
+        if 2 <= len(a) < len(short) and not ("-" in a and a == a.lower()):
+            short = a
+    return short
+
+
+def _truncate_role(role: str, max_len: int = 20) -> str:
+    """Truncate a role string if longer than max_len."""
+    if len(role) > max_len:
+        return role[: max_len - 3] + "..."
+    return role
+
+
+def _format_person_pinned(entity: ContextEntity) -> str:
+    """Format a pinned person: Name\u2605(Role|team:Team|\u2192ReportsTo,Nm)."""
+    meta = entity.metadata
+    short = _short_name(entity.name, entity.aliases)
+
+    parts: list[str] = []
+    if meta.get("role"):
+        parts.append(_truncate_role(meta["role"]))
+    if meta.get("team"):
+        parts.append(f"team:{meta['team']}")
+    if meta.get("reports_to"):
+        parts.append(f"\u2192{meta['reports_to']}")
+
+    # Join metadata with |, then append mention count with ,
+    if parts:
+        label = "|".join(parts)
+        return f"{short}\u2605({label},{entity.mention_count}m)"
+    return f"{short}\u2605({entity.mention_count}m)"
+
+
+def _format_person_key(entity: ContextEntity) -> str:
+    """Format a key person: Name(Role|\u2192ReportsTo,Nm)."""
+    meta = entity.metadata
+    short = _short_name(entity.name, entity.aliases)
+
+    parts: list[str] = []
+    if meta.get("role"):
+        parts.append(_truncate_role(meta["role"]))
+    if meta.get("reports_to"):
+        parts.append(f"\u2192{meta['reports_to']}")
+
+    # Join role+reports_to with |, then append mention count with ,
+    if parts:
+        label = "|".join(parts)
+        return f"{short}({label},{entity.mention_count}m)"
+    return f"{short}({entity.mention_count}m)"
+
+
 def _get_pinned_documents(conn: sqlite3.Connection) -> list[PinnedDocument]:
     """Load pinned documents with their section headings."""
     rows = conn.execute(

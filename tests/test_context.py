@@ -964,3 +964,109 @@ class TestPeopleTierHelpers:
             pinned=False,
         )
         assert _is_key_person(entity, {}) is False
+
+
+class TestPersonFormatters:
+    """Tests for _format_person_pinned and _format_person_key."""
+
+    def test_format_pinned_full_metadata(self):
+        """Pinned person shows role, team, reports_to, and mention count."""
+        from kb.context import _format_person_pinned
+        from kb.types import ContextEntity
+
+        entity = ContextEntity(
+            id=1,
+            name="Talia Ström",
+            entity_type="person",
+            aliases=["Talia"],
+            metadata={
+                "role": "Engineering Leader",
+                "team": "Platform",
+                "reports_to": "CTO",
+            },
+            source_path=None,
+            mention_count=3,
+            pinned=True,
+        )
+        result = _format_person_pinned(entity)
+        assert result == "Talia\u2605(Engineering Leader|team:Platform|\u2192CTO,3m)"
+
+    def test_format_pinned_no_reports_to(self):
+        """Pinned person without reports_to omits the arrow."""
+        from kb.context import _format_person_pinned
+        from kb.types import ContextEntity
+
+        entity = ContextEntity(
+            id=1,
+            name="Soren Vance",
+            entity_type="person",
+            aliases=["Soren"],
+            metadata={"role": "Head of Engineering"},
+            source_path=None,
+            mention_count=1265,
+            pinned=True,
+        )
+        result = _format_person_pinned(entity)
+        assert result == "Soren\u2605(Head of Engineering,1265m)"
+
+    def test_format_pinned_long_role_truncated(self):
+        """Pinned person with long role gets truncated at 20 chars."""
+        from kb.context import _format_person_pinned
+        from kb.types import ContextEntity
+
+        entity = ContextEntity(
+            id=1,
+            name="Anders Holt",
+            entity_type="person",
+            aliases=["Anders"],
+            metadata={
+                "role": "Engineering Director \u2014 Engine Team",
+                "team": "Engine",
+            },
+            source_path=None,
+            mention_count=100,
+            pinned=True,
+        )
+        result = _format_person_pinned(entity)
+        assert "Engineering Direc..." in result
+        assert "team:Engine" in result
+
+    def test_format_key_role_and_reports_to(self):
+        """Key person shows role and reports_to (no team)."""
+        from kb.context import _format_person_key
+        from kb.types import ContextEntity
+
+        entity = ContextEntity(
+            id=2,
+            name="Idris Falk",
+            entity_type="person",
+            aliases=["Idris"],
+            metadata={
+                "role": "Eng Director",
+                "team": "Core",
+                "reports_to": "Jeremy",
+            },
+            source_path=None,
+            mention_count=1066,
+            pinned=False,
+        )
+        result = _format_person_key(entity)
+        assert result == "Idris(Eng Director|\u2192Jeremy,1066m)"
+
+    def test_format_key_no_reports_to(self):
+        """Key person without reports_to shows just role."""
+        from kb.context import _format_person_key
+        from kb.types import ContextEntity
+
+        entity = ContextEntity(
+            id=2,
+            name="Linnea Holm",
+            entity_type="person",
+            aliases=["Linnea"],
+            metadata={"role": "Helix Refactor Lead", "team": "Engine"},
+            source_path=None,
+            mention_count=1,
+            pinned=False,
+        )
+        result = _format_person_key(entity)
+        assert result == "Linnea(Helix Refactor Lead,1m)"
