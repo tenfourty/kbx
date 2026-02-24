@@ -207,6 +207,76 @@ class EntityTypeConfig(StrictFrozen):
 
 
 # ---------------------------------------------------------------------------
+# API response models (used by KnowledgeBase service class)
+# ---------------------------------------------------------------------------
+
+
+class EntityFact(StrictFrozen):
+    """A structured fact about an entity."""
+
+    text: str
+    date: str | None
+
+
+class EntitySummary(StrictFrozen):
+    """Entity with mention count -- the common list/grid view."""
+
+    id: int
+    name: str
+    entity_type: str
+    metadata: dict[str, str]
+    mention_count: int
+    pinned: bool
+
+
+class EntityDetail(StrictFrozen):
+    """Full entity record with facts and source path."""
+
+    id: int
+    name: str
+    entity_type: str
+    aliases: list[str]
+    metadata: dict[str, str]
+    mention_count: int
+    pinned: bool
+    source_path: str | None
+    facts: list[EntityFact]
+
+
+class TimelineEntry(StrictFrozen):
+    """A document mentioning an entity, ordered by date."""
+
+    title: str
+    date: str | None
+    path: str
+
+
+class EntityPinResult(StrictFrozen):
+    """Result of toggling an entity's pin state."""
+
+    name: str
+    pinned: bool
+
+
+class DocumentPinResult(StrictFrozen):
+    """Result of toggling a document's pin state."""
+
+    path: str
+    pinned: bool
+
+
+class MemoryTreeNode(StrictFrozen):
+    """A file or directory in the memory/ tree."""
+
+    name: str
+    node_type: str  # "file" | "dir"
+    path: str  # relative to memory/
+    pinned: bool = False
+    children: list[MemoryTreeNode] = []
+    count: int = 0  # file count for dirs
+
+
+# ---------------------------------------------------------------------------
 # Context rendering helpers (entities enriched with mention counts)
 # ---------------------------------------------------------------------------
 

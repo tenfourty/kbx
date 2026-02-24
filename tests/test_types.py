@@ -246,6 +246,115 @@ class TestCrudModels:
         assert len(c.fields) == 2
 
 
+class TestApiTypes:
+    """Tests for API response models used by the KnowledgeBase service class."""
+
+    def test_entity_summary_roundtrip(self):
+        from kb.types import EntitySummary
+
+        s = EntitySummary(
+            id=1,
+            name="Jane Doe",
+            entity_type="person",
+            metadata={"role": "CTO"},
+            mention_count=42,
+            pinned=True,
+        )
+        assert s.id == 1
+        assert s.name == "Jane Doe"
+        assert s.entity_type == "person"
+        assert s.metadata == {"role": "CTO"}
+        assert s.mention_count == 42
+        assert s.pinned is True
+        d = s.model_dump()
+        assert d["name"] == "Jane Doe"
+        assert d["mention_count"] == 42
+        assert d["pinned"] is True
+
+    def test_entity_detail_with_facts(self):
+        from kb.types import EntityDetail, EntityFact
+
+        fact = EntityFact(text="Joined in 2024", date="2024-01-15")
+        detail = EntityDetail(
+            id=1,
+            name="Jane Doe",
+            entity_type="person",
+            aliases=["JD", "Jane"],
+            metadata={"role": "CTO"},
+            mention_count=10,
+            pinned=False,
+            source_path="memory/people/jane-doe.md",
+            facts=[fact],
+        )
+        assert detail.facts[0].text == "Joined in 2024"
+        assert detail.facts[0].date == "2024-01-15"
+        assert detail.aliases == ["JD", "Jane"]
+        assert detail.source_path == "memory/people/jane-doe.md"
+
+    def test_entity_fact_no_date(self):
+        from kb.types import EntityFact
+
+        fact = EntityFact(text="Likes coffee", date=None)
+        assert fact.date is None
+
+    def test_timeline_entry(self):
+        from kb.types import TimelineEntry
+
+        t = TimelineEntry(
+            title="Weekly Standup",
+            date="2026-02-20",
+            path="meetings/organised/2026/02/20/abc_Weekly-Standup.granola.notes.md",
+        )
+        assert t.title == "Weekly Standup"
+        assert t.date == "2026-02-20"
+        assert t.path.startswith("meetings/")
+
+    def test_entity_pin_result(self):
+        from kb.types import EntityPinResult
+
+        r = EntityPinResult(name="Jane Doe", pinned=True)
+        assert r.name == "Jane Doe"
+        assert r.pinned is True
+
+    def test_document_pin_result(self):
+        from kb.types import DocumentPinResult
+
+        r = DocumentPinResult(path="memory/notes/some-note.md", pinned=False)
+        assert r.path == "memory/notes/some-note.md"
+        assert r.pinned is False
+
+    def test_memory_tree_node_nested(self):
+        from kb.types import MemoryTreeNode
+
+        child = MemoryTreeNode(
+            name="people",
+            node_type="dir",
+            path="people",
+            pinned=False,
+            children=[
+                MemoryTreeNode(
+                    name="jane-doe.md",
+                    node_type="file",
+                    path="people/jane-doe.md",
+                    pinned=True,
+                )
+            ],
+            count=1,
+        )
+        parent = MemoryTreeNode(
+            name="memory",
+            node_type="dir",
+            path="",
+            pinned=False,
+            children=[child],
+            count=1,
+        )
+        assert parent.children[0].name == "people"
+        assert parent.children[0].children[0].name == "jane-doe.md"
+        assert parent.children[0].children[0].pinned is True
+        assert parent.children[0].count == 1
+
+
 class TestChunkerPydantic:
     """Verify that chunker.py re-exports Pydantic models (not dataclasses)."""
 
