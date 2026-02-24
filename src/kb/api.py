@@ -12,10 +12,12 @@ embedder lifecycle. Consumers create one instance and call methods.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from typing import TYPE_CHECKING
 
 from kb.db import Database
+from kb.types import EntityDetail, EntityFact, EntitySummary
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -120,3 +122,108 @@ class KnowledgeBase:
         """Return the total number of indexed documents."""
         row = self._get_conn().execute("SELECT COUNT(*) AS cnt FROM documents").fetchone()
         return int(row["cnt"])
+
+    # ------------------------------------------------------------------
+    # Entity operations
+    # ------------------------------------------------------------------
+
+    def list_entities(self, entity_type: str | None = None) -> list[EntitySummary]:
+        """List entities, optionally filtered by type. Pinned first, then by name."""
+        conn = self._get_conn()
+        if entity_type:
+            rows = conn.execute(
+                "SELECT id, name, entity_type, metadata, pinned"
+                " FROM entities WHERE entity_type = ? ORDER BY name",
+                (entity_type,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, name, entity_type, metadata, pinned FROM entities ORDER BY name"
+            ).fetchall()
+
+        mention_rows = conn.execute(
+            "SELECT entity_id, COUNT(*) AS cnt FROM entity_mentions GROUP BY entity_id"
+        ).fetchall()
+        mention_map: dict[int, int] = {r["entity_id"]: r["cnt"] for r in mention_rows}
+
+        results = [
+            EntitySummary(
+                id=r["id"],
+                name=r["name"],
+                entity_type=r["entity_type"],
+                metadata=json.loads(r["metadata"]) if r["metadata"] else {},
+                mention_count=mention_map.get(r["id"], 0),
+                pinned=bool(r["pinned"]),
+            )
+            for r in rows
+        ]
+        results.sort(key=lambda e: (not e.pinned, e.name.lower()))
+        return results
+
+    def get_entity(self, name: str) -> EntityDetail | None:
+        """Get full entity detail by name (case-insensitive, supports aliases).
+
+        Returns None if not found.
+        """
+        from kb.config import find_entity
+
+        conn = self._get_conn()
+        row = find_entity(conn, name)
+        if row is None:
+            return None
+
+        entity_id: int = row["id"]
+        meta = json.loads(row["metadata"]) if row["metadata"] else {}
+        aliases = json.loads(row["aliases"]) if row["aliases"] else []
+
+        mention_row = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM entity_mentions WHERE entity_id = ?",
+            (entity_id,),
+        ).fetchone()
+
+        fact_rows = conn.execute(
+            "SELECT fact_text, fact_date FROM facts WHERE entity_id = ?"
+            " ORDER BY fact_date DESC, id DESC",
+            (entity_id,),
+        ).fetchall()
+
+        return EntityDetail(
+            id=entity_id,
+            name=row["name"],
+            entity_type=row["entity_type"],
+            aliases=aliases,
+            metadata=meta,
+            mention_count=mention_row["cnt"] if mention_row else 0,
+            pinned=bool(row["pinned"]),
+            source_path=row["source_path"],
+            facts=[EntityFact(text=f["fact_text"], date=f["fact_date"]) for f in fact_rows],
+        )
+
+    def find_entities(self, name: str) -> list[EntitySummary]:
+        """Find entities by name/alias (case-insensitive, partial match).
+
+        Returns matches in priority order: exact name > exact alias > partial.
+        """
+        from kb.config import find_entities as _find_entities
+
+        conn = self._get_conn()
+        rows = _find_entities(conn, name)
+        if not rows:
+            return []
+
+        mention_rows = conn.execute(
+            "SELECT entity_id, COUNT(*) AS cnt FROM entity_mentions GROUP BY entity_id"
+        ).fetchall()
+        mention_map: dict[int, int] = {r["entity_id"]: r["cnt"] for r in mention_rows}
+
+        return [
+            EntitySummary(
+                id=r["id"],
+                name=r["name"],
+                entity_type=r["entity_type"],
+                metadata=json.loads(r["metadata"]) if r["metadata"] else {},
+                mention_count=mention_map.get(r["id"], 0),
+                pinned=bool(r["pinned"]),
+            )
+            for r in rows
+        ]

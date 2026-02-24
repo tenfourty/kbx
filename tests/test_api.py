@@ -62,3 +62,138 @@ class TestLifecycle:
 
     def test_count_documents_empty(self, kb_instance):
         assert kb_instance.count_documents() == 0
+
+
+@pytest.fixture
+def kb_with_entities(kb_instance):
+    """Seed some test entities into the database."""
+    conn = kb_instance._db.get_sqlite_conn()
+    conn.execute(
+        "INSERT INTO entities (name, entity_type, aliases, metadata, source_path)"
+        " VALUES (?, ?, ?, ?, ?)",
+        (
+            "Talia Ström",
+            "person",
+            '["Talia"]',
+            '{"role": "Engineering Leader", "team": "Platform"}',
+            "memory/people/eve.md",
+        ),
+    )
+    conn.execute(
+        "INSERT INTO entities (name, entity_type, aliases, metadata, source_path)"
+        " VALUES (?, ?, ?, ?, ?)",
+        (
+            "Helix Refactor",
+            "project",
+            '["helix-refactor"]',
+            '{"status": "In Progress"}',
+            None,
+        ),
+    )
+    conn.execute(
+        "INSERT INTO documents (path, title, doc_date, doc_type, source_system,"
+        " source_id, content_hash) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (
+            "meetings/standup.md",
+            "Standup",
+            "2026-02-20",
+            "meeting",
+            "granola",
+            "abc",
+            "hash1",
+        ),
+    )
+    conn.execute(
+        "INSERT INTO entity_mentions (entity_id, document_id, mention_type)"
+        " VALUES (1, 1, 'discussed')"
+    )
+    conn.execute(
+        "INSERT INTO entity_mentions (entity_id, document_id, mention_type)"
+        " VALUES (1, 1, 'participant')"
+    )
+    conn.commit()
+    return kb_instance
+
+
+class TestEntityOperations:
+    """list_entities, get_entity, find_entities."""
+
+    def test_list_entities_all(self, kb_with_entities):
+        result = kb_with_entities.list_entities()
+        assert len(result) == 2
+        names = {e.name for e in result}
+        assert "Talia Ström" in names
+        assert "Helix Refactor" in names
+
+    def test_list_entities_by_type(self, kb_with_entities):
+        result = kb_with_entities.list_entities(entity_type="person")
+        assert len(result) == 1
+        assert result[0].name == "Talia Ström"
+        assert result[0].mention_count == 2
+
+    def test_list_entities_pinned_first(self, kb_with_entities):
+        conn = kb_with_entities._db.get_sqlite_conn()
+        conn.execute("UPDATE entities SET pinned = 1 WHERE name = 'Helix Refactor'")
+        conn.commit()
+        result = kb_with_entities.list_entities()
+        assert result[0].name == "Helix Refactor"
+        assert result[0].pinned is True
+
+    def test_list_entities_returns_entity_summary(self, kb_with_entities):
+        from kb.types import EntitySummary
+
+        result = kb_with_entities.list_entities()
+        assert isinstance(result[0], EntitySummary)
+
+    def test_get_entity_found(self, kb_with_entities):
+        result = kb_with_entities.get_entity("Talia Ström")
+        assert result is not None
+        assert result.name == "Talia Ström"
+        assert result.metadata["role"] == "Engineering Leader"
+        assert result.aliases == ["Talia"]
+        assert result.mention_count == 2
+
+    def test_get_entity_not_found(self, kb_with_entities):
+        result = kb_with_entities.get_entity("Nobody")
+        assert result is None
+
+    def test_get_entity_case_insensitive(self, kb_with_entities):
+        result = kb_with_entities.get_entity("eve perrin")
+        assert result is not None
+        assert result.name == "Talia Ström"
+
+    def test_get_entity_returns_entity_detail(self, kb_with_entities):
+        from kb.types import EntityDetail
+
+        result = kb_with_entities.get_entity("Talia Ström")
+        assert isinstance(result, EntityDetail)
+
+    def test_get_entity_with_facts(self, kb_with_entities):
+        conn = kb_with_entities._db.get_sqlite_conn()
+        conn.execute(
+            "INSERT INTO facts (entity_id, fact_text, fact_date)"
+            " VALUES (1, 'Promoted to Lead', '2026-01-15')"
+        )
+        conn.commit()
+        result = kb_with_entities.get_entity("Talia Ström")
+        assert result is not None
+        assert len(result.facts) == 1
+        assert result.facts[0].text == "Promoted to Lead"
+
+    def test_find_entities_exact(self, kb_with_entities):
+        result = kb_with_entities.find_entities("Talia Ström")
+        assert len(result) == 1
+        assert result[0].name == "Talia Ström"
+
+    def test_find_entities_alias(self, kb_with_entities):
+        result = kb_with_entities.find_entities("Talia")
+        assert len(result) == 1
+        assert result[0].name == "Talia Ström"
+
+    def test_find_entities_partial(self, kb_with_entities):
+        result = kb_with_entities.find_entities("Perrin")
+        assert len(result) == 1
+
+    def test_find_entities_no_match(self, kb_with_entities):
+        result = kb_with_entities.find_entities("zzz_nonexistent")
+        assert result == []
