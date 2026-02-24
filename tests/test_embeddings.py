@@ -448,6 +448,7 @@ class TestMLXBackendMocked:
         fake_core.metal = fake_metal  # type: ignore[attr-defined]
         fake_core.array = lambda x: x  # type: ignore[attr-defined]
         fake_core.eval = lambda *a: None  # type: ignore[attr-defined]
+        fake_core.clear_cache = lambda: None  # type: ignore[attr-defined]
         fake_core.float32 = "float32"  # type: ignore[attr-defined]
         fake_mlx = ModuleType("mlx")
         fake_mlx.core = fake_core  # type: ignore[attr-defined]
@@ -474,11 +475,11 @@ class TestMLXBackendMocked:
             assert embedder.backend_name == "_MLXBackend"
 
     def test_mlx_release_gpu_memory(self):
-        """MLX release_gpu_memory calls mx.metal.clear_cache."""
+        """MLX release_gpu_memory calls mx.clear_cache."""
         from kb.embeddings import _MLXBackend
 
         backend = _MLXBackend.__new__(_MLXBackend)
-        with patch("mlx.core.metal.clear_cache") as mock_clear:
+        with patch("mlx.core.clear_cache") as mock_clear:
             backend.release_gpu_memory()
             mock_clear.assert_called_once()
 
@@ -487,7 +488,7 @@ class TestMLXBackendMocked:
         from kb.embeddings import _MLXBackend
 
         backend = _MLXBackend.__new__(_MLXBackend)
-        with patch("mlx.core.metal.clear_cache", side_effect=RuntimeError("Metal error")):
+        with patch("mlx.core.clear_cache", side_effect=RuntimeError("Metal error")):
             # Should not raise
             backend.release_gpu_memory()
 
