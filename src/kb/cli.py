@@ -1473,6 +1473,26 @@ def usage() -> None:
   kb sync notion --since 2026-01-01    # sync Notion AI Meeting Notes since date
   Options: --dry-run | --force | --no-index
 
+## 10. Python API
+
+    from kb import KnowledgeBase
+
+    kb = KnowledgeBase()                          # auto-discover config
+    kb = KnowledgeBase(thread_safe=True)           # for multi-threaded apps (FastAPI etc.)
+    kb.search("query")                             # -> SearchResponse
+    kb.list_entities(entity_type="person")         # -> list[EntitySummary]
+    kb.get_entity("name")                          # -> EntityDetail | None
+    kb.find_entities("name")                       # -> list[EntitySummary]
+    kb.get_entity_timeline("name")                 # -> list[TimelineEntry]
+    kb.context()                                   # -> ContextOutput
+    kb.index()                                     # -> IndexResult
+    kb.toggle_entity_pin("name")                   # -> EntityPinResult
+    kb.toggle_document_pin("path")                 # -> DocumentPinResult
+    kb.read_memory_file("notes/foo.md")            # -> str | None
+    kb.list_memory_tree()                          # -> list[MemoryTreeNode]
+    kb.list_glossary_terms()                       # -> list[GlossaryEntry]
+    kb.close()                                     # release resources
+
 ## Global Options
   --json | --format table|json|jsonl|csv | --fields f1,f2 | --jq expr
 """

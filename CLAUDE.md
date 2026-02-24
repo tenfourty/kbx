@@ -53,6 +53,7 @@ docs/|root: ./docs
 |testing.md — test strategy, fixtures, markers
 
 src/kb/|root: ./src/kb
+|api.py — KnowledgeBase service class (public Python API for external consumers)
 |cli.py — Click commands, all output via kb_output()
 |config.py — project root detection, get_db() singleton
 |types.py — Pydantic v2 strict models (ParsedDocument, SearchResult, Entity…)
