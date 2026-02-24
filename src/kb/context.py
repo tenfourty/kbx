@@ -135,6 +135,29 @@ def _get_entity_mention_counts(conn: sqlite3.Connection) -> dict[int, int]:
     return {r["entity_id"]: r["cnt"] for r in rows}
 
 
+_DETAIL_KEYS = ("role", "team", "company", "reports_to")
+
+
+def _get_fact_counts(conn: sqlite3.Connection) -> dict[int, int]:
+    """Count facts per entity."""
+    rows = conn.execute(
+        "SELECT entity_id, COUNT(*) as cnt FROM facts GROUP BY entity_id"
+    ).fetchall()
+    return {r["entity_id"]: r["cnt"] for r in rows}
+
+
+def _is_key_person(entity: ContextEntity, fact_counts: dict[int, int]) -> bool:
+    """Return True if a person has meaningful detail (2+ metadata fields or facts).
+
+    Key people are unpinned entities with substantive metadata -- enough to be
+    useful in compressed context output.
+    """
+    meta = entity.metadata
+    field_count = sum(1 for k in _DETAIL_KEYS if meta.get(k))
+    facts = fact_counts.get(entity.id, 0)
+    return field_count >= 2 or facts > 0
+
+
 def _get_date_range(conn: sqlite3.Connection) -> tuple[str | None, str | None]:
     """Get earliest and latest doc_date."""
     row = conn.execute(

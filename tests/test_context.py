@@ -866,3 +866,101 @@ class TestContextPydantic:
         result = generate_context(db, project_root_with_glossary, fmt="human")
         assert isinstance(result, ContextOutput)
         assert "## People" in result.text
+
+
+class TestPeopleTierHelpers:
+    """Tests for _get_fact_counts and _is_key_person."""
+
+    def test_get_fact_counts_empty(self, context_db):
+        """No facts -> empty dict."""
+        from kb.context import _get_fact_counts
+
+        db, _ = context_db
+        conn = db.get_sqlite_conn()
+        result = _get_fact_counts(conn)
+        assert result == {}
+
+    def test_get_fact_counts_with_facts(self, context_db):
+        """Facts present -> entity_id: count mapping."""
+        from kb.context import _get_fact_counts
+
+        db, _ = context_db
+        conn = db.get_sqlite_conn()
+        conn.execute(
+            "INSERT INTO facts (entity_id, fact_text, fact_date)"
+            " VALUES (1, 'Promoted', '2026-01-15')"
+        )
+        conn.execute(
+            "INSERT INTO facts (entity_id, fact_text, fact_date) VALUES (1, 'Led TF', '2026-02-01')"
+        )
+        conn.commit()
+        result = _get_fact_counts(conn)
+        assert result == {1: 2}
+
+    def test_is_key_person_two_fields(self, context_db):
+        """Person with 2+ metadata fields (role+team) is key."""
+        from kb.context import _is_key_person
+        from kb.types import ContextEntity
+
+        entity = ContextEntity(
+            id=1,
+            name="Talia",
+            entity_type="person",
+            aliases=[],
+            metadata={"role": "Lead", "team": "Platform"},
+            source_path=None,
+            mention_count=3,
+            pinned=False,
+        )
+        assert _is_key_person(entity, {}) is True
+
+    def test_is_key_person_one_field_with_facts(self, context_db):
+        """Person with 1 metadata field but facts is key."""
+        from kb.context import _is_key_person
+        from kb.types import ContextEntity
+
+        entity = ContextEntity(
+            id=99,
+            name="Soren",
+            entity_type="person",
+            aliases=[],
+            metadata={"role": "Engineer"},
+            source_path=None,
+            mention_count=0,
+            pinned=False,
+        )
+        assert _is_key_person(entity, {99: 1}) is True
+
+    def test_is_key_person_one_field_no_facts(self, context_db):
+        """Person with 1 metadata field and no facts is NOT key."""
+        from kb.context import _is_key_person
+        from kb.types import ContextEntity
+
+        entity = ContextEntity(
+            id=99,
+            name="Soren",
+            entity_type="person",
+            aliases=[],
+            metadata={"role": "Engineer"},
+            source_path=None,
+            mention_count=5,
+            pinned=False,
+        )
+        assert _is_key_person(entity, {}) is False
+
+    def test_is_key_person_empty_metadata(self, context_db):
+        """Person with no metadata and no facts is NOT key."""
+        from kb.context import _is_key_person
+        from kb.types import ContextEntity
+
+        entity = ContextEntity(
+            id=99,
+            name="Nobody",
+            entity_type="person",
+            aliases=[],
+            metadata={},
+            source_path=None,
+            mention_count=10,
+            pinned=False,
+        )
+        assert _is_key_person(entity, {}) is False
