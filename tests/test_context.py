@@ -1131,3 +1131,75 @@ class TestPeopleTierSplitting:
         # And never show tier headers
         assert "[People:pinned]" not in result.text
         assert "[People:key]" not in result.text
+
+
+class TestPeopleTierRendering:
+    """Integration tests for pinned/key people rendering in both formats."""
+
+    def test_compact_pinned_shows_full_metadata(self, context_db, project_root_with_glossary):
+        """Pinned person in compact format shows role, team, reports_to."""
+        from kb.context import generate_context
+
+        db, _ = context_db
+        conn = db.get_sqlite_conn()
+        conn.execute("UPDATE entities SET pinned = 1 WHERE name = 'Talia Ström'")
+        conn.commit()
+        result = generate_context(db, project_root_with_glossary)
+        text = result.text
+        assert "[People:pinned]" in text
+        assert "Talia\u2605(" in text
+        assert "team:Platform" in text
+        assert "\u2192CTO" in text
+
+    def test_compact_key_shows_reports_to(self, context_db, project_root_with_glossary):
+        """Key person in compact format shows role and reports_to."""
+        from kb.context import generate_context
+
+        db, _ = context_db
+        result = generate_context(db, project_root_with_glossary)
+        text = result.text
+        assert "[People:key]" in text
+        assert "\u2192Talia Ström" in text
+
+    def test_compact_key_no_team(self, context_db, project_root_with_glossary):
+        """Key person in compact format does NOT show team."""
+        from kb.context import generate_context
+
+        db, _ = context_db
+        result = generate_context(db, project_root_with_glossary)
+        text = result.text
+        assert "team:Engine" not in text
+
+    def test_human_pinned_section(self, context_db, project_root_with_glossary):
+        """Human format has ## Pinned People section."""
+        from kb.context import generate_context
+
+        db, _ = context_db
+        conn = db.get_sqlite_conn()
+        conn.execute("UPDATE entities SET pinned = 1 WHERE name = 'Talia Ström'")
+        conn.commit()
+        result = generate_context(db, project_root_with_glossary, fmt="human")
+        text = result.text
+        assert "## Pinned People" in text
+        assert "## Key People" in text
+
+    def test_human_key_section(self, context_db, project_root_with_glossary):
+        """Human format has ## Key People section with key people."""
+        from kb.context import generate_context
+
+        db, _ = context_db
+        result = generate_context(db, project_root_with_glossary, fmt="human")
+        text = result.text
+        assert "## Key People" in text
+        assert "Talia" in text
+
+    def test_no_people_sections_when_empty(self, context_db, project_root_with_glossary):
+        """No people sections if no pinned or key people exist."""
+        from kb.context import generate_context
+
+        db, _ = context_db
+        conn = db.get_sqlite_conn()
+        conn.execute("DELETE FROM entities WHERE entity_type = 'person'")
+        conn.commit()
+        result = generate_context(db, project_root_with_glossary)
+        assert "[People:" not in result.text
