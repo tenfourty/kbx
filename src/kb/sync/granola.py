@@ -555,6 +555,10 @@ def build_frontmatter(
             "scheduled_start": start.get("dateTime", ""),
             "scheduled_end": end.get("dateTime", ""),
         }
+        # Extract calendar UID for stable file naming
+        cal_uid = gcal.get("iCalUID") or gcal.get("id") or ""
+        if cal_uid:
+            fm["calendar_uid"] = cal_uid
     elif metadata.get("calendar_event"):
         # Fallback for test mocks
         cal = metadata["calendar_event"]
@@ -593,39 +597,65 @@ def _frontmatter_to_yaml(fm: dict[str, Any]) -> str:
 def _find_existing_by_id(out_dir: Path, id_prefix: str) -> str | None:
     """Find an existing file's base name by granola_id prefix in a directory.
 
-    Scans .notes.md files for one ending with _{id_prefix}. Returns the base
-    name (without .notes.md) if found, else None. This handles cases where old
-    imports used different filename conventions (emojis, special chars).
+    Scans .notes.md files for matching id_prefix in both old and new patterns:
+    - Old: {Title}_{id_prefix}.notes.md
+    - New: {id_prefix}_{Title}.granola.notes.md
+
+    Returns the base name (without .notes.md or .granola.notes.md) if found,
+    else None.
     """
     if not out_dir.exists():
         return None
-    suffix = f"_{id_prefix}.notes.md"
+    # New pattern: {id_prefix}_{Title}.granola.notes.md
+    new_prefix = f"{id_prefix}_"
     for f in out_dir.iterdir():
-        if f.name.endswith(suffix):
+        if f.name.startswith(new_prefix) and f.name.endswith(".granola.notes.md"):
+            return f.name[: -len(".granola.notes.md")]
+    # Old pattern: {Title}_{id_prefix}.notes.md
+    old_suffix = f"_{id_prefix}.notes.md"
+    for f in out_dir.iterdir():
+        if f.name.endswith(old_suffix):
             return f.name[: -len(".notes.md")]
     return None
 
 
-def _make_filename(title: str, granola_id: str) -> str:
-    """Create a filename from title and granola_id.
+def _strip_emojis(text: str) -> str:
+    """Strip emoji characters, variation selectors, and ZWJ from text."""
+    import unicodedata
 
-    Follows the convention from organise_granola.py:
-    Title_With_Underscores_{granola_id_prefix}.{type}.md
+    return "".join(
+        c for c in text if unicodedata.category(c) != "So" and c not in ("\u200d", "\ufe0f")
+    )
+
+
+def _sanitize_title(title: str) -> str:
+    """Sanitize a title for use in filenames.
+
+    Strips emojis, replaces separators (/) with ___, other non-alnum with _,
+    collapses runs. Shared convention across Granola and Notion sync.
     """
-    # Sanitize title: replace separators with ___, other non-alnum with _
-    # Must preserve ___ for "/" separators (matches organise_granola.py convention)
-    sanitized = re.sub(r"\s*/\s*", "___", title)
+    # Strip emojis first so "🗓️ Title" and "Title" produce the same result
+    stripped = _strip_emojis(title)
+    sanitized = re.sub(r"\s*/\s*", "___", stripped)
     sanitized = re.sub(r"[^\w\-]", "_", sanitized)
     # Collapse runs of underscores to single, but preserve ___ (slash separator)
     # Strategy: protect ___ → collapse → restore
     sanitized = sanitized.replace("___", "\x00")
     sanitized = re.sub(r"_+", "_", sanitized)
     sanitized = sanitized.replace("\x00", "___")
-    sanitized = sanitized.strip("_")
+    return sanitized.strip("_")
 
-    # Use first 8 chars of granola_id
-    id_prefix = granola_id[:8] if len(granola_id) >= 8 else granola_id
-    return f"{sanitized}_{id_prefix}"
+
+def _make_filename(title: str, granola_id: str, calendar_uid: str | None = None) -> str:
+    """Create a filename from title and a UID prefix.
+
+    Pattern: {uid_prefix}_{Sanitized_Title}
+    uid_prefix is first 8 chars of calendar_uid (preferred) or granola_id.
+    """
+    sanitized = _sanitize_title(title)
+    uid = calendar_uid if calendar_uid else granola_id
+    uid_prefix = uid[:8] if len(uid) >= 8 else uid
+    return f"{uid_prefix}_{sanitized}"
 
 
 def write_meeting(
@@ -663,10 +693,31 @@ def write_meeting(
     # This handles naming differences (emojis, special chars) between old imports
     # and new sync-generated filenames.
     existing_base = _find_existing_by_id(out_dir, id_prefix)
-    base_name = existing_base or _make_filename(frontmatter.get("title") or "Untitled", granola_id)
+    calendar_uid = frontmatter.get("calendar_uid")
+    new_base = _make_filename(
+        frontmatter.get("title") or "Untitled", granola_id, calendar_uid=calendar_uid
+    )
 
-    notes_path = out_dir / f"{base_name}.notes.md"
-    transcript_path = out_dir / f"{base_name}.transcript.md"
+    # Determine if existing file uses old pattern and needs renaming
+    if existing_base:
+        old_notes = out_dir / f"{existing_base}.notes.md"
+        old_transcript = out_dir / f"{existing_base}.transcript.md"
+        new_notes_check = out_dir / f"{existing_base}.granola.notes.md"
+        if old_notes.exists() and not new_notes_check.exists():
+            # Old pattern — rename to new pattern
+            target_notes = out_dir / f"{new_base}.granola.notes.md"
+            target_transcript = out_dir / f"{new_base}.granola.transcript.md"
+            old_notes.rename(target_notes)
+            if old_transcript.exists():
+                old_transcript.rename(target_transcript)
+            base_name = new_base
+        else:
+            base_name = existing_base
+    else:
+        base_name = new_base
+
+    notes_path = out_dir / f"{base_name}.granola.notes.md"
+    transcript_path = out_dir / f"{base_name}.granola.transcript.md"
 
     # Build full file content
     fm_yaml = _frontmatter_to_yaml(frontmatter)
@@ -745,7 +796,10 @@ def _should_skip_early(doc: dict[str, Any], project_root: Path) -> bool:
     if not existing_base:
         return False
 
-    notes_path = out_dir / f"{existing_base}.notes.md"
+    # Check both new and old extension patterns
+    notes_path = out_dir / f"{existing_base}.granola.notes.md"
+    if not notes_path.exists():
+        notes_path = out_dir / f"{existing_base}.notes.md"
     if not notes_path.exists():
         return False
 

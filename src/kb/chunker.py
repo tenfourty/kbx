@@ -68,6 +68,8 @@ def parse_frontmatter(text: str) -> dict[str, Any]:
         "granola_summary": summary or None,
         "granola_updated_at": fm.get("granola_updated_at"),
         "pinned": bool(fm.get("pinned", False)),
+        "notion_page_id": fm.get("notion_page_id"),
+        "calendar_uid": fm.get("calendar_uid"),
     }
 
 

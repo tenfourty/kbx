@@ -455,9 +455,118 @@ class TestBuildFrontmatter:
         assert "granola_summary" not in fm or fm["granola_summary"] is None
 
 
+class TestFindExistingById:
+    def test_find_old_pattern(self, tmp_dir):
+        """Finds files using old naming pattern: {Title}_{id_prefix}.notes.md."""
+        from kb.sync.granola import _find_existing_by_id
+
+        day_dir = tmp_dir / "day"
+        day_dir.mkdir()
+        (day_dir / "Alice___Thomas_aabb1122.notes.md").write_text("old")
+        result = _find_existing_by_id(day_dir, "aabb1122")
+        assert result == "Alice___Thomas_aabb1122"
+
+    def test_find_new_pattern(self, tmp_dir):
+        """Finds files using new naming pattern: {id_prefix}_{Title}.granola.notes.md."""
+        from kb.sync.granola import _find_existing_by_id
+
+        day_dir = tmp_dir / "day"
+        day_dir.mkdir()
+        (day_dir / "aabb1122_Alice___Thomas.granola.notes.md").write_text("new")
+        result = _find_existing_by_id(day_dir, "aabb1122")
+        assert result == "aabb1122_Alice___Thomas"
+
+    def test_prefers_new_over_old(self, tmp_dir):
+        """When both patterns exist, prefers the new one."""
+        from kb.sync.granola import _find_existing_by_id
+
+        day_dir = tmp_dir / "day"
+        day_dir.mkdir()
+        (day_dir / "Alice___Thomas_aabb1122.notes.md").write_text("old")
+        (day_dir / "aabb1122_Alice___Thomas.granola.notes.md").write_text("new")
+        result = _find_existing_by_id(day_dir, "aabb1122")
+        # New pattern takes precedence
+        assert result == "aabb1122_Alice___Thomas"
+
+    def test_not_found(self, tmp_dir):
+        """Returns None when no matching file exists."""
+        from kb.sync.granola import _find_existing_by_id
+
+        day_dir = tmp_dir / "day"
+        day_dir.mkdir()
+        (day_dir / "unrelated_file.notes.md").write_text("x")
+        assert _find_existing_by_id(day_dir, "aabb1122") is None
+
+    def test_missing_dir(self, tmp_dir):
+        """Returns None when directory doesn't exist."""
+        from kb.sync.granola import _find_existing_by_id
+
+        assert _find_existing_by_id(tmp_dir / "nonexistent", "aabb1122") is None
+
+
+class TestSanitizeTitle:
+    def test_emoji_stripped(self):
+        """Emoji prefixes are stripped so titles are consistent."""
+        from kb.sync.granola import _sanitize_title
+
+        assert _sanitize_title("🗓️ Weekly Delivery Sync") == _sanitize_title("Weekly Delivery Sync")
+
+    def test_compound_emoji_stripped(self):
+        """Compound emojis (ZWJ sequences) are fully stripped."""
+        from kb.sync.granola import _sanitize_title
+
+        assert _sanitize_title("👩‍⚕️ Visite médicale") == _sanitize_title("Visite médicale")
+
+    def test_preserves_accented_chars(self):
+        """Accented characters (é, ö, etc.) are preserved."""
+        from kb.sync.granola import _sanitize_title
+
+        result = _sanitize_title("Grégory / Linnea")
+        assert "Grégory" in result
+        assert "Linnea" in result
+
+    def test_slash_separator(self):
+        """Slash becomes triple underscore."""
+        from kb.sync.granola import _sanitize_title
+
+        assert _sanitize_title("Wren / Soren") == "Alice___Thomas"
+
+
+class TestMakeFilename:
+    def test_new_pattern(self):
+        """New pattern: {uid_prefix}_{Sanitized_Title}."""
+        from kb.sync.granola import _make_filename
+
+        result = _make_filename("Wren / Soren", "aabb112233445566")
+        assert result == "aabb1122_Alice___Thomas"
+
+    def test_with_calendar_uid(self):
+        """Uses calendar_uid when provided."""
+        from kb.sync.granola import _make_filename
+
+        result = _make_filename("Weekly 1:1", "aabb1122", calendar_uid="cal-uid-12345678")
+        assert result.startswith("cal-uid-")
+        assert "aabb1122" not in result
+
+    def test_emoji_title_matches_plain(self):
+        """Emoji and non-emoji titles produce the same filename."""
+        from kb.sync.granola import _make_filename
+
+        emoji_result = _make_filename("🗓️ Weekly Sync", "aabb1122")
+        plain_result = _make_filename("Weekly Sync", "aabb1122")
+        assert emoji_result == plain_result
+
+    def test_without_calendar_uid(self):
+        """Falls back to granola_id when no calendar_uid."""
+        from kb.sync.granola import _make_filename
+
+        result = _make_filename("Quick Chat", "def67890abcdef12")
+        assert result.startswith("def67890")
+
+
 class TestWriteMeeting:
     def test_write_meeting_file(self, tmp_dir):
-        """Writes meeting to correct path, dedup by granola_id."""
+        """Writes meeting to correct path with new naming pattern."""
         from kb.sync.granola import write_meeting
 
         doc = {
@@ -483,11 +592,40 @@ class TestWriteMeeting:
         assert result["notes_path"].exists()
         assert result["transcript_path"].exists()
         assert "2026/01/27" in str(result["notes_path"])
-        assert "aabb1122" in str(result["notes_path"])
+        # New pattern: {uid_prefix}_{Title}.granola.notes.md
+        assert result["notes_path"].name.startswith("aabb1122")
+        assert result["notes_path"].name.endswith(".granola.notes.md")
+        assert result["transcript_path"].name.endswith(".granola.transcript.md")
 
         content = result["notes_path"].read_text()
         assert "title: Wren / Soren" in content
         assert "# Meeting Notes" in content
+
+    def test_write_meeting_file_with_calendar_uid(self, tmp_dir):
+        """Uses calendar_uid for filename prefix when available."""
+        from kb.sync.granola import write_meeting
+
+        doc = {
+            "id": "aabb1122",
+            "title": "Weekly 1:1",
+            "created_at": "2026-01-27T15:00:00Z",
+            "updated_at": "2026-01-27T16:30:00Z",
+        }
+        frontmatter = {
+            "title": "Weekly 1:1",
+            "date": "2026-01-27",
+            "type": "notes",
+            "granola_id": "aabb1122",
+            "granola_updated_at": "2026-01-27T16:30:00Z",
+            "calendar_uid": "cal-uid-12345678",
+            "tags": [],
+            "attendees": [],
+        }
+
+        result = write_meeting(doc, frontmatter, "# Notes", "transcript", tmp_dir)
+        # Should use calendar_uid prefix, not granola_id
+        assert result["notes_path"].name.startswith("cal-uid-")
+        assert "aabb1122" not in result["notes_path"].name
 
     def test_write_meeting_file_update(self, tmp_dir):
         """Overwrites when updated_at is newer."""
@@ -547,6 +685,50 @@ class TestWriteMeeting:
         # Try to write same content again (same updated_at)
         result = write_meeting(doc, frontmatter, "# Same Content", "transcript", tmp_dir)
         assert result["status"] == "skipped"
+
+    def test_write_meeting_renames_old_pattern(self, tmp_dir):
+        """Old-pattern files get renamed to new pattern during write."""
+        from kb.sync.granola import write_meeting
+
+        # Create old-pattern files manually
+        day_dir = tmp_dir / "meetings" / "organised" / "2026" / "01" / "27"
+        day_dir.mkdir(parents=True)
+        old_notes = day_dir / "Alice___Thomas_aabb1122.notes.md"
+        old_transcript = day_dir / "Alice___Thomas_aabb1122.transcript.md"
+        old_notes.write_text(
+            "---\ntitle: Wren / Soren\ndate: 2026-01-27\ntype: notes\n"
+            "granola_id: aabb1122\ngranola_updated_at: '2026-01-27T15:00:00Z'\n---\n\n# Old\n"
+        )
+        old_transcript.write_text(
+            "---\ntitle: Wren / Soren\ndate: 2026-01-27\ntype: transcript\n"
+            "granola_id: aabb1122\n---\n\nOld transcript.\n"
+        )
+
+        doc = {
+            "id": "aabb1122",
+            "title": "Wren / Soren",
+            "created_at": "2026-01-27T15:00:00Z",
+            "updated_at": "2026-01-27T18:00:00Z",
+        }
+        frontmatter = {
+            "title": "Wren / Soren",
+            "date": "2026-01-27",
+            "type": "notes",
+            "granola_id": "aabb1122",
+            "granola_updated_at": "2026-01-27T18:00:00Z",
+            "tags": [],
+            "attendees": [],
+        }
+
+        result = write_meeting(doc, frontmatter, "# Updated", "New transcript", tmp_dir)
+
+        # Old files should be gone
+        assert not old_notes.exists()
+        assert not old_transcript.exists()
+        # New files should exist with .granola. pattern
+        assert result["notes_path"].name.endswith(".granola.notes.md")
+        assert result["transcript_path"].name.endswith(".granola.transcript.md")
+        assert result["status"] == "updated"
 
 
 # ---------------------------------------------------------------------------
@@ -835,7 +1017,7 @@ tags:
         # Create a meeting file with enriched frontmatter
         day_dir = tmp_dir / "meetings" / "organised" / "2026" / "01" / "27"
         day_dir.mkdir(parents=True)
-        notes = day_dir / "User___Charles_abc12345.notes.md"
+        notes = day_dir / "abc12345_Alice___Thomas.granola.notes.md"
         notes.write_text("""---
 title: Wren / Soren
 date: 2026-01-27

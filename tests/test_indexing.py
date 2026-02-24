@@ -66,6 +66,28 @@ class TestFrontmatter:
         fm = parse_frontmatter(text)
         assert fm == {}
 
+    def test_parse_frontmatter_notion_page_id(self):
+        from kb.chunker import parse_frontmatter
+
+        text = (
+            "---\ntitle: Notion Page\ndate: 2026-02-01\ntype: notes\n"
+            "source: notion-api\nnotion_page_id: abc-def-123\n---\n# Body"
+        )
+        fm = parse_frontmatter(text)
+        assert fm["notion_page_id"] == "abc-def-123"
+        assert fm["calendar_uid"] is None
+
+    def test_parse_frontmatter_calendar_uid(self):
+        from kb.chunker import parse_frontmatter
+
+        text = (
+            "---\ntitle: Meeting\ndate: 2026-02-01\ntype: notes\n"
+            "granola_id: abc123\ncalendar_uid: cal-uid-567890\n---\n# Body"
+        )
+        fm = parse_frontmatter(text)
+        assert fm["calendar_uid"] == "cal-uid-567890"
+        assert fm["notion_page_id"] is None
+
 
 class TestNotesChunking:
     def test_splits_on_headers(self):
@@ -132,7 +154,7 @@ class TestNotesChunking:
             / "2026"
             / "01"
             / "27"
-            / "User___Charles_f744ed8c.notes.md"
+            / "f744ed8c_User___Charles.granola.notes.md"
         )
         if not path.exists():
             pytest.skip("Real meeting files not available")
@@ -376,23 +398,23 @@ def meetings_root(tmp_path):
     base.mkdir(parents=True)
     for i, (name, tag) in enumerate(
         [
-            ("User___Bob_aabb0001", "Soren"),
-            ("User___Charles_aabb0002", "Soren"),
-            ("Team_Standup_aabb0003", "Engineering"),
+            ("aabb0001_User___Bob", "Soren"),
+            ("aabb0002_User___Charles", "Soren"),
+            ("aabb0003_Team_Standup", "Engineering"),
         ]
     ):
-        (base / f"{name}.notes.md").write_text(
+        (base / f"{name}.granola.notes.md").write_text(
             f"---\ntitle: Meeting {i + 1}\ndate: 2026-01-15\ntype: notes\n"
             f"granola_id: aabb000{i + 1}\ntags:\n  - {tag}\n---\n\n"
             f"## Discussion\n\nContent for meeting {i + 1}.\n"
         )
     for i, name in enumerate(
         [
-            "User___Bob_aabb0001",
-            "User___Charles_aabb0002",
+            "aabb0001_User___Bob",
+            "aabb0002_User___Charles",
         ]
     ):
-        (base / f"{name}.transcript.md").write_text(
+        (base / f"{name}.granola.transcript.md").write_text(
             f"---\ntitle: Transcript {i + 1}\ndate: 2026-01-15\ntype: transcript\n"
             f"granola_id: aabb000{i + 1}\n---\n\n"
             f"**Me:** Hello.\n\n**System:** Hi there.\n"
@@ -580,7 +602,7 @@ class TestIndexer:
             # Create a meeting that mentions Jane
             meetings_dir = tmp_root / "meetings" / "organised" / "2026" / "01" / "01"
             meetings_dir.mkdir(parents=True)
-            (meetings_dir / "Test_Meeting_aabbccdd.notes.md").write_text(
+            (meetings_dir / "aabbccdd_Test_Meeting.granola.notes.md").write_text(
                 "---\ntitle: Test Meeting\ndate: 2026-01-01\ntype: notes\n"
                 "granola_id: aabbccdd\ntags:\n  - Jane\n---\n\n"
                 "## Discussion\n\nJane Doe presented the quarterly results.\n"
@@ -605,7 +627,7 @@ class TestIndexer:
 
             meetings_dir = tmp_root / "meetings" / "organised" / "2026" / "01" / "01"
             meetings_dir.mkdir(parents=True)
-            (meetings_dir / "Test_Meeting_aabbccdd.notes.md").write_text(
+            (meetings_dir / "aabbccdd_Test_Meeting.granola.notes.md").write_text(
                 "---\ntitle: Test Meeting\ndate: 2026-01-01\ntype: notes\n"
                 "granola_id: aabbccdd\n---\n\n"
                 "## Section A\n\nContent A.\n\n"
@@ -631,7 +653,7 @@ class TestIndexer:
 
             meetings_dir = tmp_root / "meetings" / "organised" / "2026" / "01" / "01"
             meetings_dir.mkdir(parents=True)
-            (meetings_dir / "Test_Meeting_aabbccdd.notes.md").write_text(
+            (meetings_dir / "aabbccdd_Test_Meeting.granola.notes.md").write_text(
                 "---\ntitle: Test Meeting\ndate: 2026-01-01\ntype: notes\n"
                 "granola_id: aabbccdd\n---\n\n"
                 "## Section A\n\nContent A.\n\n"
@@ -694,7 +716,7 @@ class TestIndexerWithMockEmbedder:
 
             meetings_dir = tmp_root / "meetings" / "organised" / "2026" / "01" / "01"
             meetings_dir.mkdir(parents=True)
-            (meetings_dir / "Test_Meeting_aabbccdd.notes.md").write_text(
+            (meetings_dir / "aabbccdd_Test_Meeting.granola.notes.md").write_text(
                 "---\ntitle: Test Meeting\ndate: 2026-01-01\ntype: notes\n"
                 "granola_id: aabbccdd\n---\n\n"
                 "## Section A\n\nContent A.\n\n"
@@ -795,7 +817,7 @@ class TestNoEmbedIndexing:
 
             meetings_dir = tmp_root / "meetings" / "organised" / "2026" / "01" / "01"
             meetings_dir.mkdir(parents=True)
-            (meetings_dir / "Test_Meeting_aabbccdd.notes.md").write_text(
+            (meetings_dir / "aabbccdd_Test_Meeting.granola.notes.md").write_text(
                 "---\ntitle: Test Meeting\ndate: 2026-01-01\ntype: notes\n"
                 "granola_id: aabbccdd\ntags:\n  - Jane\n---\n\n"
                 "## Discussion\n\nJane Doe presented the quarterly results.\n"
@@ -822,7 +844,7 @@ class TestNoEmbedIndexing:
 
             meetings_dir = tmp_root / "meetings" / "organised" / "2026" / "01" / "01"
             meetings_dir.mkdir(parents=True)
-            (meetings_dir / "Test_Meeting_aabbccdd.notes.md").write_text(
+            (meetings_dir / "aabbccdd_Test_Meeting.granola.notes.md").write_text(
                 "---\ntitle: Test Meeting\ndate: 2026-01-01\ntype: notes\n"
                 "granola_id: aabbccdd\ntags:\n  - Jane\n"
                 "attendees:\n"
@@ -997,7 +1019,7 @@ class TestIndexingDeleteAndReindex:
             tmp_root = Path(tmpdir)
             meet_dir = tmp_root / "meetings" / "organised" / "2026" / "01" / "15"
             meet_dir.mkdir(parents=True)
-            (meet_dir / "User___Bob_aabb0001.notes.md").write_text(
+            (meet_dir / "aabb0001_User___Bob.granola.notes.md").write_text(
                 "---\ntitle: Meeting 1\ndate: 2026-01-15\ntype: notes\n"
                 "granola_id: aabb0001\ntags:\n  - Soren\n---\n\n## Discussion\n\nOriginal.\n"
             )
@@ -1006,7 +1028,7 @@ class TestIndexingDeleteAndReindex:
             assert r1.documents_indexed == 1
 
             # Change the file — triggers _delete_document + re-index
-            (meet_dir / "User___Bob_aabb0001.notes.md").write_text(
+            (meet_dir / "aabb0001_User___Bob.granola.notes.md").write_text(
                 "---\ntitle: Meeting 1\ndate: 2026-01-15\ntype: notes\n"
                 "granola_id: aabb0001\ntags:\n  - Soren\n---\n\n## Discussion\n\nUpdated content.\n"
             )

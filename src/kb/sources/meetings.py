@@ -47,8 +47,17 @@ def walk_meetings(project_root: Path) -> Iterator[ParsedDocument]:
         date = fm.get("date")
         doc_type = fm.get("type", "notes")
         granola_id = fm.get("granola_id", "")
+        notion_page_id = fm.get("notion_page_id", "")
         tags = fm.get("tags", [])
         attendees = fm.get("attendees", [])
+
+        # Detect source system from frontmatter or filename
+        source_field = fm.get("source", "")
+        if source_field and "notion" in source_field:
+            source_system = "notion"
+        else:
+            source_system = "granola"
+        source_id = str(granola_id or notion_page_id or "")
 
         body = _strip_frontmatter(text)
 
@@ -68,8 +77,8 @@ def walk_meetings(project_root: Path) -> Iterator[ParsedDocument]:
             title=title,
             date=date,
             doc_type=doc_type,
-            source_system="granola",
-            source_id=str(granola_id),
+            source_system=source_system,
+            source_id=source_id,
             tags=tags,
             content_hash=content_hash(text),
             chunks=chunks,
