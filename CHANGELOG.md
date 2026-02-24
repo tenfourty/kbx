@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.6](https://github.com/tenfourty/kbx/compare/kbx-v0.1.5...kbx-v0.1.6) (2026-02-24)
+
+
+### Bug Fixes
+
+* **embeddings:** use mx.clear_cache instead of deprecated mx.metal.clear_cache ([548abee](https://github.com/tenfourty/kbx/commit/548abeea1d2ce5aa3ce2057c099f5fb98ecf1bf1))
+
 ## [0.1.5](https://github.com/tenfourty/kbx/compare/kbx-v0.1.4...kbx-v0.1.5) (2026-02-24)
 
 
