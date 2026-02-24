@@ -172,18 +172,13 @@ def _format_person(entity: ContextEntity) -> str:
     aliases = entity.aliases
 
     # Pick shortest recognisable name (alias or first name)
-    short_name = entity.name
-    for a in aliases:
-        if 2 <= len(a) < len(short_name) and not ("-" in a and a == a.lower()):
-            short_name = a
+    short_name = _short_name(entity.name, aliases)
 
     # Build role/team tag
     parts: list[str] = []
     if meta.get("role"):
         # Abbreviate long roles
-        role = meta["role"]
-        if len(role) > 25:
-            role = role[:22] + "..."
+        role = _truncate_role(meta["role"], max_len=25)
         parts.append(role)
     elif meta.get("team"):
         parts.append(meta["team"])
@@ -357,18 +352,13 @@ def _format_person_compact(entity: ContextEntity) -> str:
     aliases = entity.aliases
 
     # Pick shortest recognisable name
-    short_name = entity.name
-    for a in aliases:
-        if 2 <= len(a) < len(short_name) and not ("-" in a and a == a.lower()):
-            short_name = a
+    short_name = _short_name(entity.name, aliases)
 
     pinned = "\u2605" if entity.pinned else ""
 
     parts: list[str] = []
     if meta.get("role"):
-        role = meta["role"]
-        if len(role) > 20:
-            role = role[:17] + "..."
+        role = _truncate_role(meta["role"])
         parts.append(role)
 
     mc = entity.mention_count
