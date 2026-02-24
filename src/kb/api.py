@@ -17,7 +17,15 @@ import sqlite3
 from typing import TYPE_CHECKING
 
 from kb.db import Database
-from kb.types import EntityDetail, EntityFact, EntitySummary
+from kb.types import (
+    DocumentPinResult,
+    EntityDetail,
+    EntityFact,
+    EntityPinResult,
+    EntitySummary,
+    PinnedDocument,
+    TimelineEntry,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -113,15 +121,6 @@ class KnowledgeBase:
 
     def __exit__(self, *args: object) -> None:
         self.close()
-
-    # ------------------------------------------------------------------
-    # Document operations
-    # ------------------------------------------------------------------
-
-    def count_documents(self) -> int:
-        """Return the total number of indexed documents."""
-        row = self._get_conn().execute("SELECT COUNT(*) AS cnt FROM documents").fetchone()
-        return int(row["cnt"])
 
     # ------------------------------------------------------------------
     # Entity operations
@@ -227,3 +226,91 @@ class KnowledgeBase:
             )
             for r in rows
         ]
+
+    def get_entity_timeline(self, name: str, limit: int = 10) -> list[TimelineEntry]:
+        """Return recent documents mentioning an entity.
+
+        Resolves *name* via alias/partial matching. Returns empty list if not found.
+        """
+        from kb.config import find_entity
+
+        conn = self._get_conn()
+        entity = find_entity(conn, name)
+        if entity is None:
+            return []
+
+        rows = conn.execute(
+            "SELECT DISTINCT d.title, d.doc_date AS date, d.path"
+            " FROM entity_mentions em"
+            " JOIN documents d ON d.id = em.document_id"
+            " WHERE em.entity_id = ?"
+            " ORDER BY d.doc_date DESC"
+            " LIMIT ?",
+            (entity["id"], limit),
+        ).fetchall()
+
+        return [TimelineEntry(title=r["title"], date=r["date"], path=r["path"]) for r in rows]
+
+    def toggle_entity_pin(self, name: str) -> EntityPinResult:
+        """Toggle an entity's pinned state. Raises ValueError if not found."""
+        conn = self._get_conn()
+        row = conn.execute(
+            "SELECT id, name, pinned FROM entities WHERE name = ? COLLATE NOCASE",
+            (name,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"Entity not found: {name}")
+
+        new_pinned = not bool(row["pinned"])
+        conn.execute("UPDATE entities SET pinned = ? WHERE id = ?", (int(new_pinned), row["id"]))
+        conn.commit()
+        return EntityPinResult(name=row["name"], pinned=new_pinned)
+
+    # ------------------------------------------------------------------
+    # Document operations
+    # ------------------------------------------------------------------
+
+    def count_documents(self) -> int:
+        """Return the total number of indexed documents."""
+        row = self._get_conn().execute("SELECT COUNT(*) AS cnt FROM documents").fetchone()
+        return int(row["cnt"])
+
+    def get_document_pin(self, path: str) -> bool:
+        """Return whether a document is pinned."""
+        row = (
+            self._get_conn()
+            .execute("SELECT pinned FROM documents WHERE path = ?", (path,))
+            .fetchone()
+        )
+        if row is None:
+            return False
+        return bool(row["pinned"])
+
+    def toggle_document_pin(self, path: str) -> DocumentPinResult:
+        """Toggle a document's pinned state. Raises ValueError if not found."""
+        conn = self._get_conn()
+        row = conn.execute("SELECT id, pinned FROM documents WHERE path = ?", (path,)).fetchone()
+        if row is None:
+            raise ValueError(f"Document not found: {path}")
+
+        new_pinned = not bool(row["pinned"])
+        conn.execute("UPDATE documents SET pinned = ? WHERE id = ?", (int(new_pinned), row["id"]))
+        conn.commit()
+        return DocumentPinResult(path=path, pinned=new_pinned)
+
+    def list_pinned_documents(self) -> list[PinnedDocument]:
+        """Return all pinned documents with their section headings."""
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT id, path, title FROM documents WHERE pinned = 1 ORDER BY title"
+        ).fetchall()
+        pinned: list[PinnedDocument] = []
+        for r in rows:
+            headings_rows = conn.execute(
+                "SELECT DISTINCT heading FROM chunks"
+                " WHERE document_id = ? AND heading IS NOT NULL ORDER BY chunk_index",
+                (r["id"],),
+            ).fetchall()
+            headings = [h["heading"] for h in headings_rows]
+            pinned.append(PinnedDocument(path=r["path"], title=r["title"], headings=headings))
+        return pinned

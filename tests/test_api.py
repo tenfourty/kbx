@@ -197,3 +197,98 @@ class TestEntityOperations:
     def test_find_entities_no_match(self, kb_with_entities):
         result = kb_with_entities.find_entities("zzz_nonexistent")
         assert result == []
+
+
+class TestEntityTimeline:
+    def test_timeline_returns_entries(self, kb_with_entities):
+        result = kb_with_entities.get_entity_timeline("Talia Ström")
+        assert len(result) == 1
+        assert result[0].title == "Standup"
+        assert result[0].date == "2026-02-20"
+
+    def test_timeline_by_alias(self, kb_with_entities):
+        result = kb_with_entities.get_entity_timeline("Talia")
+        assert len(result) == 1
+
+    def test_timeline_not_found(self, kb_with_entities):
+        result = kb_with_entities.get_entity_timeline("Nobody")
+        assert result == []
+
+    def test_timeline_respects_limit(self, kb_with_entities):
+        conn = kb_with_entities._db.get_sqlite_conn()
+        for i in range(5):
+            conn.execute(
+                "INSERT INTO documents (path, title, doc_date, doc_type, source_system,"
+                " source_id, content_hash) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    f"meetings/m{i}.md",
+                    f"Meeting {i}",
+                    f"2026-02-{10 + i:02d}",
+                    "meeting",
+                    "granola",
+                    f"id{i}",
+                    f"hash{i}",
+                ),
+            )
+            conn.execute(
+                "INSERT INTO entity_mentions (entity_id, document_id, mention_type)"
+                f" VALUES (1, {i + 2}, 'discussed')"
+            )
+        conn.commit()
+        result = kb_with_entities.get_entity_timeline("Talia", limit=3)
+        assert len(result) == 3
+
+    def test_timeline_returns_timeline_entry(self, kb_with_entities):
+        from kb.types import TimelineEntry
+
+        result = kb_with_entities.get_entity_timeline("Talia")
+        assert isinstance(result[0], TimelineEntry)
+
+
+class TestEntityPin:
+    def test_toggle_pin_on(self, kb_with_entities):
+        result = kb_with_entities.toggle_entity_pin("Talia Ström")
+        assert result.pinned is True
+        assert result.name == "Talia Ström"
+
+    def test_toggle_pin_off(self, kb_with_entities):
+        kb_with_entities.toggle_entity_pin("Talia Ström")  # on
+        result = kb_with_entities.toggle_entity_pin("Talia Ström")  # off
+        assert result.pinned is False
+
+    def test_toggle_pin_not_found(self, kb_with_entities):
+        with pytest.raises(ValueError, match="Entity not found"):
+            kb_with_entities.toggle_entity_pin("Nobody")
+
+
+class TestDocumentOperations:
+    def test_get_document_pin_false(self, kb_with_entities):
+        assert kb_with_entities.get_document_pin("meetings/standup.md") is False
+
+    def test_toggle_document_pin(self, kb_with_entities):
+        result = kb_with_entities.toggle_document_pin("meetings/standup.md")
+        assert result.pinned is True
+        assert result.path == "meetings/standup.md"
+
+    def test_toggle_document_pin_off(self, kb_with_entities):
+        kb_with_entities.toggle_document_pin("meetings/standup.md")  # on
+        result = kb_with_entities.toggle_document_pin("meetings/standup.md")  # off
+        assert result.pinned is False
+
+    def test_toggle_document_pin_not_found(self, kb_with_entities):
+        with pytest.raises(ValueError, match="Document not found"):
+            kb_with_entities.toggle_document_pin("nonexistent.md")
+
+    def test_list_pinned_documents_empty(self, kb_instance):
+        result = kb_instance.list_pinned_documents()
+        assert result == []
+
+    def test_list_pinned_documents(self, kb_with_entities):
+        kb_with_entities.toggle_document_pin("meetings/standup.md")
+        result = kb_with_entities.list_pinned_documents()
+        assert len(result) == 1
+        assert result[0].path == "meetings/standup.md"
+        assert result[0].title == "Standup"
+
+    def test_count_documents(self, kb_with_entities):
+        assert kb_with_entities.count_documents() == 1
