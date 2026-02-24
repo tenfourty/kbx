@@ -449,7 +449,7 @@ def _build_name_patterns(entity: Entity) -> list[tuple[re.Pattern[str], int]]:
     - Full names (2+ words): case-insensitive word-boundary match
     - Short uppercase abbreviations (<=4 chars, all caps): case-sensitive
     - Single common English words (Product, Data, etc.): case-sensitive
-    - Single first names (<=6 chars, 1 word): skipped for content matching
+    - Very short single names (<=3 chars, 1 word): skipped for content matching
       (still matched via tag/title matching which is separate)
     - File-stem aliases (contain hyphens, all lowercase): skipped
     """
@@ -477,9 +477,9 @@ def _build_name_patterns(entity: Entity) -> list[tuple[re.Pattern[str], int]]:
             continue
 
         # Single-word names below here
-        # Skip single first-name aliases for content matching (too ambiguous)
-        # e.g. "Anders", "Wren", "Talia" — these match via tag/title only
-        if word_count == 1 and len(name) <= 6 and name[0].isupper() and name[1:].islower():
+        # Skip very short first-name aliases for content matching (too ambiguous)
+        # e.g. "Ed", "Jo", "Al" — these match via tag/title only
+        if word_count == 1 and len(name) <= 3 and name[0].isupper() and name[1:].islower():
             continue
 
         # Common English words used as team names — case-sensitive only
@@ -526,7 +526,8 @@ def find_entity_mentions(
     Matching rules:
     1. Tags → match tag to entity name/aliases (mention_type = "tagged")
     2. Title parsing → split on separators, match participants (mention_type = "participant")
-    3. Content name matching → scan for known names (mention_type = "discussed")
+    3. Title substring → word-boundary match names/aliases in title (mention_type = "title")
+    4. Content name matching → scan for known names (mention_type = "discussed")
 
     Pass cached_patterns (from build_entity_patterns()) to avoid recompiling
     regex patterns on every call. If None, patterns are built on the fly.
@@ -576,7 +577,22 @@ def find_entity_mentions(
             ):
                 _add(entity.id, "participant")
 
-    # 3. Content name matching with disambiguation
+    # 3. Title substring matching — catch names embedded in the title
+    # e.g. "Anders Sync Notes", "Wren 1:1", "Helix Refactor Review"
+    title_lower = title.lower()
+    for entity in entities:
+        all_names = [entity.name, *list(entity.aliases)]
+        for name in all_names:
+            # Skip very short names and file-stem aliases
+            if len(name) <= 3:
+                continue
+            if "-" in name and name == name.lower():
+                continue
+            if re.search(rf"\b{re.escape(name)}\b", title_lower, re.IGNORECASE):
+                _add(entity.id, "title")
+                break  # one match per entity is enough
+
+    # 4. Content name matching with disambiguation
     if cached_patterns is None:
         cached_patterns = build_entity_patterns(entities)
 

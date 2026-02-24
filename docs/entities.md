@@ -57,7 +57,7 @@ Each entity can have multiple aliases. For people: full name, first name, file s
 
 ```mermaid
 flowchart TD
-    DOC["Document / Chunk"] --> T1 & T2 & T3
+    DOC["Document / Chunk"] --> T1 & T2 & T2B & T3
 
     subgraph Tier1["Tier 1: Tag Matching"]
         T1["YAML frontmatter tags"]
@@ -72,26 +72,34 @@ flowchart TD
         T2M --> T2R["mention_type = participant"]
     end
 
-    subgraph Tier3["Tier 3: Content Name Matching"]
+    subgraph Tier2B["Tier 3: Title Substring Matching"]
+        T2B["Document title"]
+        T2B --> T2BM["Word-boundary match\nnames/aliases (>3 chars)\nin full title"]
+        T2BM --> T2BR["mention_type = title"]
+    end
+
+    subgraph Tier3["Tier 4: Content Name Matching"]
         T3["Document body text"]
         T3 --> T3R["Regex word-boundary\nsearch for known\nnames/aliases"]
         T3R --> T3O["mention_type = discussed"]
     end
 
-    T1R & T2R & T3O --> DEDUP["Deduplicate\n(prefer longer matches)"]
+    T1R & T2R & T2BR & T3O --> DEDUP["Deduplicate\n(prefer longer matches)"]
     DEDUP --> EM[("entity_mentions table")]
 ```
 
-Three-tier matching against document metadata and content:
+Four-tier matching against document metadata and content:
 
 1. **Tag matching** (`mention_type = "tagged"`) — YAML frontmatter tags matched to entity names/aliases
 2. **Title participant parsing** (`mention_type = "participant"`) — title split on ` / `, ` x `, ` & `, ` vs ` separators
-3. **Content name matching** (`mention_type = "discussed"`) — regex word-boundary search for known names/aliases
+3. **Title substring matching** (`mention_type = "title"`) — word-boundary match of entity names/aliases (>3 chars) anywhere in the document title. Catches meetings named after people (e.g. "Anders Sync Notes", "Wren 1:1")
+4. **Content name matching** (`mention_type = "discussed"`) — regex word-boundary search for known names/aliases
 
 ### Disambiguation
 
 - Longer alias matches are preferred (e.g. "Kit Martin" matches before "Kit")
-- Ambiguous short names (e.g. "Kit") match all possible entities
+- Very short single names (<=3 chars, e.g. "Ed", "Jo") are skipped for content and title matching (still matched via tags)
+- Single names 4+ chars (e.g. "Anders", "Wren") are matched in both content and title
 - File-stem aliases with hyphens (e.g. "dave-martin") are excluded from content matching
 
 ## Idempotency
@@ -100,7 +108,7 @@ Three-tier matching against document metadata and content:
 
 ## Testing
 
-19 tests in `test_entities.py` covering:
+43 tests in `test_entities.py` covering:
 - Person/project file parsing
 - Team extraction from company.md
 - Tag/title/content matching

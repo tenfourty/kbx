@@ -270,8 +270,8 @@ class TestEntityLinking:
         charles_mentions = [m for m in discussed if m.entity_id == 2]
         assert len(charles_mentions) == 0
 
-    def test_short_first_name_skipped_in_content(self, sample_entities):
-        """Short first names (<=6 chars) should NOT match in content (too ambiguous)."""
+    def test_short_first_name_matched_in_content(self, sample_entities):
+        """First names >3 chars should match in content (threshold lowered from 6 to 3)."""
         from kb.entities import find_entity_mentions
 
         mentions = find_entity_mentions(
@@ -283,8 +283,29 @@ class TestEntityLinking:
 
         discussed = [m for m in mentions if m.mention_type == "discussed"]
         david_ids = {m.entity_id for m in discussed if m.entity_id in (3, 4)}
-        # "Anders" alone is too ambiguous — should not match in content
-        assert len(david_ids) == 0
+        # "Anders" (5 chars) should now match — threshold lowered to 3
+        assert len(david_ids) >= 1
+
+    def test_very_short_name_skipped_in_content(self, sample_entities):
+        """Very short single names (<=3 chars) should NOT match in content."""
+        from kb.entities import Entity, find_entity_mentions
+
+        entities_with_short = [
+            *sample_entities,
+            Entity(id=10, name="Ed Wilson", entity_type="person", aliases=["Ed", "ed-wilson"]),
+        ]
+
+        mentions = find_entity_mentions(
+            title="Random meeting",
+            tags=[],
+            content="Ed presented the quarterly results.",
+            entities=entities_with_short,
+        )
+
+        discussed = [m for m in mentions if m.mention_type == "discussed"]
+        ed_ids = {m.entity_id for m in discussed if m.entity_id == 10}
+        # "Ed" (2 chars) is <= 3 — should NOT match in content
+        assert len(ed_ids) == 0
 
     def test_short_first_name_matches_via_tag(self, sample_entities):
         """Short first names should still match via tag matching."""
@@ -302,6 +323,58 @@ class TestEntityLinking:
         # Both Davids should match via tag
         assert 3 in david_ids
         assert 4 in david_ids
+
+    def test_title_substring_matching(self, sample_entities):
+        """Entity names appearing as substrings in the title should match as 'title' type."""
+        from kb.entities import find_entity_mentions
+
+        mentions = find_entity_mentions(
+            title="Anders Sync Notes",
+            tags=[],
+            content="Short content with no names.",
+            entities=sample_entities,
+        )
+
+        title_mentions = [m for m in mentions if m.mention_type == "title"]
+        title_ids = {m.entity_id for m in title_mentions}
+        # Both Davids should match via title substring
+        assert 3 in title_ids  # Soren Vance
+        assert 4 in title_ids  # Kit Larsen (alias "Anders")
+
+    def test_title_substring_skips_short_names(self, sample_entities):
+        """Title substring matching should skip very short names (<=3 chars)."""
+        from kb.entities import Entity, find_entity_mentions
+
+        entities_with_short = [
+            *sample_entities,
+            Entity(id=10, name="Ed Wilson", entity_type="person", aliases=["Ed", "ed-wilson"]),
+        ]
+
+        mentions = find_entity_mentions(
+            title="Ed Weekly Standup",
+            tags=[],
+            content="Short content.",
+            entities=entities_with_short,
+        )
+
+        title_mentions = [m for m in mentions if m.mention_type == "title"]
+        ed_ids = {m.entity_id for m in title_mentions if m.entity_id == 10}
+        # "Ed" (2 chars) is too short for title substring matching
+        assert len(ed_ids) == 0
+
+    def test_title_substring_full_name(self, sample_entities):
+        """Full names in titles should match via title substring."""
+        from kb.entities import find_entity_mentions
+
+        mentions = find_entity_mentions(
+            title="Wren Kasper 1:1",
+            tags=[],
+            content="Short content.",
+            entities=sample_entities,
+        )
+
+        title_mentions = [m for m in mentions if m.mention_type == "title"]
+        assert 1 in {m.entity_id for m in title_mentions}
 
     def test_disambiguation_david_m(self, sample_entities):
         """Specific 'Anders M.' should only match Soren Vance."""
