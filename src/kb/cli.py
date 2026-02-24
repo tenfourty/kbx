@@ -229,8 +229,9 @@ def search(
 
 @cli.command()
 @click.argument("target")
+@click.option("--plain", is_flag=True, help="Output raw file content only.")
 @output_options
-def view(target: str, fmt: str, fields: list[str] | None, jq_expr: str | None) -> None:
+def view(target: str, plain: bool, fmt: str, fields: list[str] | None, jq_expr: str | None) -> None:
     """View a specific document by path or #docid."""
     db = _get_db()
     conn = db.get_sqlite_conn()
@@ -343,6 +344,10 @@ def view(target: str, fmt: str, fields: list[str] | None, jq_expr: str | None) -
             content_parts.append(f"## {c['heading']}\n{clean}")
         else:
             content_parts.append(clean)
+
+    if plain:
+        click.echo("\n\n".join(content_parts))
+        return
 
     output = {
         "title": doc["title"],
@@ -1430,6 +1435,7 @@ def usage() -> None:
   kb search "query" --from 2026-01-01 --to 2026-01-31  # date range
   kb search "query" --sort date --json        # newest first
   kb view <path|#hash|glob> --json            # full document
+  kb view <path|#hash|glob> --plain           # raw content only (no metadata)
   kb list --type notes --from 2026-02-01      # browse by type/date
 
   Score Interpretation: 0.8+ strong | 0.5-0.8 worth reading | <0.5 noise

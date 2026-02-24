@@ -311,6 +311,91 @@ class TestViewCommand:
 
 
 # ---------------------------------------------------------------------------
+# Issue #11: kb view --plain for raw content output
+# ---------------------------------------------------------------------------
+
+
+class TestViewPlainFlag:
+    def test_view_plain_outputs_raw_content(self, runner, cli_db):
+        """kb view --plain should output just the content, no JSON wrapper or table."""
+        _db, db_path = cli_db
+        result = invoke_cli(
+            runner,
+            ["view", "meetings/2026/01/27/jeremy_charles.notes.md", "--plain"],
+            db_path,
+        )
+        assert result.exit_code == 0
+        output = result.output
+        # Should contain the actual content from chunks
+        assert "Performance review discussion with Soren." in output
+        assert "Schedule follow-up meeting in February." in output
+
+    def test_view_plain_no_json_wrapper(self, runner, cli_db):
+        """kb view --plain should not wrap output in JSON."""
+        _db, db_path = cli_db
+        result = invoke_cli(
+            runner,
+            ["view", "meetings/2026/01/27/jeremy_charles.notes.md", "--plain"],
+            db_path,
+        )
+        assert result.exit_code == 0
+        output = result.output.strip()
+        # Should NOT be valid JSON (not a dict/list wrapper)
+        assert not output.startswith("{")
+        assert not output.startswith("[")
+        # Should NOT contain JSON keys like "title", "path", "chunks"
+        assert '"title"' not in output
+        assert '"chunks"' not in output
+
+    def test_view_plain_strips_metadata_prefix(self, runner, cli_db):
+        """kb view --plain should strip [Meeting: ...] metadata prefixes."""
+        _db, db_path = cli_db
+        result = invoke_cli(
+            runner,
+            ["view", "meetings/2026/01/27/jeremy_charles.notes.md", "--plain"],
+            db_path,
+        )
+        assert result.exit_code == 0
+        assert "[Meeting:" not in result.output
+
+    def test_view_plain_includes_section_headings(self, runner, cli_db):
+        """kb view --plain should include section headings as ## markers."""
+        _db, db_path = cli_db
+        result = invoke_cli(
+            runner,
+            ["view", "meetings/2026/01/27/jeremy_charles.notes.md", "--plain"],
+            db_path,
+        )
+        assert result.exit_code == 0
+        assert "## Overview" in result.output
+        assert "## Next Steps" in result.output
+
+    def test_view_plain_excludes_document_summary_chunks(self, runner, cli_db):
+        """kb view --plain should skip __document__ summary chunks."""
+        _db, db_path = cli_db
+        result = invoke_cli(
+            runner,
+            ["view", "meetings/2026/01/27/jeremy_charles.notes.md", "--plain"],
+            db_path,
+        )
+        assert result.exit_code == 0
+        assert "__document__" not in result.output
+
+    def test_view_plain_with_json_flag_plain_wins(self, runner, cli_db):
+        """When both --plain and --json are given, --plain takes precedence."""
+        _db, db_path = cli_db
+        result = invoke_cli(
+            runner,
+            ["view", "meetings/2026/01/27/jeremy_charles.notes.md", "--plain", "--json"],
+            db_path,
+        )
+        assert result.exit_code == 0
+        output = result.output.strip()
+        # --plain should win, so no JSON wrapper
+        assert not output.startswith("{")
+
+
+# ---------------------------------------------------------------------------
 # Step 3: list command
 # ---------------------------------------------------------------------------
 
