@@ -60,7 +60,7 @@ class EntityMention(StrictFrozen):
     """A mention of an entity in a document."""
 
     entity_id: int
-    mention_type: str  # "tagged", "participant", "discussed", "attendee"
+    mention_type: str  # "tagged", "participant", "title", "discussed", "attendee"
 
 
 # ---------------------------------------------------------------------------
