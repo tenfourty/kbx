@@ -276,6 +276,10 @@ class MemoryTreeNode(StrictFrozen):
     count: int = 0  # file count for dirs
 
 
+# Resolve forward reference for self-referential children field.
+MemoryTreeNode.model_rebuild()
+
+
 # ---------------------------------------------------------------------------
 # Context rendering helpers (entities enriched with mention counts)
 # ---------------------------------------------------------------------------

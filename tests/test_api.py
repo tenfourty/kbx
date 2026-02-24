@@ -256,6 +256,11 @@ class TestEntityPin:
         result = kb_with_entities.toggle_entity_pin("Talia Ström")  # off
         assert result.pinned is False
 
+    def test_toggle_pin_by_alias(self, kb_with_entities):
+        result = kb_with_entities.toggle_entity_pin("Talia")
+        assert result.pinned is True
+        assert result.name == "Talia Ström"
+
     def test_toggle_pin_not_found(self, kb_with_entities):
         with pytest.raises(ValueError, match="Entity not found"):
             kb_with_entities.toggle_entity_pin("Nobody")

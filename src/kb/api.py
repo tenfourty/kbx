@@ -12,8 +12,11 @@ embedder lifecycle. Consumers create one instance and call methods.
 
 from __future__ import annotations
 
+import contextlib
 import json
+import os
 import sqlite3
+import tempfile
 from typing import TYPE_CHECKING
 
 from kb.db import Database
@@ -98,6 +101,19 @@ class KnowledgeBase:
         """Get the SQLite connection."""
         return self._db.get_sqlite_conn()
 
+    @staticmethod
+    def _mention_counts(conn: sqlite3.Connection, entity_ids: list[int]) -> dict[int, int]:
+        """Return {entity_id: mention_count} for the given IDs only."""
+        if not entity_ids:
+            return {}
+        placeholders = ",".join("?" * len(entity_ids))
+        rows = conn.execute(
+            f"SELECT entity_id, COUNT(*) AS cnt FROM entity_mentions"
+            f" WHERE entity_id IN ({placeholders}) GROUP BY entity_id",
+            entity_ids,
+        ).fetchall()
+        return {r["entity_id"]: r["cnt"] for r in rows}
+
     def _get_embedder(self) -> Embedder | None:
         """Lazy-load the embedder, returning None if unavailable."""
         if self._embedder is not None:
@@ -115,6 +131,8 @@ class KnowledgeBase:
 
     def close(self) -> None:
         """Release all resources (DB connection, embedder GPU memory)."""
+        if self._embedder is not None:
+            self._embedder.release_gpu_memory()
         self._db.close()
         self._embedder = None
         self._embedder_failed = False
@@ -143,10 +161,7 @@ class KnowledgeBase:
                 "SELECT id, name, entity_type, metadata, pinned FROM entities ORDER BY name"
             ).fetchall()
 
-        mention_rows = conn.execute(
-            "SELECT entity_id, COUNT(*) AS cnt FROM entity_mentions GROUP BY entity_id"
-        ).fetchall()
-        mention_map: dict[int, int] = {r["entity_id"]: r["cnt"] for r in mention_rows}
+        mention_map = self._mention_counts(conn, [r["id"] for r in rows])
 
         results = [
             EntitySummary(
@@ -213,10 +228,7 @@ class KnowledgeBase:
         if not rows:
             return []
 
-        mention_rows = conn.execute(
-            "SELECT entity_id, COUNT(*) AS cnt FROM entity_mentions GROUP BY entity_id"
-        ).fetchall()
-        mention_map: dict[int, int] = {r["entity_id"]: r["cnt"] for r in mention_rows}
+        mention_map = self._mention_counts(conn, [r["id"] for r in rows])
 
         return [
             EntitySummary(
@@ -255,12 +267,14 @@ class KnowledgeBase:
         return [TimelineEntry(title=r["title"], date=r["date"], path=r["path"]) for r in rows]
 
     def toggle_entity_pin(self, name: str) -> EntityPinResult:
-        """Toggle an entity's pinned state. Raises ValueError if not found."""
+        """Toggle an entity's pinned state. Raises ValueError if not found.
+
+        Resolves *name* via alias/partial matching (same as get_entity).
+        """
+        from kb.config import find_entity
+
         conn = self._get_conn()
-        row = conn.execute(
-            "SELECT id, name, pinned FROM entities WHERE name = ? COLLATE NOCASE",
-            (name,),
-        ).fetchone()
+        row = find_entity(conn, name)
         if row is None:
             raise ValueError(f"Entity not found: {name}")
 
@@ -348,12 +362,20 @@ class KnowledgeBase:
         """Write content to an existing markdown file in memory/.
 
         Returns False if the path is invalid or the file doesn't exist.
-        Does not create new files.
+        Does not create new files. Uses atomic temp-file-then-rename.
         """
         resolved = self._validate_memory_path(relative_path)
         if resolved is None or not resolved.is_file():
             return False
-        resolved.write_text(content, encoding="utf-8")
+        fd, tmp_path = tempfile.mkstemp(dir=str(resolved.parent), suffix=".md.tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+            os.replace(tmp_path, str(resolved))
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp_path)
+            raise
         return True
 
     def list_memory_tree(self) -> list[MemoryTreeNode]:
