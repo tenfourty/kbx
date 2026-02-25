@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json as _json
 import re
+import unicodedata
 from typing import TYPE_CHECKING, Any
 
 from kb.entities import seed_entities
@@ -74,8 +75,15 @@ def get_type_registry() -> dict[str, EntityTypeConfig]:
 
 
 def _name_to_slug(name: str) -> str:
-    """Convert 'Jane Doe' to 'jane-doe' for filenames."""
-    slug = name.lower().strip()
+    """Convert 'Jane Doe' to 'jane-doe' for filenames.
+
+    Strips accents via NFKD decomposition so filenames are ASCII-only.
+    Entity names in the DB and markdown headings keep their original accents.
+    """
+    # Strip accents: NFKD decompose, then drop combining marks
+    slug = unicodedata.normalize("NFKD", name)
+    slug = slug.encode("ascii", "ignore").decode("ascii")
+    slug = slug.lower().strip()
     slug = re.sub(r"[^\w\s-]", "", slug)  # remove non-word chars except hyphens
     slug = re.sub(r"[\s]+", "-", slug)  # spaces to hyphens
     return slug

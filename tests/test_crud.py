@@ -325,6 +325,138 @@ class TestCustomMetadata:
         assert "**Preferred Lang:** French" in content
 
 
+class TestNameToSlugAccentStripping:
+    """Tests for ASCII-only file slugs (Issue #18)."""
+
+    def test_slug_strips_accents(self):
+        from kb.crud import _name_to_slug
+
+        assert _name_to_slug("Nathanaël Soulat") == "nathanael-soulat"
+
+    def test_slug_strips_multiple_accents(self):
+        from kb.crud import _name_to_slug
+
+        assert _name_to_slug("Aurélien Gâteau") == "aurelien-gateau"
+
+    def test_slug_no_accents_unchanged(self):
+        from kb.crud import _name_to_slug
+
+        assert _name_to_slug("Jane Doe") == "jane-doe"
+
+    def test_slug_german_umlauts(self):
+        from kb.crud import _name_to_slug
+
+        assert _name_to_slug("Müller Straße") == "muller-strae"
+
+    def test_slug_cedilla(self):
+        from kb.crud import _name_to_slug
+
+        assert _name_to_slug("François Garçon") == "francois-garcon"
+
+    def test_create_accented_person_ascii_filename(self, crud_env):
+        """person create with accented name creates ASCII filename but keeps accented heading."""
+        from kb.crud import create_entity
+
+        db, root = crud_env
+        result = create_entity(db, root, "person", "Nathanaël Soulat")
+        # File should have ASCII-only name
+        assert (root / "memory" / "people" / "nathanael-soulat.md").exists()
+        # Heading should keep the accent
+        content = (root / "memory" / "people" / "nathanael-soulat.md").read_text()
+        assert "# Nathanaël Soulat" in content
+        # Result path should use ASCII slug
+        assert result["path"] == "memory/people/nathanael-soulat.md"
+
+    def test_create_accented_person_seeds_sqlite_with_accented_name(self, crud_env):
+        """DB entity name keeps accents even though filename is ASCII."""
+        from kb.crud import create_entity
+
+        db, root = crud_env
+        create_entity(db, root, "person", "Nathanaël Soulat")
+        conn = db.get_sqlite_conn()
+        row = conn.execute("SELECT * FROM entities WHERE name = 'Nathanaël Soulat'").fetchone()
+        assert row is not None
+        assert row["entity_type"] == "person"
+        # source_path should use ASCII slug
+        assert row["source_path"] == "memory/people/nathanael-soulat.md"
+
+
+class TestAccentInsensitiveFind:
+    """Tests for accent-insensitive entity lookup (Issue #18)."""
+
+    def test_find_entity_accent_insensitive(self, crud_env):
+        """find_entity matches 'Nathanael' to stored 'Nathanaël'."""
+        from kb.config import find_entity
+        from kb.crud import create_entity
+
+        db, root = crud_env
+        create_entity(db, root, "person", "Nathanaël Soulat")
+        conn = db.get_sqlite_conn()
+        row = find_entity(conn, "Nathanael Soulat")
+        assert row is not None
+        assert row["name"] == "Nathanaël Soulat"
+
+    def test_find_entity_accent_insensitive_partial(self, crud_env):
+        """find_entity matches 'Aurelien' to stored 'Aurélien'."""
+        from kb.config import find_entity
+        from kb.crud import create_entity
+
+        db, root = crud_env
+        create_entity(db, root, "person", "Aurélien Gâteau", metadata={"role": "Engineer"})
+        conn = db.get_sqlite_conn()
+        row = find_entity(conn, "Aurelien")
+        assert row is not None
+        assert row["name"] == "Aurélien Gâteau"
+
+    def test_find_entity_exact_accented_still_works(self, crud_env):
+        """Exact accented name still works (fast path)."""
+        from kb.config import find_entity
+        from kb.crud import create_entity
+
+        db, root = crud_env
+        create_entity(db, root, "person", "Nathanaël Soulat")
+        conn = db.get_sqlite_conn()
+        row = find_entity(conn, "Nathanaël Soulat")
+        assert row is not None
+        assert row["name"] == "Nathanaël Soulat"
+
+    def test_find_entity_case_and_accent_insensitive(self, crud_env):
+        """Lookup is both case-insensitive AND accent-insensitive."""
+        from kb.config import find_entity
+        from kb.crud import create_entity
+
+        db, root = crud_env
+        create_entity(db, root, "person", "Nathanaël Soulat")
+        conn = db.get_sqlite_conn()
+        row = find_entity(conn, "nathanael soulat")
+        assert row is not None
+        assert row["name"] == "Nathanaël Soulat"
+
+    def test_find_entities_accent_insensitive_returns_all(self, crud_env):
+        """find_entities returns all accent-insensitive matches."""
+        from kb.config import find_entities
+        from kb.crud import create_entity
+
+        db, root = crud_env
+        create_entity(db, root, "person", "Nathanaël Soulat")
+        conn = db.get_sqlite_conn()
+        rows = find_entities(conn, "Nathanael Soulat")
+        assert len(rows) == 1
+        assert rows[0]["name"] == "Nathanaël Soulat"
+
+    def test_find_entity_accent_insensitive_alias(self, crud_env):
+        """Accent-insensitive match works on aliases too."""
+        from kb.config import find_entity
+        from kb.crud import create_entity
+
+        db, root = crud_env
+        create_entity(db, root, "person", "Jane Doe", aliases=["Héloïse"])
+        conn = db.get_sqlite_conn()
+        row = find_entity(conn, "Heloise")
+        assert row is not None
+        assert row["name"] == "Jane Doe"
+
+
 class TestEntityDelete:
     def test_delete_removes_file_and_db(self, crud_env):
         from kb.crud import create_entity, delete_entity

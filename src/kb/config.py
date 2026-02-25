@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import unicodedata
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -79,8 +80,16 @@ def get_db() -> Database:
     return _db_instance
 
 
+def _fold_accents(text: str) -> str:
+    """Strip accents from text for accent-insensitive comparison.
+
+    Uses NFKD decomposition + ASCII encoding to drop combining marks.
+    """
+    return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+
+
 def find_entity(conn: sqlite3.Connection, name: str) -> sqlite3.Row | None:
-    """Find entity by name/alias (case-insensitive, partial match).
+    """Find entity by name/alias (case-insensitive, accent-insensitive, partial match).
 
     Returns the first match, or None. For ambiguity-aware lookups, use find_entities().
     """
@@ -89,9 +98,11 @@ def find_entity(conn: sqlite3.Connection, name: str) -> sqlite3.Row | None:
 
 
 def find_entities(conn: sqlite3.Connection, name: str) -> list[sqlite3.Row]:
-    """Find all matching entities by name/alias (case-insensitive, partial match).
+    """Find all matching entities by name/alias (case-insensitive, accent-insensitive).
 
-    Returns matches in priority order: exact name > exact alias > partial name > partial alias.
+    Returns matches in priority order:
+      exact name > exact alias > accent-folded name > accent-folded alias
+      > partial name > partial alias.
     Multiple results indicate ambiguity (e.g. "Anders" matches two people).
     """
     name_lower = name.lower()
@@ -113,17 +124,37 @@ def find_entities(conn: sqlite3.Connection, name: str) -> list[sqlite3.Row]:
     if alias_matches:
         return alias_matches
 
-    # Partial name match (substring) — collect ALL matches
+    # Accent-folded exact name match
+    name_folded = _fold_accents(name_lower)
+    folded_name_matches = []
+    for e in all_entities:
+        if _fold_accents(e["name"].lower()) == name_folded:
+            folded_name_matches.append(e)
+    if folded_name_matches:
+        return folded_name_matches
+
+    # Accent-folded exact alias match
+    folded_alias_matches = []
+    for e in all_entities:
+        aliases = json.loads(e["aliases"]) if e["aliases"] else []
+        for alias in aliases:
+            if _fold_accents(alias.lower()) == name_folded:
+                folded_alias_matches.append(e)
+                break
+    if folded_alias_matches:
+        return folded_alias_matches
+
+    # Partial name match (substring, accent-folded) — collect ALL matches
     partial_matches = []
     seen_ids: set[int] = set()
     for e in all_entities:
-        if name_lower in e["name"].lower() and e["id"] not in seen_ids:
+        if name_folded in _fold_accents(e["name"].lower()) and e["id"] not in seen_ids:
             partial_matches.append(e)
             seen_ids.add(e["id"])
             continue
         aliases = json.loads(e["aliases"]) if e["aliases"] else []
         for alias in aliases:
-            if name_lower in alias.lower() and e["id"] not in seen_ids:
+            if name_folded in _fold_accents(alias.lower()) and e["id"] not in seen_ids:
                 partial_matches.append(e)
                 seen_ids.add(e["id"])
                 break
