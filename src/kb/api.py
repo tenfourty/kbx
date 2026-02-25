@@ -114,6 +114,29 @@ class KnowledgeBase:
         ).fetchall()
         return {r["entity_id"]: r["cnt"] for r in rows}
 
+    def get_fact_counts(self, entity_ids: list[int] | None = None) -> dict[int, int]:
+        """Return {entity_id: fact_count} in a single query.
+
+        If *entity_ids* is provided, only count facts for those entities.
+        An empty list returns an empty dict immediately.
+        Entities with zero facts are absent from the result.
+        """
+        conn = self._get_conn()
+        if entity_ids is not None:
+            if not entity_ids:
+                return {}
+            placeholders = ",".join("?" * len(entity_ids))
+            rows = conn.execute(
+                f"SELECT entity_id, COUNT(*) AS cnt FROM facts"
+                f" WHERE entity_id IN ({placeholders}) GROUP BY entity_id",
+                entity_ids,
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT entity_id, COUNT(*) AS cnt FROM facts GROUP BY entity_id"
+            ).fetchall()
+        return {r["entity_id"]: r["cnt"] for r in rows}
+
     def _get_embedder(self) -> Embedder | None:
         """Lazy-load the embedder, returning None if unavailable."""
         if self._embedder is not None:

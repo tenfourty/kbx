@@ -464,6 +464,71 @@ class TestWarmEmbedder:
         assert reindex_called is False
 
 
+class TestFactCounts:
+    """get_fact_counts() batch method."""
+
+    def test_empty_db_returns_empty_dict(self, kb_instance):
+        result = kb_instance.get_fact_counts()
+        assert result == {}
+
+    def test_counts_multiple_entities(self, kb_with_entities):
+        conn = kb_with_entities._db.get_sqlite_conn()
+        # Add 2 facts for entity 1 and 1 fact for entity 2
+        conn.execute(
+            "INSERT INTO facts (entity_id, fact_text, fact_date)"
+            " VALUES (1, 'Promoted to Lead', '2026-01-15')"
+        )
+        conn.execute(
+            "INSERT INTO facts (entity_id, fact_text, fact_date)"
+            " VALUES (1, 'Joined Platform team', '2025-06-01')"
+        )
+        conn.execute(
+            "INSERT INTO facts (entity_id, fact_text, fact_date)"
+            " VALUES (2, 'Migration kicked off', '2026-02-01')"
+        )
+        conn.commit()
+        result = kb_with_entities.get_fact_counts()
+        assert result == {1: 2, 2: 1}
+
+    def test_filtered_by_entity_ids(self, kb_with_entities):
+        conn = kb_with_entities._db.get_sqlite_conn()
+        conn.execute(
+            "INSERT INTO facts (entity_id, fact_text, fact_date)"
+            " VALUES (1, 'Promoted to Lead', '2026-01-15')"
+        )
+        conn.execute(
+            "INSERT INTO facts (entity_id, fact_text, fact_date)"
+            " VALUES (2, 'Migration kicked off', '2026-02-01')"
+        )
+        conn.commit()
+        # Only ask for entity 1
+        result = kb_with_entities.get_fact_counts(entity_ids=[1])
+        assert result == {1: 1}
+        assert 2 not in result
+
+    def test_entities_with_no_facts_absent(self, kb_with_entities):
+        conn = kb_with_entities._db.get_sqlite_conn()
+        # Only add facts for entity 1, not entity 2
+        conn.execute(
+            "INSERT INTO facts (entity_id, fact_text, fact_date)"
+            " VALUES (1, 'Promoted to Lead', '2026-01-15')"
+        )
+        conn.commit()
+        result = kb_with_entities.get_fact_counts()
+        assert 1 in result
+        assert 2 not in result  # absent, not zero
+
+    def test_filtered_empty_list_returns_empty(self, kb_with_entities):
+        conn = kb_with_entities._db.get_sqlite_conn()
+        conn.execute(
+            "INSERT INTO facts (entity_id, fact_text, fact_date)"
+            " VALUES (1, 'Promoted to Lead', '2026-01-15')"
+        )
+        conn.commit()
+        result = kb_with_entities.get_fact_counts(entity_ids=[])
+        assert result == {}
+
+
 class TestIndex:
     def test_index_with_glossary(self, kb_instance):
         # project_root fixture creates memory/glossary.md, so indexer finds it
