@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.8](https://github.com/tenfourty/kbx/compare/kbx-v0.1.7...kbx-v0.1.8) (2026-02-25)
+
+
+### Features
+
+* **entities:** accent-insensitive find + ASCII-only file slugs ([#18](https://github.com/tenfourty/kbx/issues/18)) ([3138eb9](https://github.com/tenfourty/kbx/commit/3138eb98cbba4b100b362ca88445978023ae0704))
+
 ## [0.1.7](https://github.com/tenfourty/kbx/compare/kbx-v0.1.6...kbx-v0.1.7) (2026-02-25)
 
 
