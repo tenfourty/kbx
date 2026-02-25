@@ -1,5 +1,45 @@
 # Changelog
 
+## [0.1.7](https://github.com/tenfourty/kbx/compare/kbx-v0.1.6...kbx-v0.1.7) (2026-02-25)
+
+
+### Features
+
+* **api:** add batch get_fact_counts() method ([#16](https://github.com/tenfourty/kbx/issues/16)) ([19e061e](https://github.com/tenfourty/kbx/commit/19e061e888b8f2417a9ab91afcc6e01d60f56164))
+* **api:** add batch get_fact_counts() method ([#16](https://github.com/tenfourty/kbx/issues/16)) ([81252b0](https://github.com/tenfourty/kbx/commit/81252b07a0dc8eada9c74f135e1b75fb4bb92c46))
+* **api:** add entity list, get, find operations ([#5](https://github.com/tenfourty/kbx/issues/5)) ([57e619d](https://github.com/tenfourty/kbx/commit/57e619d3e4d7cfb2bfe912e0b62c7b7981248eb3))
+* **api:** add entity timeline, pin toggles, document operations ([#5](https://github.com/tenfourty/kbx/issues/5)) ([28d7d2d](https://github.com/tenfourty/kbx/commit/28d7d2deb5ebd9cf36e2ec679b00d1c7643aad46))
+* **api:** add KnowledgeBase class with constructor and lifecycle ([#5](https://github.com/tenfourty/kbx/issues/5)) ([dd664d1](https://github.com/tenfourty/kbx/commit/dd664d13c6d5a1a79f59394a1001f2144e2ea842))
+* **api:** add memory ops, glossary, search, context, index ([#5](https://github.com/tenfourty/kbx/issues/5)) ([83c9d8f](https://github.com/tenfourty/kbx/commit/83c9d8f3b1cab04c1122c965c4053695a13d4327))
+* **api:** add warm_embedder() method to skip auto_reindex ([#17](https://github.com/tenfourty/kbx/issues/17)) ([1546add](https://github.com/tenfourty/kbx/commit/1546add39037c0ba4539d94dc3f2c30547a17472))
+* **api:** add warm_embedder() method to skip auto_reindex ([#17](https://github.com/tenfourty/kbx/issues/17)) ([d8a662e](https://github.com/tenfourty/kbx/commit/d8a662e99d6df63ca01c59e3504b87a4f1f7921d))
+* **cli:** add --plain flag to view command for raw content output ([2a8a255](https://github.com/tenfourty/kbx/commit/2a8a255502f2541322f0e56d5bf83b44096f16c0))
+* **cli:** add --plain flag to view command for raw content output ([#11](https://github.com/tenfourty/kbx/issues/11)) ([ed07d4e](https://github.com/tenfourty/kbx/commit/ed07d4e9178f398453d1f14a2e9a75482c571366))
+* **cli:** add note edit command for updating existing memory notes ([bdbc354](https://github.com/tenfourty/kbx/commit/bdbc354556df96ee3378dc9019802d36966a6b1e))
+* **cli:** add note edit command for updating existing memory notes ([#12](https://github.com/tenfourty/kbx/issues/12)) ([eb84b47](https://github.com/tenfourty/kbx/commit/eb84b47ce98d62d6305678ad18e23e2a714c0e91))
+* **context:** add _format_person_pinned and _format_person_key formatters ([9a873fd](https://github.com/tenfourty/kbx/commit/9a873fde9272df740c48e27cf1a8f7f32ce7347e))
+* **context:** add _get_fact_counts and _is_key_person helpers ([1d08129](https://github.com/tenfourty/kbx/commit/1d08129644674a5db8e7ecb4221ba0c3a0f86541))
+* **context:** split people into pinned/key tiers in generate_context ([2056590](https://github.com/tenfourty/kbx/commit/205659081a0210c8b31390615891c3943ee7681c))
+* **entities:** support custom metadata via --meta flag ([#15](https://github.com/tenfourty/kbx/issues/15)) ([cc28cb9](https://github.com/tenfourty/kbx/commit/cc28cb996696830bf71e984acd1a9bbb22c73006))
+* **types:** add API response models for KnowledgeBase class ([#5](https://github.com/tenfourty/kbx/issues/5)) ([f2b9ae6](https://github.com/tenfourty/kbx/commit/f2b9ae65fe474ddb52b05be7f41899832c5c3e52))
+
+
+### Bug Fixes
+
+* **api:** address code review issues for KnowledgeBase class ([#5](https://github.com/tenfourty/kbx/issues/5)) ([5e9c0ec](https://github.com/tenfourty/kbx/commit/5e9c0ec4979088f2a011723901a9c62d0603a217))
+* **entities:** improve entity linking for short names and title matching ([#6](https://github.com/tenfourty/kbx/issues/6)) ([48ca855](https://github.com/tenfourty/kbx/commit/48ca8555a6b195ab9fe5fd9d21193d84798d3369))
+* **entities:** lower short-name threshold and add title substring matching ([09d4fea](https://github.com/tenfourty/kbx/commit/09d4fea42ea75947a42dabedf1a8e67fc01e9310))
+* **sync:** fetch Notion AI summary for meeting notes ([#14](https://github.com/tenfourty/kbx/issues/14)) ([2e6bf2c](https://github.com/tenfourty/kbx/commit/2e6bf2c88a117fd3fbbaedd41969ad721bb840cd))
+
+
+### Documentation
+
+* add design for enhanced context people tiers ([076fd03](https://github.com/tenfourty/kbx/commit/076fd0388979af066d2272e0d0fa389bbd94099a))
+* add KnowledgeBase API implementation plan ([#5](https://github.com/tenfourty/kbx/issues/5)) ([655ff50](https://github.com/tenfourty/kbx/commit/655ff50e3ae174aae0c4aa12a225e84ed22d0085))
+* add Python API module design for KnowledgeBase class ([#5](https://github.com/tenfourty/kbx/issues/5)) ([92d0009](https://github.com/tenfourty/kbx/commit/92d0009692eb3cbd5931bba774751dd9d491a7bc))
+* add Python API to architecture and testing docs ([#5](https://github.com/tenfourty/kbx/issues/5)) ([342d89b](https://github.com/tenfourty/kbx/commit/342d89bb1c39780bbf69b3d0312f4de46bd4bc68))
+* **cli:** add Python API section to usage output ([#5](https://github.com/tenfourty/kbx/issues/5)) ([b1046c5](https://github.com/tenfourty/kbx/commit/b1046c557ec845ba9736263e0000258cc2345b3c))
+
 ## [0.1.6](https://github.com/tenfourty/kbx/compare/kbx-v0.1.5...kbx-v0.1.6) (2026-02-24)
 
 
