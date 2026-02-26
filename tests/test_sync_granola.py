@@ -980,6 +980,21 @@ class TestEntityAutoCreation:
         assert meta["email"] == "jane@acme.com"
         assert meta["company"] == "Lattice Co"
 
+    def test_create_attendee_sets_updated_at(self, tmp_db, tmp_dir):
+        """Auto-created attendee entity should have updated_at set to today."""
+        from datetime import date
+
+        from kb.sync.granola import match_or_create_attendee
+
+        attendee = {"name": "Fresh Person", "email": "fresh@example.com"}
+        match_or_create_attendee(attendee, tmp_db, project_root=tmp_dir)
+
+        conn = tmp_db.get_sqlite_conn()
+        row = conn.execute(
+            "SELECT updated_at FROM entities WHERE name = ?", ("Fresh Person",)
+        ).fetchone()
+        assert row["updated_at"] == date.today().isoformat()
+
 
 # ---------------------------------------------------------------------------
 # Phase 5: Pipeline Updates

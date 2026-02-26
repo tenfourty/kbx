@@ -1144,7 +1144,7 @@ def entity() -> None:
 
 
 @entity.command("stale")
-@click.option("--days", default=30, type=int, help="Freshness threshold in days.")
+@click.option("--days", default=30, type=click.IntRange(min=1), help="Freshness threshold in days.")
 @click.option("--type", "entity_type", default=None, help="Filter by entity type (person/project).")
 @output_options
 def entity_stale(

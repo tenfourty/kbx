@@ -91,6 +91,18 @@ class TestPersonCreate:
         with pytest.raises(EntityExistsError):
             create_entity(db, root, "person", "Jane Doe")
 
+    def test_create_entity_sets_updated_at(self, crud_env):
+        """New entity via create_entity should have updated_at set to today."""
+        from datetime import date
+
+        from kb.crud import create_entity
+
+        db, root = crud_env
+        create_entity(db, root, "person", "Jane Doe", metadata={"role": "Engineer"})
+        conn = db.get_sqlite_conn()
+        row = conn.execute("SELECT updated_at FROM entities WHERE name = 'Jane Doe'").fetchone()
+        assert row["updated_at"] == date.today().isoformat()
+
 
 class TestProjectCreate:
     def test_create_project_writes_file(self, crud_env):

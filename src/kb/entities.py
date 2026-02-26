@@ -286,7 +286,10 @@ def seed_entities(db: Database, project_root: Path) -> int:
     and entity_mentions), inserts new ones, removes stale ones.
     Returns the number of entities after seeding.
     """
+    from datetime import date as _date
+
     conn = db.get_sqlite_conn()
+    today = _date.today().isoformat()
 
     all_entities: list[EntityData] = []
 
@@ -370,8 +373,16 @@ def seed_entities(db: Database, project_root: Path) -> int:
         else:
             pinned_val = 1 if source_pinned else 0
             conn.execute(
-                "INSERT OR IGNORE INTO entities (name, entity_type, aliases, metadata, source_path, pinned) VALUES (?, ?, ?, ?, ?, ?)",
-                (name, entity.entity_type, aliases_json, metadata_json, source_path, pinned_val),
+                "INSERT OR IGNORE INTO entities (name, entity_type, aliases, metadata, source_path, pinned, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    name,
+                    entity.entity_type,
+                    aliases_json,
+                    metadata_json,
+                    source_path,
+                    pinned_val,
+                    today,
+                ),
             )
 
     # Remove entities no longer in source files (cascade deletes their mentions)

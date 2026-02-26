@@ -723,6 +723,23 @@ class TestPinnedParsing:
         assert row["pinned"] == 1
         db.close()
 
+    def test_seed_sets_updated_at_on_new_entities(self, tmp_path):
+        """New entities inserted by seed_entities should have updated_at set to today."""
+        from datetime import date
+
+        from kb.db import Database
+        from kb.entities import seed_entities
+
+        people = tmp_path / "memory" / "people"
+        people.mkdir(parents=True)
+        (people / "jane-doe.md").write_text("# Jane Doe\n\n**Role:** Engineer\n")
+        db = Database(tmp_path / "data")
+        seed_entities(db, tmp_path)
+        conn = db.get_sqlite_conn()
+        row = conn.execute("SELECT updated_at FROM entities WHERE name = 'Jane Doe'").fetchone()
+        assert row["updated_at"] == date.today().isoformat()
+        db.close()
+
     def test_entity_dataclass_has_pinned(self):
         """Entity dataclass should have a pinned field."""
         from kb.entities import Entity

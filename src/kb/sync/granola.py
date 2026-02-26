@@ -925,9 +925,19 @@ def match_or_create_attendee(
 
     slug = re.sub(r"[^\w]+", "-", name.lower()).strip("-")
 
+    from datetime import date
+
     conn.execute(
-        "INSERT INTO entities (name, entity_type, aliases, metadata, source_path) VALUES (?, ?, ?, ?, ?)",
-        (name, "person", json.dumps(aliases), json.dumps(metadata), f"memory/people/{slug}.md"),
+        "INSERT INTO entities (name, entity_type, aliases, metadata, source_path, updated_at)"
+        " VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            name,
+            "person",
+            json.dumps(aliases),
+            json.dumps(metadata),
+            f"memory/people/{slug}.md",
+            date.today().isoformat(),
+        ),
     )
     conn.commit()
 

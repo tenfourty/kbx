@@ -2388,3 +2388,9 @@ class TestEntityStale:
         result = invoke_cli(runner, ["entity", "stale"], tmpdir)
         assert result.exit_code == 0
         assert "Wren" in result.output
+
+    def test_entity_stale_rejects_negative_days(self, runner, tmp_db):
+        """--days must be >= 1."""
+        _db, tmpdir = tmp_db
+        result = invoke_cli(runner, ["entity", "stale", "--days", "-1"], tmpdir)
+        assert result.exit_code != 0
