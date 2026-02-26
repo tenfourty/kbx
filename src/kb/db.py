@@ -129,6 +129,7 @@ MIGRATIONS: list[tuple[str, str | None]] = [
         "008_entity_freshness_last_mentioned_at",
         "ALTER TABLE entities ADD COLUMN last_mentioned_at TEXT",
     ),
+    ("009_backfill_last_mentioned_at", None),  # Python-based backfill
 ]
 
 
@@ -155,6 +156,21 @@ def _migrate_005_normalize_paths(conn: sqlite3.Connection) -> None:
             conn.execute("UPDATE entities SET source_path = ? WHERE id = ?", (nfc, rid))
 
 
+def _migrate_009_backfill_freshness(conn: sqlite3.Connection) -> None:
+    """Backfill last_mentioned_at from entity_mentions + documents."""
+    conn.execute(
+        """
+        UPDATE entities SET last_mentioned_at = (
+            SELECT MAX(d.doc_date)
+            FROM entity_mentions em
+            JOIN documents d ON d.id = em.document_id
+            WHERE em.entity_id = entities.id
+        )
+        WHERE last_mentioned_at IS NULL
+        """
+    )
+
+
 def _apply_migrations(conn: sqlite3.Connection) -> None:
     """Apply any pending migrations. Idempotent."""
     applied = set()
@@ -171,6 +187,8 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
             # Python-based migration
             if name == "005_normalize_paths_nfc":
                 _migrate_005_normalize_paths(conn)
+            elif name == "009_backfill_last_mentioned_at":
+                _migrate_009_backfill_freshness(conn)
         else:
             try:
                 conn.execute(sql)
