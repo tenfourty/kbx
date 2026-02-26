@@ -344,6 +344,16 @@ def index_all(
                         )
                         entity_id_set.add(att_result["entity_id"])
 
+            # Update last_mentioned_at for all mentioned/attendee entities
+            if entity_id_set and doc.date:
+                for eid in entity_id_set:
+                    conn.execute(
+                        """UPDATE entities SET last_mentioned_at = MAX(
+                            COALESCE(last_mentioned_at, ''), ?
+                        ) WHERE id = ?""",
+                        (doc.date, eid),
+                    )
+
             entity_ids_json = json.dumps(sorted(entity_id_set))
 
             # Document-level summary chunk (with entity info in prefix)

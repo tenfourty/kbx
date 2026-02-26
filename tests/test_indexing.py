@@ -941,6 +941,38 @@ class TestNoEmbedIndexing:
             result = index_all(tmp_db, embedder, tmp_root, full=True)
             assert result.embeddings_skipped is False
 
+    def test_indexer_updates_last_mentioned_at(self, tmp_db):
+        """Indexing a document updates entity.last_mentioned_at to the document date."""
+        from kb.indexer import index_all
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_root = Path(tmpdir)
+
+            # Create entity via memory file
+            people_dir = tmp_root / "memory" / "people"
+            people_dir.mkdir(parents=True)
+            (people_dir / "jane-doe.md").write_text(
+                "# Jane Doe\n\n**Also known as:** Jane\n**Role:** Engineer\n"
+            )
+
+            # Create meeting that mentions Jane with a specific date
+            meetings_dir = tmp_root / "meetings" / "organised" / "2026" / "02" / "15"
+            meetings_dir.mkdir(parents=True)
+            (meetings_dir / "aabbccdd_Test_Meeting.granola.notes.md").write_text(
+                "---\ntitle: Test Meeting\ndate: 2026-02-15\ntype: notes\n"
+                "granola_id: aabbccdd\ntags:\n  - Jane\n---\n\n"
+                "## Discussion\n\nJane Doe presented quarterly results.\n"
+            )
+
+            index_all(tmp_db, None, tmp_root, full=True)
+
+            conn = tmp_db.get_sqlite_conn()
+            row = conn.execute(
+                "SELECT last_mentioned_at FROM entities WHERE name = 'Jane Doe'"
+            ).fetchone()
+            assert row is not None
+            assert row["last_mentioned_at"] == "2026-02-15"
+
 
 class TestResetIndex:
     """Tests for _reset_index with skip_vectors option."""
