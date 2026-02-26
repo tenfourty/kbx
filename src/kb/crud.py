@@ -204,9 +204,16 @@ def edit_entity(
                 entity.aliases.append(alias)
 
     # Update DB first
+    from datetime import date
+
     conn.execute(
-        "UPDATE entities SET aliases=?, metadata=? WHERE id=?",
-        (_json.dumps(entity.aliases), _json.dumps(entity.metadata), entity.id),
+        "UPDATE entities SET aliases=?, metadata=?, updated_at=? WHERE id=?",
+        (
+            _json.dumps(entity.aliases),
+            _json.dumps(entity.metadata),
+            date.today().isoformat(),
+            entity.id,
+        ),
     )
     conn.commit()
 

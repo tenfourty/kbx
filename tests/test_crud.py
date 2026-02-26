@@ -145,6 +145,21 @@ class TestEntityEdit:
         with pytest.raises(EntityNotFoundError):
             edit_entity(db, root, "Nobody", metadata={"role": "CEO"})
 
+    def test_edit_entity_sets_updated_at(self, crud_env):
+        """Editing an entity sets updated_at to today's date."""
+        from datetime import date
+
+        from kb.crud import create_entity, edit_entity
+
+        db, root = crud_env
+        create_entity(db, root, "person", "Wren", metadata={"role": "Engineer"})
+        edit_entity(db, root, "Wren", metadata={"role": "VP Product"})
+
+        conn = db.get_sqlite_conn()
+        row = conn.execute("SELECT updated_at FROM entities WHERE name = 'Wren'").fetchone()
+        assert row["updated_at"] is not None
+        assert row["updated_at"] == date.today().isoformat()
+
 
 class TestCustomMetadata:
     """Tests for custom metadata via --meta flag (Issue #15)."""
