@@ -306,6 +306,51 @@ class KnowledgeBase:
         conn.commit()
         return EntityPinResult(name=row["name"], pinned=new_pinned)
 
+    def get_stale_entities(
+        self,
+        days: int = 30,
+        entity_type: str | None = None,
+    ) -> list[dict[str, object]]:
+        """Return entities where both updated_at and last_mentioned_at are older than *days*."""
+        from datetime import date, timedelta
+
+        cutoff = (date.today() - timedelta(days=days)).isoformat()
+        conn = self._get_conn()
+
+        query = """
+            SELECT id, name, entity_type, metadata, updated_at, last_mentioned_at, pinned
+            FROM entities
+            WHERE (updated_at IS NULL OR updated_at < ?)
+              AND (last_mentioned_at IS NULL OR last_mentioned_at < ?)
+        """
+        params: list[object] = [cutoff, cutoff]
+        if entity_type:
+            query += " AND entity_type = ?"
+            params.append(entity_type)
+        query += " ORDER BY COALESCE(last_mentioned_at, updated_at, '') ASC"
+
+        rows = conn.execute(query, params).fetchall()
+        results: list[dict[str, object]] = []
+        for r in rows:
+            meta = json.loads(r["metadata"]) if r["metadata"] else {}
+            most_recent = max(r["updated_at"] or "", r["last_mentioned_at"] or "")
+            age_days = (
+                (date.today() - date.fromisoformat(most_recent)).days if most_recent else None
+            )
+            results.append(
+                {
+                    "name": r["name"],
+                    "entity_type": r["entity_type"],
+                    "role": meta.get("role"),
+                    "team": meta.get("team"),
+                    "updated_at": r["updated_at"],
+                    "last_mentioned_at": r["last_mentioned_at"],
+                    "age_days": age_days,
+                    "pinned": bool(r["pinned"]),
+                }
+            )
+        return results
+
     # ------------------------------------------------------------------
     # Document operations
     # ------------------------------------------------------------------

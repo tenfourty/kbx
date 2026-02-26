@@ -2291,3 +2291,100 @@ class TestNoteEdit:
         ).fetchall()
         chunk_text = " ".join(c["content"] for c in chunks)
         assert "After edit" in chunk_text
+
+
+# ---------------------------------------------------------------------------
+# Entity stale command
+# ---------------------------------------------------------------------------
+
+
+class TestEntityStale:
+    """Tests for the ``kb entity stale`` CLI command."""
+
+    def test_entity_stale_returns_stale_entities(self, runner, tmp_db):
+        """kbx entity stale --days 30 returns entities not updated in 30+ days."""
+        db, tmpdir = tmp_db
+        conn = db.get_sqlite_conn()
+        conn.execute(
+            "INSERT INTO entities (name, entity_type, updated_at, last_mentioned_at)"
+            " VALUES (?, ?, ?, ?)",
+            ("Wren", "person", "2025-01-01", "2025-01-15"),
+        )
+        conn.commit()
+
+        result = invoke_cli(runner, ["entity", "stale", "--days", "30", "--json"], tmpdir)
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert len(data["results"]) == 1
+        assert data["results"][0]["name"] == "Wren"
+
+    def test_entity_stale_excludes_fresh_entities(self, runner, tmp_db):
+        """Fresh entities (within threshold) are not returned."""
+        from datetime import date, timedelta
+
+        db, tmpdir = tmp_db
+        conn = db.get_sqlite_conn()
+        yesterday = (date.today() - timedelta(days=1)).isoformat()
+        conn.execute(
+            "INSERT INTO entities (name, entity_type, updated_at, last_mentioned_at)"
+            " VALUES (?, ?, ?, ?)",
+            ("Soren", "person", yesterday, yesterday),
+        )
+        conn.commit()
+
+        result = invoke_cli(runner, ["entity", "stale", "--days", "30", "--json"], tmpdir)
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert len(data["results"]) == 0
+
+    def test_entity_stale_type_filter(self, runner, tmp_db):
+        """--type filters by entity_type."""
+        db, tmpdir = tmp_db
+        conn = db.get_sqlite_conn()
+        conn.execute(
+            "INSERT INTO entities (name, entity_type, updated_at, last_mentioned_at)"
+            " VALUES (?, ?, ?, ?)",
+            ("Wren", "person", "2025-01-01", "2025-01-15"),
+        )
+        conn.execute(
+            "INSERT INTO entities (name, entity_type, updated_at, last_mentioned_at)"
+            " VALUES (?, ?, ?, ?)",
+            ("ProjectX", "project", "2025-01-01", "2025-01-15"),
+        )
+        conn.commit()
+
+        result = invoke_cli(runner, ["entity", "stale", "--type", "person", "--json"], tmpdir)
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert len(data["results"]) == 1
+        assert data["results"][0]["name"] == "Wren"
+
+    def test_entity_stale_null_timestamps(self, runner, tmp_db):
+        """Entities with NULL timestamps are considered stale."""
+        db, tmpdir = tmp_db
+        conn = db.get_sqlite_conn()
+        conn.execute(
+            "INSERT INTO entities (name, entity_type) VALUES (?, ?)",
+            ("NullEntity", "person"),
+        )
+        conn.commit()
+
+        result = invoke_cli(runner, ["entity", "stale", "--days", "30", "--json"], tmpdir)
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert len(data["results"]) == 1
+        assert data["results"][0]["name"] == "NullEntity"
+
+    def test_entity_stale_default_table_output(self, runner, tmp_db):
+        """Default (table) output works without errors."""
+        db, tmpdir = tmp_db
+        conn = db.get_sqlite_conn()
+        conn.execute(
+            "INSERT INTO entities (name, entity_type, updated_at) VALUES (?, ?, ?)",
+            ("Wren", "person", "2025-01-01"),
+        )
+        conn.commit()
+
+        result = invoke_cli(runner, ["entity", "stale"], tmpdir)
+        assert result.exit_code == 0
+        assert "Wren" in result.output

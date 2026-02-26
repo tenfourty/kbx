@@ -1133,6 +1133,41 @@ def project_list(fmt: str, fields: list[str] | None, jq_expr: str | None) -> Non
 
 
 # ---------------------------------------------------------------------------
+# entity group
+# ---------------------------------------------------------------------------
+
+
+@cli.group()
+def entity() -> None:
+    """Entity commands — stale detection."""
+    pass
+
+
+@entity.command("stale")
+@click.option("--days", default=30, type=int, help="Freshness threshold in days.")
+@click.option("--type", "entity_type", default=None, help="Filter by entity type (person/project).")
+@output_options
+def entity_stale(
+    days: int,
+    entity_type: str | None,
+    fmt: str,
+    fields: list[str] | None,
+    jq_expr: str | None,
+) -> None:
+    """List entities that haven't been updated or mentioned recently."""
+    from kb.api import KnowledgeBase
+
+    kb = KnowledgeBase(data_dir=_get_data_dir(), project_root=_find_project_root())
+    results = kb.get_stale_entities(days=days, entity_type=entity_type)
+    kb_output(
+        {"results": results, "meta": {"count": len(results), "threshold_days": days}},
+        fmt=fmt,
+        fields=fields,
+        jq_expr=jq_expr,
+    )
+
+
+# ---------------------------------------------------------------------------
 # glossary group
 # ---------------------------------------------------------------------------
 
@@ -1487,6 +1522,9 @@ def usage() -> None:
   kb project list --json             # all projects
   kb glossary add "TERM" "expansion"
   kb glossary list --json
+  kb entity stale --json               # entities not updated/mentioned in 30+ days
+  kb entity stale --days 60 --json     # custom threshold
+  kb entity stale --type person --json # filter by type
 
 ## 8. Context & Indexing
   kb context                         # compact entity index (for agents)
@@ -1513,6 +1551,7 @@ def usage() -> None:
     kb.get_entity("name")                          # -> EntityDetail | None
     kb.find_entities("name")                       # -> list[EntitySummary]
     kb.get_entity_timeline("name")                 # -> list[TimelineEntry]
+    kb.get_stale_entities(days=30)                 # -> list[dict]
     kb.context()                                   # -> ContextOutput
     kb.index()                                     # -> IndexResult
     kb.toggle_entity_pin("name")                   # -> EntityPinResult
