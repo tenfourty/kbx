@@ -861,3 +861,100 @@ class TestMcpUsageFacts:
         result = handle_kb_usage(db)
         # Should include "1 facts" in the output
         assert "1 facts" in result
+
+
+# ---------------------------------------------------------------------------
+# handle_kb_entity_stale tests
+# ---------------------------------------------------------------------------
+
+
+class TestMcpEntityStale:
+    def test_entity_stale_returns_stale(self, mcp_db):
+        """handle_kb_entity_stale returns entities with old timestamps."""
+        from kb.mcp_server import handle_kb_entity_stale
+
+        db, _ = mcp_db
+        conn = db.get_sqlite_conn()
+        # Set old timestamps on both test entities
+        conn.execute(
+            "UPDATE entities SET updated_at = '2025-01-01', last_mentioned_at = '2025-01-15'"
+        )
+        conn.commit()
+
+        result = json.loads(handle_kb_entity_stale(db, days=30))
+        assert "results" in result
+        assert len(result["results"]) == 2
+        names = {r["name"] for r in result["results"]}
+        assert "Talia Ström" in names
+
+    def test_entity_stale_excludes_fresh(self, mcp_db):
+        """handle_kb_entity_stale excludes recently updated entities."""
+        from datetime import date, timedelta
+
+        from kb.mcp_server import handle_kb_entity_stale
+
+        db, _ = mcp_db
+        conn = db.get_sqlite_conn()
+        yesterday = (date.today() - timedelta(days=1)).isoformat()
+        conn.execute(
+            f"UPDATE entities SET updated_at = '{yesterday}', last_mentioned_at = '{yesterday}'"
+        )
+        conn.commit()
+
+        result = json.loads(handle_kb_entity_stale(db, days=30))
+        assert len(result["results"]) == 0
+
+    def test_entity_stale_type_filter(self, mcp_db):
+        """handle_kb_entity_stale respects entity_type filter."""
+        from kb.mcp_server import handle_kb_entity_stale
+
+        db, _ = mcp_db
+        conn = db.get_sqlite_conn()
+        conn.execute(
+            "UPDATE entities SET updated_at = '2025-01-01', last_mentioned_at = '2025-01-15'"
+        )
+        conn.commit()
+
+        result = json.loads(handle_kb_entity_stale(db, days=30, entity_type="person"))
+        assert len(result["results"]) == 1
+        assert result["results"][0]["name"] == "Talia Ström"
+
+    def test_entity_stale_meta_includes_threshold(self, mcp_db):
+        """Response meta includes threshold_days and count."""
+        from kb.mcp_server import handle_kb_entity_stale
+
+        db, _ = mcp_db
+        result = json.loads(handle_kb_entity_stale(db, days=60))
+        assert result["meta"]["threshold_days"] == 60
+        assert "count" in result["meta"]
+
+
+# ---------------------------------------------------------------------------
+# person_find freshness fields
+# ---------------------------------------------------------------------------
+
+
+class TestMcpPersonFindFreshness:
+    def test_person_find_includes_freshness_fields(self, mcp_db):
+        """kb_person_find response includes updated_at and last_mentioned_at."""
+        from kb.mcp_server import handle_kb_person_find
+
+        db, _ = mcp_db
+        conn = db.get_sqlite_conn()
+        conn.execute(
+            "UPDATE entities SET updated_at = '2026-02-01', last_mentioned_at = '2026-02-15' WHERE name = 'Talia Ström'"
+        )
+        conn.commit()
+
+        result = json.loads(handle_kb_person_find(db, "Talia"))
+        assert result["updated_at"] == "2026-02-01"
+        assert result["last_mentioned_at"] == "2026-02-15"
+
+    def test_person_find_null_freshness_fields(self, mcp_db):
+        """kb_person_find returns None for missing freshness timestamps."""
+        from kb.mcp_server import handle_kb_person_find
+
+        db, _ = mcp_db
+        result = json.loads(handle_kb_person_find(db, "Talia"))
+        assert "updated_at" in result
+        assert "last_mentioned_at" in result

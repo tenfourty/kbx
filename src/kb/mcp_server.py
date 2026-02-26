@@ -118,6 +118,8 @@ def handle_kb_person_find(db: Database, name: str) -> str:
             "entity_type": entity_type,
             "aliases": json.loads(entity_row["aliases"]) if entity_row["aliases"] else [],
             "metadata": json.loads(entity_row["metadata"]) if entity_row["metadata"] else {},
+            "updated_at": entity_row["updated_at"],
+            "last_mentioned_at": entity_row["last_mentioned_at"],
             "facts": facts,
             "source_path": source_path,
             "document_count": document_count,
@@ -515,6 +517,8 @@ def handle_kb_usage(db: Database) -> str:
 ## 7. People & Projects
   kb_person_find("Name")              # compact profile (facts, metadata, breadcrumbs)
   kb_person_timeline("Name")          # chronological doc list
+  kb_entity_stale()                   # entities not updated/mentioned in 30+ days
+  kb_entity_stale(days=60, entity_type="person")  # custom threshold + filter
   kb_context()                        # full entity overview
   CLI: kb person/project create/edit/delete, kb glossary add/list/delete
 
@@ -529,6 +533,61 @@ def handle_kb_usage(db: Database) -> str:
         print(f"kb_usage error: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return f"Error getting usage: {e}"
+
+
+def handle_kb_entity_stale(
+    db: Database,
+    days: int = 30,
+    entity_type: str | None = None,
+) -> str:
+    """Return entities not updated or mentioned within *days*. Returns JSON string."""
+    try:
+        from datetime import date, timedelta
+
+        cutoff = (date.today() - timedelta(days=days)).isoformat()
+        conn = db.get_sqlite_conn()
+
+        query = """
+            SELECT id, name, entity_type, metadata, updated_at, last_mentioned_at, pinned
+            FROM entities
+            WHERE (updated_at IS NULL OR updated_at < ?)
+              AND (last_mentioned_at IS NULL OR last_mentioned_at < ?)
+        """
+        params: list[object] = [cutoff, cutoff]
+        if entity_type:
+            query += " AND entity_type = ?"
+            params.append(entity_type)
+        query += " ORDER BY COALESCE(last_mentioned_at, updated_at, '') ASC"
+
+        rows = conn.execute(query, params).fetchall()
+        results: list[dict[str, object]] = []
+        for r in rows:
+            meta = json.loads(r["metadata"]) if r["metadata"] else {}
+            most_recent = max(r["updated_at"] or "", r["last_mentioned_at"] or "")
+            age_days = (
+                (date.today() - date.fromisoformat(most_recent)).days if most_recent else None
+            )
+            results.append(
+                {
+                    "name": r["name"],
+                    "entity_type": r["entity_type"],
+                    "role": meta.get("role"),
+                    "team": meta.get("team"),
+                    "updated_at": r["updated_at"],
+                    "last_mentioned_at": r["last_mentioned_at"],
+                    "age_days": age_days,
+                    "pinned": bool(r["pinned"]),
+                }
+            )
+        return json.dumps(
+            {"results": results, "meta": {"count": len(results), "threshold_days": days}},
+            default=str,
+            ensure_ascii=False,
+        )
+    except Exception as e:
+        print(f"kb_entity_stale error: {e}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        return json.dumps({"error": str(e), "results": []})
 
 
 # ---------------------------------------------------------------------------
@@ -661,6 +720,17 @@ def kb_unpin(target: str) -> str:
     Accepts path, title, or glob pattern."""
     db = get_db()
     return handle_kb_unpin(db, target)
+
+
+@mcp.tool()
+def kb_entity_stale(days: int = 30, entity_type: str | None = None) -> str:
+    """List entities not updated or mentioned within a threshold.
+    Returns stale entities sorted by stalest first.
+    days: threshold in days (default 30).
+    entity_type: optional filter ('person', 'project')."""
+    days = max(1, days)
+    db = get_db()
+    return handle_kb_entity_stale(db, days=days, entity_type=entity_type)
 
 
 # ---------------------------------------------------------------------------
