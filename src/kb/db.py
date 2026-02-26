@@ -124,6 +124,11 @@ MIGRATIONS: list[tuple[str, str | None]] = [
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_entities_name_type ON entities(name, entity_type)",
     ),
     ("007_add_document_pinned", "ALTER TABLE documents ADD COLUMN pinned INTEGER DEFAULT 0"),
+    ("008_entity_freshness_updated_at", "ALTER TABLE entities ADD COLUMN updated_at TEXT"),
+    (
+        "008_entity_freshness_last_mentioned_at",
+        "ALTER TABLE entities ADD COLUMN last_mentioned_at TEXT",
+    ),
 ]
 
 

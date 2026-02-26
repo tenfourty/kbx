@@ -26,3 +26,4 @@ htmlcov/
 
 # Worktrees
 .worktrees/
+.mypy_cache/

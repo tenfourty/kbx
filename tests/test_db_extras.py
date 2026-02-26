@@ -59,6 +59,18 @@ class TestSchemaIntegrity:
             db.close()
 
 
+class TestMigration008EntityFreshness:
+    def test_migration_008_entity_freshness_columns(self):
+        """Migration 008 adds updated_at and last_mentioned_at to entities."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db = Database(Path(tmpdir))
+            conn = db.get_sqlite_conn()
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(entities)").fetchall()}
+            assert "updated_at" in cols, "updated_at column missing"
+            assert "last_mentioned_at" in cols, "last_mentioned_at column missing"
+            db.close()
+
+
 class TestNormalizePath:
     def test_nfc_normalization(self):
         import unicodedata
