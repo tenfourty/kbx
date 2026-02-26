@@ -299,6 +299,8 @@ class ContextEntity(StrictMutable):
     source_path: str | None = None
     mention_count: int = 0
     pinned: bool = False
+    updated_at: str | None = None
+    last_mentioned_at: str | None = None
 
 
 # ---------------------------------------------------------------------------

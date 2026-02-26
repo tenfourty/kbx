@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import contextlib
 import json
+import math
 import re
+from datetime import date
 from typing import TYPE_CHECKING, Any
 
 from kb.search import _sanitize_fts_input
@@ -383,6 +385,45 @@ def _truncate_role(role: str, max_len: int = 20) -> str:
     return role
 
 
+def _freshness_indicator(entity: ContextEntity) -> str:
+    """Return freshness badge: ● (fresh ≤30d), ◐Nd (aging 31-90d), ○Nd (stale >90d)."""
+    most_recent = max(
+        entity.updated_at or "",
+        entity.last_mentioned_at or "",
+    )
+    if not most_recent:
+        return " ○"
+    try:
+        d = date.fromisoformat(most_recent)
+    except (ValueError, TypeError):
+        return " ○"
+    age = (date.today() - d).days
+    if age <= 30:
+        return " ●"
+    elif age <= 90:
+        return f" ◐{age}d"
+    else:
+        return f" ○{age}d"
+
+
+def _recency_sort_key(entity: ContextEntity) -> float:
+    """Sort key: mention_count * recency_weight. Higher = more prominent."""
+    most_recent = max(
+        entity.updated_at or "",
+        entity.last_mentioned_at or "",
+    )
+    if not most_recent:
+        weight = 0.5
+    else:
+        try:
+            d = date.fromisoformat(most_recent)
+            age = (date.today() - d).days
+            weight = math.exp(-math.log(2) * age / 90) if age >= 0 else 1.0
+        except (ValueError, TypeError):
+            weight = 0.5
+    return entity.mention_count * weight
+
+
 def _format_person_pinned(entity: ContextEntity) -> str:
     """Format a pinned person: Name\u2605(Role|team:Team|\u2192ReportsTo,Nm)."""
     meta = entity.metadata
@@ -397,10 +438,11 @@ def _format_person_pinned(entity: ContextEntity) -> str:
         parts.append(f"\u2192{meta['reports_to']}")
 
     # Join metadata with |, then append mention count with ,
+    fresh = _freshness_indicator(entity)
     if parts:
         label = "|".join(parts)
-        return f"{short}\u2605({label},{entity.mention_count}m)"
-    return f"{short}\u2605({entity.mention_count}m)"
+        return f"{short}\u2605({label},{entity.mention_count}m){fresh}"
+    return f"{short}\u2605({entity.mention_count}m){fresh}"
 
 
 def _format_person_key(entity: ContextEntity) -> str:
@@ -415,10 +457,11 @@ def _format_person_key(entity: ContextEntity) -> str:
         parts.append(f"\u2192{meta['reports_to']}")
 
     # Join role+reports_to with |, then append mention count with ,
+    fresh = _freshness_indicator(entity)
     if parts:
         label = "|".join(parts)
-        return f"{short}({label},{entity.mention_count}m)"
-    return f"{short}({entity.mention_count}m)"
+        return f"{short}({label},{entity.mention_count}m){fresh}"
+    return f"{short}({entity.mention_count}m){fresh}"
 
 
 def _get_pinned_documents(conn: sqlite3.Connection) -> list[PinnedDocument]:
@@ -680,9 +723,11 @@ def generate_context(
     earliest, latest = _get_date_range(conn)
     mention_counts = _get_entity_mention_counts(conn)
 
-    # Load all entities
+    # Load all entities (including freshness columns)
     rows = conn.execute(
-        "SELECT id, name, entity_type, aliases, metadata, source_path, pinned FROM entities ORDER BY entity_type, name"
+        "SELECT id, name, entity_type, aliases, metadata, source_path, pinned,"
+        " updated_at, last_mentioned_at"
+        " FROM entities ORDER BY entity_type, name"
     ).fetchall()
 
     all_entities: list[ContextEntity] = []
@@ -702,6 +747,8 @@ def generate_context(
                 source_path=str(r["source_path"]) if r["source_path"] is not None else None,
                 mention_count=mention_counts.get(r["id"], 0),
                 pinned=bool(r["pinned"]),
+                updated_at=str(r["updated_at"]) if r["updated_at"] else None,
+                last_mentioned_at=str(r["last_mentioned_at"]) if r["last_mentioned_at"] else None,
             )
         )
 
@@ -729,12 +776,12 @@ def generate_context(
         fact_counts = _get_fact_counts(conn)
         pinned_people = sorted(
             [e for e in all_people if e.pinned],
-            key=lambda e: e.mention_count,
+            key=_recency_sort_key,
             reverse=True,
         )
         key_people = sorted(
             [e for e in all_people if not e.pinned and _is_key_person(e, fact_counts)],
-            key=lambda e: e.mention_count,
+            key=_recency_sort_key,
             reverse=True,
         )
         people = pinned_people + key_people  # for entity summaries

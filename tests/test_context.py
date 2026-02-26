@@ -989,7 +989,7 @@ class TestPersonFormatters:
             pinned=True,
         )
         result = _format_person_pinned(entity)
-        assert result == "Talia\u2605(Engineering Leader|team:Platform|\u2192CTO,3m)"
+        assert result == "Talia\u2605(Engineering Leader|team:Platform|\u2192CTO,3m) ○"
 
     def test_format_pinned_no_reports_to(self):
         """Pinned person without reports_to omits the arrow."""
@@ -1007,7 +1007,7 @@ class TestPersonFormatters:
             pinned=True,
         )
         result = _format_person_pinned(entity)
-        assert result == "Soren\u2605(Head of Engineering,1265m)"
+        assert result == "Soren\u2605(Head of Engineering,1265m) ○"
 
     def test_format_pinned_long_role_truncated(self):
         """Pinned person with long role gets truncated at 20 chars."""
@@ -1051,7 +1051,7 @@ class TestPersonFormatters:
             pinned=False,
         )
         result = _format_person_key(entity)
-        assert result == "Idris(Eng Director|\u2192Jeremy,1066m)"
+        assert result == "Idris(Eng Director|\u2192Jeremy,1066m) ○"
 
     def test_format_key_no_reports_to(self):
         """Key person without reports_to shows just role."""
@@ -1069,7 +1069,7 @@ class TestPersonFormatters:
             pinned=False,
         )
         result = _format_person_key(entity)
-        assert result == "Linnea(Helix Refactor Lead,1m)"
+        assert result == "Linnea(Helix Refactor Lead,1m) ○"
 
 
 class TestPeopleTierSplitting:
@@ -1203,3 +1203,146 @@ class TestPeopleTierRendering:
         conn.commit()
         result = generate_context(db, project_root_with_glossary)
         assert "[People:" not in result.text
+
+
+# ---------------------------------------------------------------------------
+# Freshness indicators (Task 5)
+# ---------------------------------------------------------------------------
+
+
+class TestFreshnessIndicator:
+    def test_freshness_indicator_fresh(self):
+        """Entity updated within 30 days shows ● indicator."""
+        from datetime import date
+
+        from kb.context import _freshness_indicator
+        from kb.types import ContextEntity
+
+        today = date.today().isoformat()
+        entity = ContextEntity(
+            id=1,
+            name="Wren",
+            entity_type="person",
+            mention_count=10,
+            last_mentioned_at=today,
+        )
+        result = _freshness_indicator(entity)
+        assert result == " ●"
+
+    def test_freshness_indicator_aging(self):
+        """Entity updated 31-90 days ago shows ◐Nd indicator."""
+        from datetime import date, timedelta
+
+        from kb.context import _freshness_indicator
+        from kb.types import ContextEntity
+
+        d = (date.today() - timedelta(days=60)).isoformat()
+        entity = ContextEntity(
+            id=1,
+            name="Soren",
+            entity_type="person",
+            mention_count=5,
+            last_mentioned_at=d,
+        )
+        result = _freshness_indicator(entity)
+        assert result == " ◐60d"
+
+    def test_freshness_indicator_stale(self):
+        """Entity updated >90 days ago shows ○Nd indicator."""
+        from datetime import date, timedelta
+
+        from kb.context import _freshness_indicator
+        from kb.types import ContextEntity
+
+        d = (date.today() - timedelta(days=120)).isoformat()
+        entity = ContextEntity(
+            id=1,
+            name="Linnea",
+            entity_type="person",
+            mention_count=3,
+            last_mentioned_at=d,
+        )
+        result = _freshness_indicator(entity)
+        assert result == " ○120d"
+
+    def test_freshness_indicator_no_dates(self):
+        """Entity with no timestamps shows ○ indicator."""
+        from kb.context import _freshness_indicator
+        from kb.types import ContextEntity
+
+        entity = ContextEntity(
+            id=1,
+            name="Unknown",
+            entity_type="person",
+            mention_count=0,
+        )
+        result = _freshness_indicator(entity)
+        assert result == " ○"
+
+    def test_freshness_uses_max_of_both_timestamps(self):
+        """Freshness uses the more recent of updated_at and last_mentioned_at."""
+        from datetime import date
+
+        from kb.context import _freshness_indicator
+        from kb.types import ContextEntity
+
+        today = date.today().isoformat()
+        entity = ContextEntity(
+            id=1,
+            name="Kit",
+            entity_type="person",
+            mention_count=5,
+            updated_at="2020-01-01",  # very old
+            last_mentioned_at=today,  # fresh
+        )
+        result = _freshness_indicator(entity)
+        assert result == " ●"
+
+
+class TestRecencySortKey:
+    def test_recent_entity_ranks_higher(self):
+        """Entity with recent activity + fewer mentions beats stale entity with many mentions."""
+        from datetime import date, timedelta
+
+        from kb.context import _recency_sort_key
+        from kb.types import ContextEntity
+
+        recent = ContextEntity(
+            id=1,
+            name="Recent",
+            entity_type="person",
+            mention_count=5,
+            last_mentioned_at=date.today().isoformat(),
+        )
+        stale = ContextEntity(
+            id=2,
+            name="Stale",
+            entity_type="person",
+            mention_count=50,
+            last_mentioned_at=(date.today() - timedelta(days=365)).isoformat(),
+        )
+        assert _recency_sort_key(recent) > _recency_sort_key(stale)
+
+
+class TestContextFreshnessIntegration:
+    def test_context_output_contains_freshness_indicators(
+        self, context_db, project_root_with_glossary
+    ):
+        """Context output includes freshness indicators for entities."""
+        from datetime import date
+
+        from kb.context import generate_context
+
+        db, _ = context_db
+        conn = db.get_sqlite_conn()
+        # Pin Talia and set a recent last_mentioned_at
+        conn.execute(
+            "UPDATE entities SET pinned = 1, last_mentioned_at = ? WHERE name = 'Talia Ström'",
+            (date.today().isoformat(),),
+        )
+        conn.commit()
+
+        result = generate_context(db, project_root_with_glossary)
+        text = result.text
+        # Talia is pinned and fresh — should have ● indicator
+        assert "●" in text
