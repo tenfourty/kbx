@@ -200,7 +200,7 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
                     print(f"Migration {name} failed: {e}", file=sys.stderr)
                     raise
         conn.execute("INSERT OR IGNORE INTO migrations (name) VALUES (?)", (name,))
-    conn.commit()
+        conn.commit()  # commit each migration so subsequent ones see schema changes
 
 
 # FTS5 and triggers must be created separately (no IF NOT EXISTS for virtual tables)
