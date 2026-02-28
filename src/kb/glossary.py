@@ -71,6 +71,32 @@ def delete_term(project_root: Path, term: str) -> dict[str, Any]:
     return {"term": term, "deleted": True}
 
 
+def edit_term(project_root: Path, term: str, expansion: str) -> dict[str, Any]:
+    """Update the expansion of an existing glossary term in-place.
+
+    Raises ValueError if the term is not found.
+    """
+    content = _read_glossary(project_root)
+    pattern = rf"^\| *{re.escape(term)} *\|[^|]*\|"
+    replacement = f"| {term} | {expansion} |"
+    new_content, count = re.subn(pattern, replacement, content, count=1, flags=re.MULTILINE)
+    if count == 0:
+        raise ValueError(f"Term not found: {term}")
+    _write_glossary(project_root, new_content)
+
+    # Determine which section the term is in
+    section = "Unknown"
+    for match in re.finditer(r"^## (.+)$", new_content, re.MULTILINE):
+        section = match.group(1).strip()
+        rest = new_content[match.end() :]
+        # Check if this term is in this section (before next ## or EOF)
+        next_sec = re.search(r"^## ", rest, re.MULTILINE)
+        block = rest[: next_sec.start()] if next_sec else rest
+        if f"| {term} |" in block:
+            break
+    return {"term": term, "expansion": expansion, "section": section}
+
+
 def list_terms(project_root: Path) -> list[GlossaryEntry]:
     """List all glossary terms."""
     from kb.context import _parse_glossary_terms

@@ -157,6 +157,77 @@ class TestMigration009BackfillFreshness:
             db.close()
 
 
+class TestMigration009DDLCommitBeforeBackfill:
+    def test_backfill_works_when_008_and_009_both_pending(self):
+        """When 008 (ALTER TABLE) and 009 (backfill) are both pending,
+        the backfill must see the new columns — requires DDL commit first.
+
+        Creates a raw DB without the freshness columns, inserts entity data
+        and mentions, then runs _apply_migrations to apply 008 + 009 together.
+        """
+        import sqlite3 as _sqlite3
+
+        from kb.db import SCHEMA_SQL, _apply_migrations
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "metadata.db"
+            conn = _sqlite3.connect(str(db_path))
+            conn.row_factory = _sqlite3.Row
+            conn.execute("PRAGMA foreign_keys=ON")
+
+            # Create base schema (entities table has NO updated_at/last_mentioned_at)
+            conn.executescript(SCHEMA_SQL)
+
+            # Register only migrations 001-007 as applied (008/009 are pending)
+            pre_008 = [
+                "001_add_file_mtime",
+                "002_create_facts_table",
+                "003_add_entity_pinned",
+                "004_create_document_attendees",
+                "005_normalize_paths_nfc",
+                "006_unique_entity_name_type",
+                "007_add_document_pinned",
+            ]
+            for name in pre_008:
+                conn.execute("INSERT INTO migrations (name) VALUES (?)", (name,))
+            conn.commit()
+
+            # Verify freshness columns do NOT exist yet
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(entities)").fetchall()}
+            assert "updated_at" not in cols
+            assert "last_mentioned_at" not in cols
+
+            # Insert entity + document + mention
+            conn.execute(
+                "INSERT INTO entities (name, entity_type) VALUES (?, ?)",
+                ("TestPerson", "person"),
+            )
+            entity_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+            conn.execute(
+                "INSERT INTO documents (path, content_hash, doc_date) VALUES (?, ?, ?)",
+                ("meeting.md", "hash1", "2026-02-10"),
+            )
+            doc_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+            conn.execute(
+                "INSERT INTO entity_mentions (entity_id, document_id, mention_type) "
+                "VALUES (?, ?, ?)",
+                (entity_id, doc_id, "discussed"),
+            )
+            conn.commit()
+
+            # Run _apply_migrations — should apply 008 DDL + 009 backfill
+            _apply_migrations(conn)
+
+            # last_mentioned_at should be populated by the backfill
+            row = conn.execute(
+                "SELECT last_mentioned_at FROM entities WHERE id = ?", (entity_id,)
+            ).fetchone()
+            assert row["last_mentioned_at"] == "2026-02-10", (
+                f"Backfill should populate last_mentioned_at but got {row['last_mentioned_at']}"
+            )
+            conn.close()
+
+
 class TestNormalizePath:
     def test_nfc_normalization(self):
         import unicodedata

@@ -214,6 +214,7 @@ class EntityTypeConfig(StrictFrozen):
 class EntityFact(StrictFrozen):
     """A structured fact about an entity."""
 
+    id: int
     text: str
     date: str | None
 

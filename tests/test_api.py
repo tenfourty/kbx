@@ -180,6 +180,19 @@ class TestEntityOperations:
         assert len(result.facts) == 1
         assert result.facts[0].text == "Promoted to Lead"
 
+    def test_get_entity_facts_include_id(self, kb_with_entities):
+        conn = kb_with_entities._db.get_sqlite_conn()
+        conn.execute(
+            "INSERT INTO facts (entity_id, fact_text, fact_date)"
+            " VALUES (1, 'Promoted to Lead', '2026-01-15')"
+        )
+        conn.commit()
+        result = kb_with_entities.get_entity("Talia Ström")
+        assert result is not None
+        fact = result.facts[0]
+        assert isinstance(fact.id, int)
+        assert fact.id > 0
+
     def test_find_entities_exact(self, kb_with_entities):
         result = kb_with_entities.find_entities("Talia Ström")
         assert len(result) == 1
@@ -391,6 +404,229 @@ class TestGlossary:
         )
         result = kb_instance.list_glossary_terms()
         assert isinstance(result[0], GlossaryEntry)
+
+    def test_edit_glossary_term(self, kb_instance, project_root):
+        (project_root / "memory" / "glossary.md").write_text(
+            "# Glossary\n\n## Acronyms\n\n| Term | Expansion |\n"
+            "|------|----------|\n| API | Application Programming Interface |\n"
+        )
+        result = kb_instance.edit_glossary_term("API", "App Programming Interface")
+        assert result["term"] == "API"
+        assert result["expansion"] == "App Programming Interface"
+        # Verify it persisted
+        terms = kb_instance.list_glossary_terms()
+        assert terms[0].expansion == "App Programming Interface"
+
+    def test_edit_glossary_term_not_found(self, kb_instance, project_root):
+        with pytest.raises(ValueError, match="Term not found"):
+            kb_instance.edit_glossary_term("NOPE", "whatever")
+
+
+class TestNoteDelete:
+    def test_delete_note(self, kb_instance, project_root):
+        """delete_note removes file + DB records."""
+        notes_dir = project_root / "memory" / "notes"
+        notes_dir.mkdir(parents=True, exist_ok=True)
+        (notes_dir / "2026-02-28-test.md").write_text(
+            "---\ntitle: Test Note\ndate: 2026-02-28\n---\nBody here\n"
+        )
+        kb_instance.index()
+        assert kb_instance.count_documents() >= 1
+
+        result = kb_instance.delete_note("memory/notes/2026-02-28-test.md")
+        assert result["deleted"] is True
+        assert result["title"] == "Test Note"
+        assert not (notes_dir / "2026-02-28-test.md").exists()
+
+    def test_delete_note_not_found(self, kb_instance):
+        with pytest.raises(ValueError, match="not found"):
+            kb_instance.delete_note("memory/notes/nonexistent.md")
+
+    def test_delete_note_refuses_non_note(self, kb_with_entities):
+        """Cannot delete meeting docs via delete_note."""
+        with pytest.raises(ValueError, match="Not a memory note"):
+            kb_with_entities.delete_note("meetings/standup.md")
+
+    def test_delete_note_cleans_db(self, kb_instance, project_root):
+        """All DB records (documents, chunks, entity_mentions) are cleaned."""
+        notes_dir = project_root / "memory" / "notes"
+        notes_dir.mkdir(parents=True, exist_ok=True)
+        (notes_dir / "2026-02-28-cleanup.md").write_text(
+            "---\ntitle: Cleanup Test\ndate: 2026-02-28\n---\nSome content\n"
+        )
+        kb_instance.index()
+
+        conn = kb_instance._get_conn()
+        doc = conn.execute(
+            "SELECT id FROM documents WHERE path = 'memory/notes/2026-02-28-cleanup.md'"
+        ).fetchone()
+        assert doc is not None
+        doc_id = doc["id"]
+
+        # Verify chunks exist
+        chunks = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM chunks WHERE document_id = ?", (doc_id,)
+        ).fetchone()
+        assert chunks["cnt"] > 0
+
+        kb_instance.delete_note("memory/notes/2026-02-28-cleanup.md")
+
+        # Verify everything is gone
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) AS cnt FROM documents WHERE id = ?", (doc_id,)
+            ).fetchone()["cnt"]
+            == 0
+        )
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) AS cnt FROM chunks WHERE document_id = ?", (doc_id,)
+            ).fetchone()["cnt"]
+            == 0
+        )
+
+
+class TestFactDelete:
+    def test_delete_fact_by_id(self, kb_with_entities):
+        conn = kb_with_entities._db.get_sqlite_conn()
+        conn.execute(
+            "INSERT INTO facts (entity_id, fact_text, fact_date)"
+            " VALUES (1, 'Promoted to Lead', '2026-01-15')"
+        )
+        conn.execute(
+            "INSERT INTO facts (entity_id, fact_text, fact_date)"
+            " VALUES (1, 'Joined Platform team', '2025-06-01')"
+        )
+        conn.commit()
+
+        fact_row = conn.execute(
+            "SELECT id FROM facts WHERE fact_text = 'Promoted to Lead'"
+        ).fetchone()
+        fact_id = fact_row["id"]
+
+        result = kb_with_entities.delete_fact(fact_id)
+        assert result["deleted"] is True
+        assert result["fact_text"] == "Promoted to Lead"
+
+        # Verify fact is gone from DB
+        remaining = conn.execute("SELECT * FROM facts WHERE id = ?", (fact_id,)).fetchone()
+        assert remaining is None
+
+        # Other fact still exists
+        other = conn.execute(
+            "SELECT * FROM facts WHERE fact_text = 'Joined Platform team'"
+        ).fetchone()
+        assert other is not None
+
+    def test_delete_fact_not_found(self, kb_instance):
+        with pytest.raises(ValueError, match="Fact not found"):
+            kb_instance.delete_fact(99999)
+
+    def test_delete_fact_removes_from_entity_file(self, kb_with_entities, project_root):
+        """If entity has a source file with ## Recent Facts, the line is removed."""
+        people_dir = project_root / "memory" / "people"
+        people_dir.mkdir(parents=True, exist_ok=True)
+        (people_dir / "eve.md").write_text(
+            "# Talia Ström\n\n**Role:** Engineering Leader\n\n"
+            "## Recent Facts\n"
+            "- [2026-01-15] Promoted to Lead\n"
+            "- [2025-06-01] Joined Platform team\n"
+        )
+
+        conn = kb_with_entities._db.get_sqlite_conn()
+        conn.execute("UPDATE entities SET source_path = 'memory/people/eve.md' WHERE id = 1")
+        conn.execute(
+            "INSERT INTO facts (entity_id, fact_text, fact_date)"
+            " VALUES (1, 'Promoted to Lead', '2026-01-15')"
+        )
+        conn.commit()
+
+        fact_row = conn.execute(
+            "SELECT id FROM facts WHERE fact_text = 'Promoted to Lead'"
+        ).fetchone()
+
+        kb_with_entities.delete_fact(fact_row["id"])
+
+        content = (people_dir / "eve.md").read_text()
+        assert "Promoted to Lead" not in content
+        assert "Joined Platform team" in content
+
+
+class TestFactEdit:
+    def test_edit_fact_text(self, kb_with_entities):
+        conn = kb_with_entities._db.get_sqlite_conn()
+        conn.execute(
+            "INSERT INTO facts (entity_id, fact_text, fact_date)"
+            " VALUES (1, 'Promoted to Lead', '2026-01-15')"
+        )
+        conn.commit()
+
+        fact_row = conn.execute(
+            "SELECT id FROM facts WHERE fact_text = 'Promoted to Lead'"
+        ).fetchone()
+
+        result = kb_with_entities.edit_fact(fact_row["id"], text="Promoted to Staff")
+        assert result["fact_text"] == "Promoted to Staff"
+
+        updated = conn.execute("SELECT * FROM facts WHERE id = ?", (fact_row["id"],)).fetchone()
+        assert updated["fact_text"] == "Promoted to Staff"
+
+    def test_edit_fact_date(self, kb_with_entities):
+        conn = kb_with_entities._db.get_sqlite_conn()
+        conn.execute(
+            "INSERT INTO facts (entity_id, fact_text, fact_date)"
+            " VALUES (1, 'Promoted to Lead', '2026-01-15')"
+        )
+        conn.commit()
+        fact_row = conn.execute(
+            "SELECT id FROM facts WHERE fact_text = 'Promoted to Lead'"
+        ).fetchone()
+
+        result = kb_with_entities.edit_fact(fact_row["id"], date="2026-02-01")
+        assert result["fact_date"] == "2026-02-01"
+
+    def test_edit_fact_not_found(self, kb_instance):
+        with pytest.raises(ValueError, match="Fact not found"):
+            kb_instance.edit_fact(99999, text="new text")
+
+    def test_edit_fact_no_changes(self, kb_with_entities):
+        conn = kb_with_entities._db.get_sqlite_conn()
+        conn.execute(
+            "INSERT INTO facts (entity_id, fact_text, fact_date)"
+            " VALUES (1, 'Some fact', '2026-01-15')"
+        )
+        conn.commit()
+        fact_row = conn.execute("SELECT id FROM facts WHERE fact_text = 'Some fact'").fetchone()
+        with pytest.raises(ValueError, match="No changes"):
+            kb_with_entities.edit_fact(fact_row["id"])
+
+    def test_edit_fact_updates_entity_file(self, kb_with_entities, project_root):
+        """If entity has a source file, the fact line is updated."""
+        people_dir = project_root / "memory" / "people"
+        people_dir.mkdir(parents=True, exist_ok=True)
+        (people_dir / "eve.md").write_text(
+            "# Talia Ström\n\n**Role:** Engineering Leader\n\n"
+            "## Recent Facts\n"
+            "- [2026-01-15] Promoted to Lead\n"
+        )
+
+        conn = kb_with_entities._db.get_sqlite_conn()
+        conn.execute("UPDATE entities SET source_path = 'memory/people/eve.md' WHERE id = 1")
+        conn.execute(
+            "INSERT INTO facts (entity_id, fact_text, fact_date)"
+            " VALUES (1, 'Promoted to Lead', '2026-01-15')"
+        )
+        conn.commit()
+
+        fact_row = conn.execute(
+            "SELECT id FROM facts WHERE fact_text = 'Promoted to Lead'"
+        ).fetchone()
+
+        kb_with_entities.edit_fact(fact_row["id"], text="Promoted to Staff")
+
+        content = (people_dir / "eve.md").read_text()
+        assert "Promoted to Staff" in content
+        assert "Promoted to Lead" not in content
 
 
 class TestSearch:

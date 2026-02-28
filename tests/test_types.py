@@ -274,7 +274,7 @@ class TestApiTypes:
     def test_entity_detail_with_facts(self):
         from kb.types import EntityDetail, EntityFact
 
-        fact = EntityFact(text="Joined in 2024", date="2024-01-15")
+        fact = EntityFact(id=1, text="Joined in 2024", date="2024-01-15")
         detail = EntityDetail(
             id=1,
             name="Jane Doe",
@@ -294,7 +294,7 @@ class TestApiTypes:
     def test_entity_fact_no_date(self):
         from kb.types import EntityFact
 
-        fact = EntityFact(text="Likes coffee", date=None)
+        fact = EntityFact(id=2, text="Likes coffee", date=None)
         assert fact.date is None
 
     def test_timeline_entry(self):

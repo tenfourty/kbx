@@ -222,7 +222,7 @@ class KnowledgeBase:
         ).fetchone()
 
         fact_rows = conn.execute(
-            "SELECT fact_text, fact_date FROM facts WHERE entity_id = ?"
+            "SELECT id, fact_text, fact_date FROM facts WHERE entity_id = ?"
             " ORDER BY fact_date DESC, id DESC",
             (entity_id,),
         ).fetchall()
@@ -236,7 +236,9 @@ class KnowledgeBase:
             mention_count=mention_row["cnt"] if mention_row else 0,
             pinned=bool(row["pinned"]),
             source_path=row["source_path"],
-            facts=[EntityFact(text=f["fact_text"], date=f["fact_date"]) for f in fact_rows],
+            facts=[
+                EntityFact(id=f["id"], text=f["fact_text"], date=f["fact_date"]) for f in fact_rows
+            ],
         )
 
     def find_entities(self, name: str) -> list[EntitySummary]:
@@ -350,6 +352,129 @@ class KnowledgeBase:
                 }
             )
         return results
+
+    # ------------------------------------------------------------------
+    # Fact operations
+    # ------------------------------------------------------------------
+
+    def delete_fact(self, fact_id: int) -> dict[str, object]:
+        """Delete a fact by ID. Removes from DB and entity markdown file.
+
+        Raises ValueError if the fact is not found.
+        """
+        conn = self._get_conn()
+        row = conn.execute(
+            "SELECT f.id, f.entity_id, f.fact_text, f.fact_date, e.source_path "
+            "FROM facts f JOIN entities e ON f.entity_id = e.id "
+            "WHERE f.id = ?",
+            (fact_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"Fact not found: {fact_id}")
+
+        fact_text = row["fact_text"]
+        fact_date = row["fact_date"]
+        source_path = row["source_path"]
+
+        # Remove from DB
+        conn.execute("DELETE FROM facts WHERE id = ?", (fact_id,))
+        conn.commit()
+
+        # Remove from entity markdown file if present
+        if source_path:
+            self._remove_fact_from_file(source_path, fact_text, fact_date or "")
+
+        return {"fact_id": fact_id, "fact_text": fact_text, "deleted": True}
+
+    def edit_fact(
+        self,
+        fact_id: int,
+        *,
+        text: str | None = None,
+        date: str | None = None,
+    ) -> dict[str, object]:
+        """Edit a fact's text and/or date. Syncs DB and entity markdown file.
+
+        Raises ValueError if fact not found or no changes specified.
+        """
+        import re as _re
+
+        if text is None and date is None:
+            raise ValueError("No changes specified. Provide text and/or date.")
+
+        conn = self._get_conn()
+        row = conn.execute(
+            "SELECT f.id, f.entity_id, f.fact_text, f.fact_date, e.source_path "
+            "FROM facts f JOIN entities e ON f.entity_id = e.id "
+            "WHERE f.id = ?",
+            (fact_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"Fact not found: {fact_id}")
+
+        old_text = row["fact_text"]
+        old_date = row["fact_date"]
+        new_text = text if text is not None else old_text
+        new_date = date if date is not None else old_date
+        source_path = row["source_path"]
+
+        # Update DB
+        conn.execute(
+            "UPDATE facts SET fact_text = ?, fact_date = ? WHERE id = ?",
+            (new_text, new_date, fact_id),
+        )
+        conn.commit()
+
+        # Update entity markdown file if present
+        if source_path:
+            file_path = self._project_root / source_path
+            if file_path.exists():
+                content = file_path.read_text(encoding="utf-8")
+                old_line_pattern = (
+                    rf"^- \[{_re.escape(old_date or '')}\] {_re.escape(old_text)}\s*$"
+                )
+                new_line = f"- [{new_date or ''}] {new_text}"
+                new_content = _re.sub(
+                    old_line_pattern, new_line, content, count=1, flags=_re.MULTILINE
+                )
+                if new_content != content:
+                    self._atomic_write(file_path, new_content)
+
+        return {
+            "fact_id": fact_id,
+            "fact_text": new_text,
+            "fact_date": new_date,
+            "updated": True,
+        }
+
+    def _remove_fact_from_file(self, source_path: str, fact_text: str, fact_date: str) -> None:
+        """Remove a fact line from an entity's markdown file."""
+        import re as _re
+
+        file_path = self._project_root / source_path
+        if not file_path.exists():
+            return
+        content = file_path.read_text(encoding="utf-8")
+        pattern = rf"^- \[{_re.escape(fact_date)}\] {_re.escape(fact_text)}\s*$\n?"
+        new_content = _re.sub(pattern, "", content, count=1, flags=_re.MULTILINE)
+        if new_content != content:
+            self._atomic_write(file_path, new_content)
+
+    @staticmethod
+    def _atomic_write(file_path: Path, content: str) -> None:
+        """Atomic write: temp file then rename."""
+        import os
+        import tempfile
+
+        fd, tmp = tempfile.mkstemp(dir=str(file_path.parent), suffix=".md.tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+            os.replace(tmp, str(file_path))
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp)
+            raise
 
     # ------------------------------------------------------------------
     # Document operations
@@ -499,6 +624,36 @@ class KnowledgeBase:
 
         return _scan(mem_dir)
 
+    def delete_note(self, path: str) -> dict[str, object]:
+        """Delete a memory note by path. Removes file + all DB records.
+
+        Raises ValueError if the document is not found or is not a memory note.
+        """
+        conn = self._get_conn()
+        row = conn.execute("SELECT * FROM documents WHERE path = ?", (path,)).fetchone()
+        if row is None:
+            raise ValueError(f"Note not found: {path}")
+
+        if row["doc_type"] not in ("memory_note", "memory_doc"):
+            raise ValueError(
+                f"Not a memory note (doc_type={row['doc_type']}). Only memory notes can be deleted."
+            )
+
+        doc_id = row["id"]
+
+        # Delete file from disk
+        file_path = self._project_root / path
+        if file_path.exists():
+            file_path.unlink()
+
+        # Clean DB: chunks, entity_mentions, documents
+        conn.execute("DELETE FROM chunks WHERE document_id = ?", (doc_id,))
+        conn.execute("DELETE FROM entity_mentions WHERE document_id = ?", (doc_id,))
+        conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
+        conn.commit()
+
+        return {"path": path, "title": row["title"], "deleted": True}
+
     # ------------------------------------------------------------------
     # Glossary
     # ------------------------------------------------------------------
@@ -508,6 +663,12 @@ class KnowledgeBase:
         from kb.glossary import list_terms
 
         return list_terms(self._project_root)
+
+    def edit_glossary_term(self, term: str, expansion: str) -> dict[str, object]:
+        """Update an existing glossary term's expansion. Raises ValueError if not found."""
+        from kb.glossary import edit_term
+
+        return edit_term(self._project_root, term, expansion)
 
     # ------------------------------------------------------------------
     # Embedder

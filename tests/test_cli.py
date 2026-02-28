@@ -2394,3 +2394,281 @@ class TestEntityStale:
         _db, tmpdir = tmp_db
         result = invoke_cli(runner, ["entity", "stale", "--days", "-1"], tmpdir)
         assert result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
+# Note delete command
+# ---------------------------------------------------------------------------
+
+
+class TestNoteDelete:
+    def test_note_delete_removes_file_and_db(self, runner, notes_env):
+        """kb note delete <target> --force removes file + DB records."""
+        _, root, data_dir = notes_env
+        # Create a note first
+        invoke_cli_with_root(
+            runner,
+            ["memory", "add", "Deletable note", "--body", "To be deleted"],
+            data_dir,
+            root,
+        )
+        # Verify note exists
+        result = invoke_cli_with_root(runner, ["note", "list", "--json"], data_dir, root)
+        data = json.loads(result.output)
+        paths = [r["path"] for r in data["results"]]
+        note_path = [p for p in paths if "deletable-note" in p.lower()]
+        assert len(note_path) == 1
+
+        # Delete it
+        result = invoke_cli_with_root(
+            runner, ["note", "delete", note_path[0], "--force"], data_dir, root
+        )
+        assert result.exit_code == 0
+        assert "Deleted" in result.output
+
+        # Verify file is gone
+        assert not (root / note_path[0]).exists()
+
+    def test_note_delete_not_found(self, runner, notes_env):
+        """kb note delete on unknown target exits with error."""
+        _, root, data_dir = notes_env
+        result = invoke_cli_with_root(
+            runner, ["note", "delete", "nonexistent", "--force"], data_dir, root
+        )
+        assert result.exit_code == 1
+        assert "not found" in result.output.lower() or "not found" in result.output
+
+    def test_note_delete_refuses_non_note(self, runner, notes_env):
+        """kb note delete on meeting doc (not memory_note) exits with error."""
+        db, root, data_dir = notes_env
+        conn = db.get_sqlite_conn()
+        conn.execute(
+            "INSERT INTO documents (path, title, doc_date, doc_type, source_system, source_id, tags, content_hash, chunk_count)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "meetings/2026/01/01/test.md",
+                "Test Meeting",
+                "2026-01-01",
+                "notes",
+                "granola",
+                "abc123",
+                "[]",
+                "zzz999",
+                1,
+            ),
+        )
+        conn.commit()
+        result = invoke_cli_with_root(
+            runner, ["note", "delete", "meetings/2026/01/01/test.md", "--force"], data_dir, root
+        )
+        assert result.exit_code == 1
+        assert "Not a memory note" in result.output
+
+    def test_note_delete_json_output(self, runner, notes_env):
+        """kb note delete --json returns structured output."""
+        _, root, data_dir = notes_env
+        invoke_cli_with_root(
+            runner,
+            ["memory", "add", "JSON delete note", "--body", "Content"],
+            data_dir,
+            root,
+        )
+        result = invoke_cli_with_root(runner, ["note", "list", "--json"], data_dir, root)
+        data = json.loads(result.output)
+        note_path = next(r["path"] for r in data["results"] if "json-delete" in r["path"].lower())
+
+        result = invoke_cli_with_root(
+            runner, ["note", "delete", note_path, "--force", "--json"], data_dir, root
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["deleted"] is True
+        assert data["path"] == note_path
+
+
+# ---------------------------------------------------------------------------
+# Glossary edit command
+# ---------------------------------------------------------------------------
+
+
+class TestGlossaryEditCli:
+    def test_glossary_edit_via_cli(self, runner, notes_env):
+        """kb glossary edit <term> <expansion> updates the term."""
+        _, root, data_dir = notes_env
+        # Create glossary file with a term
+        (root / "memory").mkdir(exist_ok=True)
+        (root / "memory" / "glossary.md").write_text(
+            "# Glossary\n\n## Acronyms\n\n| Term | Expansion |\n|------|----------|\n| AC | Lattice Co |\n",
+            encoding="utf-8",
+        )
+        result = invoke_cli_with_root(
+            runner, ["glossary", "edit", "AC", "Lattice Cooration"], data_dir, root
+        )
+        assert result.exit_code == 0
+        content = (root / "memory" / "glossary.md").read_text()
+        assert "| AC | Lattice Cooration |" in content
+
+    def test_glossary_edit_not_found(self, runner, notes_env):
+        """kb glossary edit on unknown term exits with error."""
+        _, root, data_dir = notes_env
+        (root / "memory").mkdir(exist_ok=True)
+        (root / "memory" / "glossary.md").write_text(
+            "# Glossary\n\n## Acronyms\n\n| Term | Expansion |\n|------|----------|\n",
+            encoding="utf-8",
+        )
+        result = invoke_cli_with_root(
+            runner, ["glossary", "edit", "NONEXISTENT", "Whatever"], data_dir, root
+        )
+        assert result.exit_code == 1
+        assert "not found" in result.output.lower()
+
+    def test_glossary_edit_json_output(self, runner, notes_env):
+        """kb glossary edit --json returns structured output."""
+        _, root, data_dir = notes_env
+        (root / "memory").mkdir(exist_ok=True)
+        (root / "memory" / "glossary.md").write_text(
+            "# Glossary\n\n## Acronyms\n\n| Term | Expansion |\n|------|----------|\n| AC | Lattice Co |\n",
+            encoding="utf-8",
+        )
+        result = invoke_cli_with_root(
+            runner, ["glossary", "edit", "AC", "Lattice Cooration", "--json"], data_dir, root
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["term"] == "AC"
+        assert data["expansion"] == "Lattice Cooration"
+
+
+# ---------------------------------------------------------------------------
+# Fact delete command
+# ---------------------------------------------------------------------------
+
+
+class TestFactDeleteCli:
+    def _setup_entity_with_fact(self, db, root):
+        """Insert an entity with a fact for testing."""
+        conn = db.get_sqlite_conn()
+        # Ensure entity exists (use id=1 from notes_env Soren Vance)
+        conn.execute(
+            "INSERT INTO facts (entity_id, fact_text, fact_date) VALUES (?, ?, ?)",
+            (1, "Likes testing", "2026-01-10"),
+        )
+        conn.commit()
+        fact_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        return fact_id
+
+    def test_fact_delete_via_cli(self, runner, notes_env):
+        """kb memory delete-fact <id> --force removes the fact."""
+        db, root, data_dir = notes_env
+        fact_id = self._setup_entity_with_fact(db, root)
+        result = invoke_cli_with_root(
+            runner, ["memory", "delete-fact", str(fact_id), "--force"], data_dir, root
+        )
+        assert result.exit_code == 0
+        assert "Deleted" in result.output
+
+    def test_fact_delete_not_found(self, runner, notes_env):
+        """kb memory delete-fact on unknown ID exits with error."""
+        _, root, data_dir = notes_env
+        result = invoke_cli_with_root(
+            runner, ["memory", "delete-fact", "99999", "--force"], data_dir, root
+        )
+        assert result.exit_code == 1
+        assert "not found" in result.output.lower()
+
+    def test_fact_delete_json_output(self, runner, notes_env):
+        """kb memory delete-fact --json returns structured output."""
+        db, root, data_dir = notes_env
+        fact_id = self._setup_entity_with_fact(db, root)
+        result = invoke_cli_with_root(
+            runner,
+            ["memory", "delete-fact", str(fact_id), "--force", "--json"],
+            data_dir,
+            root,
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["deleted"] is True
+
+
+# ---------------------------------------------------------------------------
+# Fact edit command
+# ---------------------------------------------------------------------------
+
+
+class TestFactEditCli:
+    def _setup_entity_with_fact(self, db, root):
+        """Insert an entity with a fact for testing."""
+        conn = db.get_sqlite_conn()
+        conn.execute(
+            "INSERT INTO facts (entity_id, fact_text, fact_date) VALUES (?, ?, ?)",
+            (1, "Original fact", "2026-01-10"),
+        )
+        conn.commit()
+        fact_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        return fact_id
+
+    def test_fact_edit_text(self, runner, notes_env):
+        """kb memory edit-fact <id> --text updates fact text."""
+        db, root, data_dir = notes_env
+        fact_id = self._setup_entity_with_fact(db, root)
+        result = invoke_cli_with_root(
+            runner,
+            ["memory", "edit-fact", str(fact_id), "--text", "Updated fact"],
+            data_dir,
+            root,
+        )
+        assert result.exit_code == 0
+        assert "Updated" in result.output
+
+    def test_fact_edit_date(self, runner, notes_env):
+        """kb memory edit-fact <id> --date updates fact date."""
+        db, root, data_dir = notes_env
+        fact_id = self._setup_entity_with_fact(db, root)
+        result = invoke_cli_with_root(
+            runner,
+            ["memory", "edit-fact", str(fact_id), "--date", "2026-03-01"],
+            data_dir,
+            root,
+        )
+        assert result.exit_code == 0
+
+    def test_fact_edit_no_options(self, runner, notes_env):
+        """kb memory edit-fact without --text or --date exits with error."""
+        db, root, data_dir = notes_env
+        fact_id = self._setup_entity_with_fact(db, root)
+        result = invoke_cli_with_root(
+            runner,
+            ["memory", "edit-fact", str(fact_id)],
+            data_dir,
+            root,
+        )
+        assert result.exit_code == 1
+        assert "Specify --text and/or --date" in result.output
+
+    def test_fact_edit_not_found(self, runner, notes_env):
+        """kb memory edit-fact on unknown ID exits with error."""
+        _, root, data_dir = notes_env
+        result = invoke_cli_with_root(
+            runner,
+            ["memory", "edit-fact", "99999", "--text", "anything"],
+            data_dir,
+            root,
+        )
+        assert result.exit_code == 1
+        assert "not found" in result.output.lower()
+
+    def test_fact_edit_json_output(self, runner, notes_env):
+        """kb memory edit-fact --json returns structured output."""
+        db, root, data_dir = notes_env
+        fact_id = self._setup_entity_with_fact(db, root)
+        result = invoke_cli_with_root(
+            runner,
+            ["memory", "edit-fact", str(fact_id), "--text", "New text", "--json"],
+            data_dir,
+            root,
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["updated"] is True
+        assert data["fact_text"] == "New text"

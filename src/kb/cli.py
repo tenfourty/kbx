@@ -1220,6 +1220,24 @@ def glossary_delete(term: str) -> None:
     click.echo(f"Deleted: {term}")
 
 
+@glossary.command("edit")
+@click.argument("term")
+@click.argument("expansion")
+@output_options
+def glossary_edit(
+    term: str, expansion: str, fmt: str, fields: list[str] | None, jq_expr: str | None
+) -> None:
+    """Update an existing glossary term's expansion."""
+    from kb.glossary import edit_term
+
+    try:
+        result = edit_term(_find_project_root(), term, expansion)
+    except ValueError as e:
+        click.echo(str(e), err=True)
+        raise SystemExit(1) from None
+    kb_output(result, fmt=fmt, fields=fields, jq_expr=jq_expr)
+
+
 # ---------------------------------------------------------------------------
 # index group
 # ---------------------------------------------------------------------------
@@ -1476,6 +1494,9 @@ def usage() -> None:
   kb memory add "Quick note"                     # one-liner, no body
   kb memory add "fact" --entity "Name"           # fact appended to entity file
   kb memory add "title" --body "..." --entity "Name"  # note linked to entity
+  kb memory delete-fact <id>                         # delete a fact by ID
+  kb memory edit-fact <id> --text "new text"         # update fact text
+  kb memory edit-fact <id> --date 2026-03-01         # update fact date
 
 ## 4. When to Pin
   kb pin <path|title|#hash|glob>     # pin any doc to context
@@ -1494,6 +1515,8 @@ def usage() -> None:
   kb note edit "title" --pin                 # pin note
   kb note edit "title" --unpin               # unpin note
   kb note edit "#hash" --tags "x" --pin      # combine edits
+  kb note delete "title"                     # delete note (file + index)
+  kb note delete "#hash" --force             # skip confirmation
 
 ## 6. Finding Things
   kb search "query" --fast --json             # keyword (FTS, instant)
@@ -1521,6 +1544,7 @@ def usage() -> None:
   kb project edit "Name" --meta "priority=High"
   kb project list --json             # all projects
   kb glossary add "TERM" "expansion"
+  kb glossary edit "TERM" "new expansion"  # update existing term
   kb glossary list --json
   kb entity stale --json               # entities not updated/mentioned in 30+ days
   kb entity stale --days 60 --json     # custom threshold
@@ -1558,7 +1582,11 @@ def usage() -> None:
     kb.toggle_document_pin("path")                 # -> DocumentPinResult
     kb.read_memory_file("notes/foo.md")            # -> str | None
     kb.list_memory_tree()                          # -> list[MemoryTreeNode]
+    kb.delete_note("notes/2026-02-28-test.md")     # -> dict (removes file + index)
     kb.list_glossary_terms()                       # -> list[GlossaryEntry]
+    kb.edit_glossary_term("TERM", "new expansion") # -> dict
+    kb.delete_fact(fact_id)                        # -> dict (removes from DB + file)
+    kb.edit_fact(fact_id, text="new text")          # -> dict (updates DB + file)
     kb.close()                                     # release resources
 
 ## Global Options
@@ -1888,6 +1916,84 @@ def memory_list(
     )
 
 
+@memory.command("delete-fact")
+@click.argument("fact_id", type=int)
+@click.option("--force", is_flag=True, help="Skip confirmation prompt.")
+@output_options
+def memory_delete_fact(
+    fact_id: int,
+    force: bool,
+    fmt: str,
+    fields: list[str] | None,
+    jq_expr: str | None,
+) -> None:
+    """Delete a fact by ID."""
+    from kb.api import KnowledgeBase
+    from kb.config import get_data_dir
+
+    kb = KnowledgeBase(project_root=_find_project_root(), data_dir=get_data_dir())
+    try:
+        conn = kb._get_conn()
+        row = conn.execute(
+            "SELECT f.fact_text, f.fact_date, e.name "
+            "FROM facts f JOIN entities e ON f.entity_id = e.id "
+            "WHERE f.id = ?",
+            (fact_id,),
+        ).fetchone()
+        if row is None:
+            click.echo(f"Fact not found: {fact_id}", err=True)
+            raise SystemExit(1)
+
+        if not force:
+            click.confirm(
+                f'Delete fact [{row["fact_date"]}] "{row["fact_text"]}" (entity: {row["name"]})?',
+                abort=True,
+            )
+
+        result = kb.delete_fact(fact_id)
+        if fmt == "table" and not fields and not jq_expr:
+            click.echo(f"Deleted fact {fact_id}.", err=True)
+        else:
+            kb_output(result, fmt=fmt, fields=fields, jq_expr=jq_expr)
+    finally:
+        kb.close()
+
+
+@memory.command("edit-fact")
+@click.argument("fact_id", type=int)
+@click.option("--text", default=None, help="New fact text.")
+@click.option("--date", "fact_date", default=None, help="New fact date (YYYY-MM-DD).")
+@output_options
+def memory_edit_fact(
+    fact_id: int,
+    text: str | None,
+    fact_date: str | None,
+    fmt: str,
+    fields: list[str] | None,
+    jq_expr: str | None,
+) -> None:
+    """Edit a fact's text or date."""
+    from kb.api import KnowledgeBase
+    from kb.config import get_data_dir
+
+    if text is None and fact_date is None:
+        click.echo("Specify --text and/or --date.", err=True)
+        raise SystemExit(1)
+
+    kb = KnowledgeBase(project_root=_find_project_root(), data_dir=get_data_dir())
+    try:
+        result = kb.edit_fact(fact_id, text=text, date=fact_date)
+        if fmt == "table" and not fields and not jq_expr:
+            click.echo(f"Updated fact {fact_id}.", err=True)
+        else:
+            kb_output(result, fmt=fmt, fields=fields, jq_expr=jq_expr)
+    except ValueError as e:
+        click.echo(str(e), err=True)
+        raise SystemExit(1) from None
+    finally:
+        kb.close()
+
+
 # ---------------------------------------------------------------------------
 # note group
 # ---------------------------------------------------------------------------
@@ -2125,6 +2231,63 @@ def note_edit(
     }
     if fmt == "table" and not fields and not jq_expr:
         click.echo(f"Updated: {rel_path}", err=True)
+    else:
+        kb_output(result_data, fmt=fmt, fields=fields, jq_expr=jq_expr)
+
+
+@note.command("delete")
+@click.argument("target")
+@click.option("--force", is_flag=True, help="Skip confirmation prompt.")
+@output_options
+def note_delete(
+    target: str,
+    force: bool,
+    fmt: str,
+    fields: list[str] | None,
+    jq_expr: str | None,
+) -> None:
+    """Delete a memory note (file + index entry)."""
+    db = _get_db()
+    conn = db.get_sqlite_conn()
+    project_root = _find_project_root()
+
+    doc = _find_document_by_target(conn, target)
+    if doc is None:
+        click.echo(f"Note not found: {target}", err=True)
+        raise SystemExit(1)
+
+    if doc["doc_type"] not in ("memory_note", "memory_doc"):
+        click.echo(
+            f"Not a memory note (doc_type={doc['doc_type']}). "
+            "Only memory notes can be deleted with this command.",
+            err=True,
+        )
+        raise SystemExit(1)
+
+    if not force:
+        click.confirm(f"Delete note '{doc['title']}'?", abort=True)
+
+    doc_id = doc["id"]
+    rel_path = doc["path"]
+
+    # Delete file from disk
+    file_path = project_root / rel_path
+    if file_path.exists():
+        file_path.unlink()
+
+    # Clean DB
+    conn.execute("DELETE FROM chunks WHERE document_id = ?", (doc_id,))
+    conn.execute("DELETE FROM entity_mentions WHERE document_id = ?", (doc_id,))
+    conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
+    conn.commit()
+
+    result_data: dict[str, Any] = {
+        "path": rel_path,
+        "title": doc["title"],
+        "deleted": True,
+    }
+    if fmt == "table" and not fields and not jq_expr:
+        click.echo(f"Deleted: {rel_path}", err=True)
     else:
         kb_output(result_data, fmt=fmt, fields=fields, jq_expr=jq_expr)
 

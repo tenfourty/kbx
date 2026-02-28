@@ -53,6 +53,36 @@ class TestGlossaryDelete:
         assert "| AC |" not in content
 
 
+class TestGlossaryEdit:
+    def test_edit_term_updates_expansion(self, glossary_env):
+        from kb.glossary import edit_term
+
+        _db, root = glossary_env
+        result = edit_term(root, "AC", "Lattice Cooration")
+        assert result["term"] == "AC"
+        assert result["expansion"] == "Lattice Cooration"
+        content = (root / "memory" / "glossary.md").read_text()
+        assert "| AC | Lattice Cooration |" in content
+        assert "| AC | Lattice Co |" not in content
+
+    def test_edit_term_not_found_raises(self, glossary_env):
+        from kb.glossary import edit_term
+
+        _db, root = glossary_env
+        with pytest.raises(ValueError, match="Term not found"):
+            edit_term(root, "NONEXISTENT", "whatever")
+
+    def test_edit_term_preserves_other_rows(self, glossary_env):
+        from kb.glossary import add_term, edit_term
+
+        _db, root = glossary_env
+        add_term(root, "SCRT", "Secrets Detection", section="Acronyms")
+        edit_term(root, "AC", "Lattice Cooration")
+        content = (root / "memory" / "glossary.md").read_text()
+        assert "| SCRT | Secrets Detection |" in content
+        assert "| AC | Lattice Cooration |" in content
+
+
 class TestGlossaryList:
     def test_list_terms(self, glossary_env):
         from kb.glossary import list_terms
