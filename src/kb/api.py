@@ -481,8 +481,8 @@ class KnowledgeBase:
     def _reindex_memory_file(self, rel_path: str) -> None:
         """Re-index a single memory file: delete old data, re-parse, re-insert.
 
-        Text-only (no embedding). FTS5 is updated via triggers.
-        Safe to call after any mutation to a memory file.
+        Updates SQLite + FTS5 (via triggers). Also cleans up old LanceDB
+        vectors and re-embeds if an embedder is already loaded.
         """
         from kb.db import normalize_path
         from kb.entities import build_entity_patterns, find_entity_mentions, load_entities
@@ -492,9 +492,20 @@ class KnowledgeBase:
         conn = self._get_conn()
         norm_path = normalize_path(rel_path)
 
+        # Get old document_id for LanceDB cleanup before deleting from SQLite
+        old_row = conn.execute("SELECT id FROM documents WHERE path = ?", (norm_path,)).fetchone()
+        old_doc_id = old_row["id"] if old_row else None
+
         # Delete old document + chunks + mentions (cascade handles attendees)
         _delete_document(self._db, norm_path)
         conn.commit()
+
+        # Clean up old vectors from LanceDB (best-effort)
+        if old_doc_id is not None:
+            lance_table = self._db.get_lance_table()
+            if lance_table is not None:
+                with contextlib.suppress(Exception):
+                    lance_table.delete(f"document_id = {old_doc_id}")
 
         # Re-parse the file
         abs_path = self._project_root / rel_path
@@ -530,14 +541,18 @@ class KnowledgeBase:
             ),
         )
         doc_id = cursor.lastrowid
+        assert doc_id is not None
 
         # Insert chunks (FTS5 triggers handle the virtual table)
+        chunk_ids: list[int] = []
         for chunk in doc.chunks:
-            conn.execute(
+            c = conn.execute(
                 "INSERT INTO chunks (document_id, chunk_index, heading, content, metadata_prefix)"
                 " VALUES (?, ?, ?, ?, ?)",
                 (doc_id, chunk.index, chunk.heading, chunk.content, chunk.metadata_prefix),
             )
+            assert c.lastrowid is not None
+            chunk_ids.append(c.lastrowid)
 
         # Entity linking
         entities = load_entities(self._db)
@@ -546,6 +561,7 @@ class KnowledgeBase:
         mentions = find_entity_mentions(
             doc.title, doc.tags, section_content, entities, cached_patterns=patterns
         )
+        entity_id_set = {m.entity_id for m in mentions}
         if mentions:
             conn.executemany(
                 "INSERT OR IGNORE INTO entity_mentions (entity_id, document_id, mention_type)"
@@ -554,6 +570,30 @@ class KnowledgeBase:
             )
 
         conn.commit()
+
+        # Re-embed if embedder is already loaded (don't trigger lazy load)
+        if self._embedder is not None and doc.chunks and chunk_ids:
+            try:
+                texts = [chunk.content for chunk in doc.chunks]
+                embeddings = self._embedder.embed(texts)
+                entity_ids_json = json.dumps(sorted(entity_id_set))
+                lance_batch = [
+                    {
+                        "chunk_id": int(chunk_ids[i]),
+                        "embedding": embeddings[i].tolist(),
+                        "doc_type": doc.doc_type or "",
+                        "doc_date": doc.date or "",
+                        "tags": json.dumps(doc.tags),
+                        "document_id": int(doc_id),
+                        "entity_ids": entity_ids_json,
+                    }
+                    for i in range(len(chunk_ids))
+                ]
+                from kb.indexer import _flush_lance_batch
+
+                _flush_lance_batch(self._db, lance_batch)
+            except Exception:
+                pass  # Embedding is best-effort; FTS is always correct
 
     # ------------------------------------------------------------------
     # Document operations
@@ -730,6 +770,13 @@ class KnowledgeBase:
         conn.execute("DELETE FROM entity_mentions WHERE document_id = ?", (doc_id,))
         conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
         conn.commit()
+
+        # Clean up LanceDB vectors
+        # Clean up LanceDB vectors (best-effort)
+        lance_table = self._db.get_lance_table()
+        if lance_table is not None:
+            with contextlib.suppress(Exception):
+                lance_table.delete(f"document_id = {doc_id}")
 
         return {"path": path, "title": row["title"], "deleted": True}
 
