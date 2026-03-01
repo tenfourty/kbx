@@ -208,9 +208,9 @@ def _parse_teams_from_company(path: Path) -> list[EntityData]:
                 break
             m = re.match(r"^-\s+\*\*(.+?)\*\*(?:\s+\((\w+)\))?\s*—\s*(.+)", line)
             if m:
-                team_name = m.group(1).strip()
+                team_name = strip_wikilinks(m.group(1).strip())
                 abbreviation = m.group(2)
-                description = m.group(3).strip()
+                description = strip_wikilinks(m.group(3).strip())
 
                 aliases: list[str] = []
                 if abbreviation:
