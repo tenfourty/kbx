@@ -352,10 +352,10 @@ class TestFTSSearch:
         assert results.results[0].title == "MFA Implementation Review"
 
     def test_fts_scores_normalized(self, search_db):
-        """FTS scores should be in [0, 1]."""
+        """FTS scores should be non-negative (may exceed 1.0 due to entity boost)."""
         results = search(search_db, None, "Rust migration", fast=True)
         for r in results.results:
-            assert 0 <= r.score <= 1
+            assert r.score >= 0
 
     def test_fts_returns_snippets(self, search_db):
         """Results should have non-empty snippets without metadata prefix."""
@@ -961,3 +961,206 @@ class TestFTSUpdateTrigger:
             "SELECT count(*) as cnt FROM chunks_fts WHERE chunks_fts MATCH 'Kubernetes'"
         ).fetchone()
         assert results["cnt"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Configurable FTS/vector weights (item 9)
+# ---------------------------------------------------------------------------
+
+
+class TestConfigurableWeights:
+    def test_rrf_default_weights_equal(self):
+        """Default weights should produce equal FTS and vector contributions."""
+        from kb.search import _weighted_rrf
+
+        fts = [{"chunk_id": 1}]
+        vec = [{"chunk_id": 2}]
+        scores = _weighted_rrf(fts, vec)
+        assert scores[1] == pytest.approx(scores[2])
+
+    def test_rrf_fts_heavy_weight(self):
+        """With fts_weight=3.0 and vector_weight=1.0, FTS result should score higher."""
+        from kb.search import _weighted_rrf
+
+        fts = [{"chunk_id": 1}]
+        vec = [{"chunk_id": 2}]
+        scores = _weighted_rrf(fts, vec, fts_weight=3.0, vector_weight=1.0)
+        assert scores[1] > scores[2]
+
+    def test_rrf_vector_heavy_weight(self):
+        """With fts_weight=1.0 and vector_weight=3.0, vector result should score higher."""
+        from kb.search import _weighted_rrf
+
+        fts = [{"chunk_id": 1}]
+        vec = [{"chunk_id": 2}]
+        scores = _weighted_rrf(fts, vec, fts_weight=1.0, vector_weight=3.0)
+        assert scores[2] > scores[1]
+
+    def test_search_accepts_fts_weight(self, search_db):
+        """search() should accept fts_weight parameter without crashing."""
+        results = search(search_db, None, "MFA", fast=True, fts_weight=2.0)
+        assert results.meta.total > 0
+
+    def test_search_accepts_vector_weight(self, search_db):
+        """search() should accept vector_weight parameter without crashing."""
+        results = search(search_db, None, "MFA", fast=True, vector_weight=2.0)
+        assert results.meta.total > 0
+
+
+# ---------------------------------------------------------------------------
+# Document dedup + chunk_count (item 10)
+# ---------------------------------------------------------------------------
+
+
+class TestDocumentDedup:
+    def test_dedupe_keeps_best_chunk_per_doc(self, search_db):
+        """With dedupe=True, only the highest-scoring chunk per document should appear."""
+        results = search(search_db, None, "MFA", fast=True, dedupe=True)
+        doc_ids = [r.document_id for r in results.results]
+        assert len(doc_ids) == len(set(doc_ids)), "Duplicate document IDs in deduplicated results"
+
+    def test_dedupe_includes_chunk_count(self, search_db):
+        """With dedupe=True, each result should have chunk_count showing total matching chunks."""
+        results = search(search_db, None, "MFA", fast=True, dedupe=True)
+        assert results.meta.total > 0
+        for r in results.results:
+            assert r.chunk_count >= 1
+        # Doc1 has 2 MFA chunks — deduped result should show chunk_count=2
+        mfa_result = next(r for r in results.results if "MFA" in r.title)
+        assert mfa_result.chunk_count == 2
+
+    def test_no_dedupe_chunk_count_is_one(self, search_db):
+        """Without dedupe, chunk_count should default to 1."""
+        results = search(search_db, None, "MFA", fast=True, dedupe=False)
+        for r in results.results:
+            assert r.chunk_count == 1
+
+    def test_dedupe_default_is_false(self, search_db):
+        """Default behavior should not deduplicate."""
+        results = search(search_db, None, "MFA implementation", fast=True)
+        assert results.meta.total > 0
+
+
+# ---------------------------------------------------------------------------
+# Glossary-aware query expansion (item 6)
+# ---------------------------------------------------------------------------
+
+
+class TestGlossaryExpansion:
+    def test_expand_acronym_to_full_form(self):
+        """An acronym in glossary should expand to include full form."""
+        from kb.search import _expand_query_with_glossary
+
+        entries = [("MFA", "Multi-Factor Authentication", "Acronyms")]
+        expanded_query, expanded_terms = _expand_query_with_glossary("MFA rollout", entries)
+        assert "Multi-Factor Authentication" in expanded_query
+        assert expanded_terms == {"MFA": "Multi-Factor Authentication"}
+
+    def test_expand_full_form_to_acronym(self):
+        """A full form should expand to include the acronym."""
+        from kb.search import _expand_query_with_glossary
+
+        entries = [("MFA", "Multi-Factor Authentication", "Acronyms")]
+        expanded_query, expanded_terms = _expand_query_with_glossary(
+            "Multi-Factor Authentication", entries
+        )
+        assert "MFA" in expanded_query
+        assert expanded_terms == {"Multi-Factor Authentication": "MFA"}
+
+    def test_no_expansion_for_unknown_term(self):
+        """Terms not in glossary should not be modified."""
+        from kb.search import _expand_query_with_glossary
+
+        entries = [("MFA", "Multi-Factor Authentication", "Acronyms")]
+        expanded_query, expanded_terms = _expand_query_with_glossary("kubernetes deploy", entries)
+        assert expanded_query == "kubernetes deploy"
+        assert expanded_terms == {}
+
+    def test_expansion_uses_word_boundaries(self):
+        """Short terms should NOT match inside longer words."""
+        from kb.search import _expand_query_with_glossary
+
+        entries = [("EM", "Engineering Manager", "Acronyms")]
+        # "EM" should NOT match inside "implementation"
+        _, expanded_terms = _expand_query_with_glossary("implementation review", entries)
+        assert expanded_terms == {}
+
+    def test_expanded_terms_in_search_meta(self, search_db):
+        """SearchMeta should include expanded_terms dict."""
+        results = search(search_db, None, "MFA", fast=True)
+        assert isinstance(results.meta.expanded_terms, dict)
+
+
+# ---------------------------------------------------------------------------
+# Entity-aware search boosting (item 7)
+# ---------------------------------------------------------------------------
+
+
+class TestEntityBoosting:
+    def test_entity_boost_is_multiplicative(self):
+        """Entity boost should multiply the base score, not replace it."""
+        from kb.search import _apply_entity_boost
+
+        assert _apply_entity_boost(0.5, has_entity_match=True) > 0.5
+        assert _apply_entity_boost(0.5, has_entity_match=False) == 0.5
+
+    def test_entity_boost_exact_factor(self):
+        """Entity boost should be exactly 1.15x."""
+        from kb.search import _apply_entity_boost
+
+        assert _apply_entity_boost(1.0, has_entity_match=True) == pytest.approx(1.15)
+
+    def test_entity_boost_does_not_crash_on_no_entities(self, search_db):
+        """Queries with no entity matches should still work normally."""
+        results = search(search_db, None, "MFA implementation", fast=True)
+        assert results.meta.total > 0
+
+
+# ---------------------------------------------------------------------------
+# Snippet highlighting with HTML <b> tags (item 8)
+# ---------------------------------------------------------------------------
+
+
+class TestSnippetHighlighting:
+    def test_highlight_marks_query_terms(self):
+        """Query terms in snippets should be wrapped in <b> HTML tags."""
+        from kb.search import _highlight_snippet
+
+        snippet = "We reviewed the MFA implementation progress"
+        result = _highlight_snippet(snippet, "MFA implementation")
+        assert "<b>MFA</b>" in result
+        assert "<b>implementation</b>" in result
+
+    def test_highlight_case_insensitive(self):
+        """Highlighting should be case-insensitive."""
+        from kb.search import _highlight_snippet
+
+        snippet = "The mfa rollout is complete"
+        result = _highlight_snippet(snippet, "MFA")
+        assert "<b>mfa</b>" in result
+
+    def test_highlight_no_match(self):
+        """If no query terms match, snippet should be unchanged (but HTML-escaped)."""
+        from kb.search import _highlight_snippet
+
+        snippet = "General weekly sync discussion"
+        result = _highlight_snippet(snippet, "kubernetes")
+        assert result == snippet
+
+    def test_highlight_preserves_word_boundaries(self):
+        """Highlighting should match whole words, not substrings."""
+        from kb.search import _highlight_snippet
+
+        snippet = "The information about MFA was shared"
+        result = _highlight_snippet(snippet, "info")
+        assert "<b>info</b>" not in result
+
+    def test_highlight_escapes_html_first(self):
+        """HTML in content should be escaped BEFORE applying <b> tags."""
+        from kb.search import _highlight_snippet
+
+        snippet = "Use <script>alert('MFA')</script> for MFA"
+        result = _highlight_snippet(snippet, "MFA")
+        assert "<script>" not in result
+        assert "&lt;script&gt;" in result
+        assert "<b>MFA</b>" in result

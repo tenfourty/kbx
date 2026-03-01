@@ -161,6 +161,13 @@ def cli() -> None:
     help="Sort results by score or date.",
 )
 @click.option("--tag", "tag_filter", default=None, help="Filter by tag (comma-separated for AND).")
+@click.option(
+    "--fts-weight", default=1.0, type=float, help="FTS weight for RRF fusion (default 1.0)."
+)
+@click.option(
+    "--vector-weight", default=1.0, type=float, help="Vector weight for RRF fusion (default 1.0)."
+)
+@click.option("--dedupe", is_flag=True, help="Keep only the best chunk per document.")
 @output_options
 def search(
     query: str,
@@ -173,6 +180,9 @@ def search(
     to_date: str | None,
     sort_by: str,
     tag_filter: str | None,
+    fts_weight: float,
+    vector_weight: float,
+    dedupe: bool,
     fmt: str,
     fields: list[str] | None,
     jq_expr: str | None,
@@ -212,6 +222,9 @@ def search(
         to_date=to_date,
         tag=tag_filter,
         sort_by=sort_by,
+        fts_weight=fts_weight,
+        vector_weight=vector_weight,
+        dedupe=dedupe,
     )
     kb_output(
         results.model_dump(),
@@ -1524,6 +1537,9 @@ def usage() -> None:
   kb search "query" --tag infra --fast --json # filter by tag
   kb search "query" --from 2026-01-01 --to 2026-01-31  # date range
   kb search "query" --sort date --json        # newest first
+  kb search "query" --dedupe --json           # one result per document
+  kb search "query" --fts-weight 2.0 --json   # boost FTS (keywords)
+  kb search "query" --vector-weight 2.0 --json  # boost vector (semantic)
   kb view <path|#hash|glob> --json            # full document
   kb view <path|#hash|glob> --plain           # raw content only (no metadata)
   kb list --type notes --from 2026-02-01      # browse by type/date

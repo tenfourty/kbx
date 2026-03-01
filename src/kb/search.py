@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 import math
 import re
@@ -101,6 +102,89 @@ def _make_snippet(content: str, max_chars: int = 200) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Snippet highlighting
+# ---------------------------------------------------------------------------
+
+
+def _highlight_snippet(snippet: str, query: str) -> str:
+    """HTML-escape snippet then wrap query terms in <b> tags.
+
+    HTML-escapes first (so content is safe), then applies word-boundary
+    highlighting. Case-insensitive. Consumers render with ``{{ snippet | safe }}``.
+    """
+    escaped = html.escape(snippet)
+
+    terms = _sanitize_fts_input(query).split()
+    if not terms:
+        return escaped
+
+    for term in terms:
+        clean_term = term.rstrip("*")
+        if not clean_term:
+            continue
+        pattern = rf"\b({re.escape(clean_term)})\b"
+        escaped = re.sub(pattern, r"<b>\1</b>", escaped, flags=re.IGNORECASE)
+
+    return escaped
+
+
+# ---------------------------------------------------------------------------
+# Glossary-aware query expansion
+# ---------------------------------------------------------------------------
+
+
+def _expand_query_with_glossary(
+    query: str,
+    glossary: list[tuple[str, str, str]],
+) -> tuple[str, dict[str, str]]:
+    """Expand query terms using glossary entries.
+
+    For each glossary entry ``(term, expansion, section)``, if the term appears
+    as a whole word in the query (case-insensitive) append the expansion as an
+    OR alternative, and vice-versa.  Uses word-boundary matching to avoid false
+    positives (e.g. "EM" should not match inside "implementation").
+    Returns ``(expanded_query, {original: expansion})``.
+    """
+    query_lower = query.lower()
+    additions: list[str] = []
+    expanded_terms: dict[str, str] = {}
+
+    for term, expansion, _section in glossary:
+        term_lower = term.lower()
+        expansion_lower = expansion.lower()
+
+        term_matches = bool(re.search(rf"\b{re.escape(term_lower)}\b", query_lower))
+        expansion_matches = bool(re.search(rf"\b{re.escape(expansion_lower)}\b", query_lower))
+
+        if term_matches and not expansion_matches:
+            additions.append(expansion)
+            expanded_terms[term] = expansion
+        elif expansion_matches and not term_matches:
+            additions.append(term)
+            expanded_terms[expansion] = term
+
+    if not additions:
+        return query, {}
+
+    expanded = query + " OR " + " OR ".join(f'"{a}"' for a in additions)
+    return expanded, expanded_terms
+
+
+# ---------------------------------------------------------------------------
+# Entity-aware boosting
+# ---------------------------------------------------------------------------
+
+_ENTITY_BOOST = 1.15  # 15% multiplicative boost for entity match
+
+
+def _apply_entity_boost(score: float, has_entity_match: bool) -> float:
+    """Apply a multiplicative boost when a result's entities match the query."""
+    if has_entity_match:
+        return score * _ENTITY_BOOST
+    return score
+
+
+# ---------------------------------------------------------------------------
 # Progress hooks
 # ---------------------------------------------------------------------------
 
@@ -147,10 +231,12 @@ def _sanitize_fts_input(text: str) -> str:
     return " ".join(text.split())  # collapse whitespace
 
 
-def _build_fts_query(query: str) -> list[str]:
+def _build_fts_query(query: str, extra_or_terms: list[str] | None = None) -> list[str]:
     """Build FTS5 query variants: phrase → proximity → AND → OR.
 
     Returns a list of FTS5 match expressions to try in order.
+    ``extra_or_terms`` are appended as quoted phrases to the OR variant only
+    (used for glossary expansion).
     """
     sanitized = _sanitize_fts_input(query)
     words = sanitized.split()
@@ -159,20 +245,32 @@ def _build_fts_query(query: str) -> list[str]:
         return [query.strip()]
 
     if len(words) == 1:
-        return [words[0]]
+        variants = [words[0]]
+    else:
+        phrase = '"' + " ".join(words) + '"'
+        proximity = f"NEAR({' '.join(words)}, 10)"
+        and_query = " ".join(words)  # implicit AND — all terms must appear in row
+        or_query = " OR ".join(words)
+        variants = [phrase, proximity, and_query, or_query]
 
-    phrase = '"' + " ".join(words) + '"'
-    proximity = f"NEAR({' '.join(words)}, 10)"
-    and_query = " ".join(words)  # implicit AND — all terms must appear in row
-    or_query = " OR ".join(words)
+    # Append glossary expansion terms to OR variant
+    if extra_or_terms:
+        sanitized_extras = [
+            _sanitize_fts_input(t) for t in extra_or_terms if _sanitize_fts_input(t)
+        ]
+        if sanitized_extras:
+            quoted = [f'"{t}"' for t in sanitized_extras]
+            or_extra = variants[-1] + " OR " + " OR ".join(quoted)
+            variants.append(or_extra)
 
-    return [phrase, proximity, and_query, or_query]
+    return variants
 
 
 def _fts_search(
     db: Database,
     query: str,
     limit: int = 50,
+    extra_or_terms: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Run FTS5 search with phrase → proximity → OR, merging results across variants.
 
@@ -180,7 +278,7 @@ def _fts_search(
     Accumulates results across all variants, keeping the best BM25 score per chunk.
     """
     conn = db.get_sqlite_conn()
-    variants = _build_fts_query(query)
+    variants = _build_fts_query(query, extra_or_terms=extra_or_terms)
 
     # Accumulate best raw_bm25 per chunk across all variants
     merged: dict[int, dict[str, Any]] = {}  # chunk_id -> result dict
@@ -375,6 +473,9 @@ def search(
     to_date: str | None = None,
     tag: str | None = None,
     sort_by: str = "score",
+    fts_weight: float = 1.0,
+    vector_weight: float = 1.0,
+    dedupe: bool = False,
     hook: SearchProgressHook | None = None,
 ) -> SearchResponse:
     """Hybrid search: FTS5 + vector + weighted RRF + recency.
@@ -390,9 +491,26 @@ def search(
 
         query, from_date, to_date = extract_date_filters(query)
 
+    # Glossary expansion — best-effort, does not block search
+    expanded_terms: dict[str, str] = {}
+    expansion_or_terms: list[str] | None = None
+    try:
+        from kb.config import find_project_root
+        from kb.glossary import list_terms
+
+        root = find_project_root()
+        if root:
+            glossary = [(e.term, e.expansion, e.section) for e in list_terms(root)]
+            if glossary:
+                _, expanded_terms = _expand_query_with_glossary(query, glossary)
+                if expanded_terms:
+                    expansion_or_terms = list(expanded_terms.values())
+    except Exception:
+        pass
+
     # Step 1: FTS5 search
     hook.on_fts_start()
-    fts_results = _fts_search(db, query, limit=limit * 5)
+    fts_results = _fts_search(db, query, limit=limit * 5, extra_or_terms=expansion_or_terms)
     hook.on_fts_done(len(fts_results))
 
     # Step 2: Decide whether to do vector search
@@ -412,7 +530,9 @@ def search(
 
     # Step 3: Fuse results
     if vector_results and fts_results:
-        fused = _weighted_rrf(fts_results, vector_results)
+        fused = _weighted_rrf(
+            fts_results, vector_results, fts_weight=fts_weight, vector_weight=vector_weight
+        )
     elif fts_results:
         # FTS-only: use normalized BM25 as score
         fused = {r["chunk_id"]: r["bm25_score"] for r in fts_results}
@@ -428,6 +548,7 @@ def search(
     all_chunk_ids = list(fused.keys())
     enriched = _enrich_results(db, all_chunk_ids)
 
+    query_words_lower = set(query.lower().split())
     scored: list[tuple[int, float]] = []
     for chunk_id, base_score in fused.items():
         info = enriched.get(chunk_id)
@@ -458,29 +579,61 @@ def search(
         else:
             final = base_score
 
+        # Entity boost: check if any entity name word matches a query word
+        has_entity_match = False
+        for entity_name in info["entities"]:
+            entity_words = set(entity_name.lower().split())
+            if entity_words & query_words_lower:
+                has_entity_match = True
+                break
+        final = _apply_entity_boost(final, has_entity_match)
+
         scored.append((chunk_id, final))
 
     # Sort by score descending (initial ordering)
     scored.sort(key=lambda x: x[1], reverse=True)
+
+    # Deduplicate: keep only the best chunk per document, count matching chunks
+    doc_chunk_counts: dict[int, int] = {}
+    if dedupe:
+        for chunk_id, _score in scored:
+            info = enriched[chunk_id]
+            doc_id = info["document_id"]
+            doc_chunk_counts[doc_id] = doc_chunk_counts.get(doc_id, 0) + 1
+
+        seen_docs: set[int] = set()
+        deduped: list[tuple[int, float]] = []
+        for chunk_id, score in scored:
+            info = enriched[chunk_id]
+            doc_id = info["document_id"]
+            if doc_id not in seen_docs:
+                seen_docs.add(doc_id)
+                deduped.append((chunk_id, score))
+        scored = deduped
+
     scored = scored[:limit]
 
     # Build output
     results: list[SearchResult] = []
     for chunk_id, score in scored:
         info = enriched[chunk_id]
+        snippet = _make_snippet(info["content"])
+        snippet = _highlight_snippet(snippet, query)
+        doc_id = info["document_id"]
         results.append(
             SearchResult(
                 chunk_id=chunk_id,
-                document_id=info["document_id"],
+                document_id=doc_id,
                 title=info["title"],
                 path=info["path"],
                 date=info["date"],
                 doc_type=info["doc_type"],
                 score=round(score, 4),
                 section=None if info["section"] == "__document__" else info["section"],
-                snippet=_make_snippet(info["content"]),
+                snippet=snippet,
                 entities=info["entities"],
                 tags=info.get("tags", []),
+                chunk_count=doc_chunk_counts.get(doc_id, 1),
             )
         )
 
@@ -498,6 +651,7 @@ def search(
             limit=limit,
             sort_by=sort_by,
             execution_ms=elapsed_ms,
+            expanded_terms=expanded_terms,
         ),
     )
 
@@ -511,17 +665,19 @@ def _weighted_rrf(
     fts_results: list[dict[str, Any]],
     vector_results: list[dict[str, Any]],
     k: int = 60,
+    fts_weight: float = 1.0,
+    vector_weight: float = 1.0,
 ) -> dict[int, float]:
-    """Reciprocal Rank Fusion with equal weighting for FTS and vector.
+    """Reciprocal Rank Fusion with configurable weighting for FTS and vector.
 
-    Both lists contribute equally. Top rank bonus: +0.05 for rank 1, +0.02 for ranks 2-3.
+    Top rank bonus: +0.05 for rank 1, +0.02 for ranks 2-3.
     Chunks appearing in both lists accumulate scores from each.
     """
     scores: dict[int, float] = {}
 
     for rank, r in enumerate(fts_results, start=1):
         cid = r["chunk_id"]
-        rrf = _rrf_score(rank, k)
+        rrf = _rrf_score(rank, k) * fts_weight
         if rank == 1:
             rrf += 0.05
         elif rank <= 3:
@@ -530,7 +686,7 @@ def _weighted_rrf(
 
     for rank, r in enumerate(vector_results, start=1):
         cid = r["chunk_id"]
-        rrf = _rrf_score(rank, k)
+        rrf = _rrf_score(rank, k) * vector_weight
         if rank == 1:
             rrf += 0.05
         elif rank <= 3:

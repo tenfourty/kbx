@@ -125,6 +125,7 @@ class SearchResult(StrictFrozen):
     snippet: str
     entities: list[str] = []
     tags: list[str] = []
+    chunk_count: int = 1  # matching chunks from this doc (populated when dedupe=True)
 
 
 class SearchMeta(StrictFrozen):
@@ -135,6 +136,7 @@ class SearchMeta(StrictFrozen):
     limit: int
     sort_by: str
     execution_ms: float
+    expanded_terms: dict[str, str] = {}  # {original_term: expansion} for glossary UI
 
 
 class SearchResponse(StrictFrozen):
