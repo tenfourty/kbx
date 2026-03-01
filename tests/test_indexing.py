@@ -102,8 +102,9 @@ class TestNotesChunking:
         chunks = chunk_notes(body, "Test Meeting", "2026-01-27")
         assert len(chunks) >= 3
 
-        # Check metadata prefix
-        assert "[Meeting: Test Meeting | Date: 2026-01-27" in chunks[0].content
+        # Check metadata prefix stored separately
+        assert "[Meeting: Test Meeting | Date: 2026-01-27" in chunks[0].metadata_prefix
+        assert not chunks[0].content.startswith("[Meeting:")
 
         # Check headings
         headings = [c.heading for c in chunks]
@@ -141,7 +142,8 @@ class TestNotesChunking:
         chunks = chunk_notes(body, "Wren / Soren", "2026-01-27", entities_info=entities_info)
         assert len(chunks) >= 1
         assert (
-            "Entities: Soren Vance (person), Pipeline Improvements (project)" in chunks[0].content
+            "Entities: Soren Vance (person), Pipeline Improvements (project)"
+            in chunks[0].metadata_prefix
         )
 
     def test_real_notes_file(self, project_root):
@@ -196,7 +198,8 @@ class TestTranscriptChunking:
         body = "**Me:** Hello.\n\n**System:** Hi.\n"
         chunks = chunk_transcript(body, "Wren / Soren", "2026-01-27")
         assert len(chunks) >= 1
-        assert "[Transcript: Wren / Soren | Date: 2026-01-27]" in chunks[0].content
+        assert "[Transcript: Wren / Soren | Date: 2026-01-27]" in chunks[0].metadata_prefix
+        assert not chunks[0].content.startswith("[Transcript:")
 
     def test_sliding_window(self):
         from kb.chunker import chunk_transcript
@@ -222,7 +225,7 @@ class TestTranscriptChunking:
         body = "**Me:** Hello.\n\n**System:** Hi there.\n"
         chunks = chunk_transcript(body, "Me / Soren", "2026-01-27", entities_info=entities_info)
         assert len(chunks) >= 1
-        assert "Entities: Linnea Holm (person)" in chunks[0].content
+        assert "Entities: Linnea Holm (person)" in chunks[0].metadata_prefix
 
     def test_no_headers_single_chunk_fallback(self):
         """Body with no headers should produce a single chunk."""
@@ -232,7 +235,7 @@ class TestTranscriptChunking:
         chunks = chunk_notes(body, "Plain Meeting", "2026-01-27")
         assert len(chunks) == 1
         assert "Just some text" in chunks[0].content
-        assert "[Meeting: Plain Meeting" in chunks[0].content
+        assert "[Meeting: Plain Meeting" in chunks[0].metadata_prefix
 
     def test_no_turns_transcript_fallback(self):
         """Transcript with no speaker turns falls back to plain text chunk."""
@@ -241,7 +244,7 @@ class TestTranscriptChunking:
         body = "Just some plain text with no **Speaker:** patterns."
         chunks = chunk_transcript(body, "Wren / Soren", "2026-01-27")
         assert len(chunks) == 1
-        assert "[Transcript: Wren / Soren" in chunks[0].content
+        assert "[Transcript: Wren / Soren" in chunks[0].metadata_prefix
         assert "Just some plain text" in chunks[0].content
 
     def test_empty_transcript_returns_empty(self):

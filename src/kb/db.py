@@ -137,6 +137,10 @@ MIGRATIONS: list[tuple[str, str | None]] = [
         INSERT INTO chunks_fts(rowid, content, heading) VALUES (new.id, new.content, new.heading);
     END;""",
     ),
+    (
+        "011_chunk_metadata_prefix",
+        "ALTER TABLE chunks ADD COLUMN metadata_prefix TEXT DEFAULT ''",
+    ),
 ]
 
 

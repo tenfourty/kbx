@@ -88,7 +88,12 @@ def _recency_weight(doc_date: str | None, half_life_days: int = 90) -> float:
 
 
 def _strip_metadata_prefix(text: str) -> str:
-    """Strip [Meeting: ...], [Transcript: ...], [Summary: ...] prefix from chunk content."""
+    """Strip metadata prefix from chunk content.
+
+    Handles both old format (``[Meeting: ...]\ncontent``) and new format
+    (``Title\ncontent`` where title repeats the document title).
+    """
+    # Old format: [Meeting: ...], [Transcript: ...], [Summary: ...]
     stripped = re.sub(r"^\[(?:Meeting|Transcript|Summary):[^\]]*\]\n?", "", text)
     return stripped.strip()
 

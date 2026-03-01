@@ -273,12 +273,13 @@ def index_all(
 
             # Insert section-level chunks into SQLite (batched)
             chunk_data = [
-                (doc_id, chunk.index, chunk.heading, chunk.content) for chunk in doc.chunks
+                (doc_id, chunk.index, chunk.heading, chunk.content, chunk.metadata_prefix)
+                for chunk in doc.chunks
             ]
             chunk_texts = [chunk.content for chunk in doc.chunks]
             if chunk_data:
                 conn.executemany(
-                    "INSERT INTO chunks (document_id, chunk_index, heading, content) VALUES (?, ?, ?, ?)",
+                    "INSERT INTO chunks (document_id, chunk_index, heading, content, metadata_prefix) VALUES (?, ?, ?, ?, ?)",
                     chunk_data,
                 )
             # Retrieve chunk IDs (single indexed query)

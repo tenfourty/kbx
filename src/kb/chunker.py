@@ -174,8 +174,14 @@ def chunk_notes(
             prefix = (
                 f"[Meeting: {title} | Date: {date_str} | Section: {heading_label}{entity_suffix}]"
             )
-            chunk_content = f"{prefix}\n{part}"
-            chunks.append(Chunk(index=idx, heading=heading, content=chunk_content))
+            chunks.append(
+                Chunk(
+                    index=idx,
+                    heading=heading,
+                    content=f"{title}\n{part}",
+                    metadata_prefix=prefix,
+                )
+            )
             idx += 1
 
     # If no sections found, treat entire body as one chunk
@@ -185,7 +191,14 @@ def chunk_notes(
             prefix = (
                 f"[Meeting: {title} | Date: {date or 'unknown'} | Section: General{entity_suffix}]"
             )
-            chunks.append(Chunk(index=0, heading=None, content=f"{prefix}\n{clean}"))
+            chunks.append(
+                Chunk(
+                    index=0,
+                    heading=None,
+                    content=f"{title}\n{clean}",
+                    metadata_prefix=prefix,
+                )
+            )
 
     return chunks
 
@@ -254,7 +267,14 @@ def chunk_transcript(
         clean = body.strip()
         if clean:
             prefix = f"[Transcript: {title} | Date: {date or 'unknown'}{entity_suffix}]"
-            return [Chunk(index=0, heading=None, content=f"{prefix}\n{clean}")]
+            return [
+                Chunk(
+                    index=0,
+                    heading=None,
+                    content=f"{title}\n{clean}",
+                    metadata_prefix=prefix,
+                )
+            ]
         return []
 
     # Build turn texts with speaker labels
@@ -282,8 +302,8 @@ def chunk_transcript(
             end += 1
 
         prefix = f"[Transcript: {title} | Date: {date_str}{entity_suffix}]"
-        chunk_text = f"{prefix}\n" + "\n".join(window)
-        chunks.append(Chunk(index=idx, heading=None, content=chunk_text))
+        chunk_text = f"{title}\n" + "\n".join(window)
+        chunks.append(Chunk(index=idx, heading=None, content=chunk_text, metadata_prefix=prefix))
         idx += 1
 
         if end >= len(turn_texts):

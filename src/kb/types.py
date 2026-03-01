@@ -74,6 +74,7 @@ class Chunk(StrictFrozen):
     index: int
     heading: str | None
     content: str
+    metadata_prefix: str = ""
 
 
 class ParsedDocument(StrictMutable):

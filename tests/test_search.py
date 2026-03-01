@@ -249,49 +249,55 @@ def search_db():
                 (path, title, date, dtype, src, sid, tags, chash, cc),
             )
 
-        # Insert test chunks
+        # Insert test chunks (content = title + body, metadata_prefix stored separately)
         chunks = [
             (
                 1,
                 0,
                 "Overview",
-                "[Meeting: MFA Implementation Review | Date: 2026-01-27 | Section: Overview]\nWe reviewed the MFA implementation progress. The solution uses TOTP with Okta integration.",
+                "MFA Implementation Review\nWe reviewed the MFA implementation progress. The solution uses TOTP with Okta integration.",
+                "[Meeting: MFA Implementation Review | Date: 2026-01-27 | Section: Overview]",
             ),
             (
                 1,
                 1,
                 "Next Steps",
-                "[Meeting: MFA Implementation Review | Date: 2026-01-27 | Section: Next Steps]\nRollout to all employees by end of February. Testing phase complete.",
+                "MFA Implementation Review\nRollout to all employees by end of February. Testing phase complete.",
+                "[Meeting: MFA Implementation Review | Date: 2026-01-27 | Section: Next Steps]",
             ),
             (
                 2,
                 0,
                 "Status",
-                "[Meeting: Helix Refactor Status | Date: 2026-01-20 | Section: Status]\nThe Rust migration is at 45% completion. 180 of 400 modules converted. Linnea leading the effort.",
+                "Helix Refactor Status\nThe Rust migration is at 45% completion. 180 of 400 modules converted. Linnea leading the effort.",
+                "[Meeting: Helix Refactor Status | Date: 2026-01-20 | Section: Status]",
             ),
             (
                 2,
                 1,
                 "Performance",
-                "[Meeting: Helix Refactor Status | Date: 2026-01-20 | Section: Performance]\nRust engine is 5x faster than Python. Memory usage reduced by 60%.",
+                "Helix Refactor Status\nRust engine is 5x faster than Python. Memory usage reduced by 60%.",
+                "[Meeting: Helix Refactor Status | Date: 2026-01-20 | Section: Performance]",
             ),
             (
                 3,
                 0,
                 None,
-                "[Meeting: Weekly Sync | Date: 2025-06-15 | Section: General]\nGeneral weekly sync discussion about team updates and project timelines.",
+                "Weekly Sync\nGeneral weekly sync discussion about team updates and project timelines.",
+                "[Meeting: Weekly Sync | Date: 2025-06-15 | Section: General]",
             ),
             (
                 4,
                 0,
                 "Plan",
-                "[Meeting: Atlas Pipeline Plan | Date: 2026-02-01 | Section: Plan]\nDatastore migration is top priority for 2026. SSO integration and Grafana dashboard migration planned.",
+                "Atlas Pipeline Plan\nDatastore migration is top priority for 2026. SSO integration and Grafana dashboard migration planned.",
+                "[Meeting: Atlas Pipeline Plan | Date: 2026-02-01 | Section: Plan]",
             ),
         ]
-        for doc_id, idx, heading, content in chunks:
+        for doc_id, idx, heading, content, meta_prefix in chunks:
             conn.execute(
-                "INSERT INTO chunks (document_id, chunk_index, heading, content) VALUES (?, ?, ?, ?)",
-                (doc_id, idx, heading, content),
+                "INSERT INTO chunks (document_id, chunk_index, heading, content, metadata_prefix) VALUES (?, ?, ?, ?, ?)",
+                (doc_id, idx, heading, content, meta_prefix),
             )
 
         # Insert entities
@@ -1164,3 +1170,48 @@ class TestSnippetHighlighting:
         assert "<script>" not in result
         assert "&lt;script&gt;" in result
         assert "<b>MFA</b>" in result
+
+
+# ---------------------------------------------------------------------------
+# Metadata separation from chunk content (item 12)
+# ---------------------------------------------------------------------------
+
+
+class TestMetadataSeparation:
+    def test_chunk_content_has_no_metadata_prefix(self, search_db):
+        """After metadata separation, chunk content should not contain [Meeting: ...] prefix."""
+        conn = search_db.get_sqlite_conn()
+        rows = conn.execute("SELECT content FROM chunks").fetchall()
+        for row in rows:
+            assert not row["content"].startswith("[Meeting:"), (
+                f"Content still has metadata prefix: {row['content'][:80]}"
+            )
+            assert not row["content"].startswith("[Transcript:"), (
+                f"Content still has transcript prefix: {row['content'][:80]}"
+            )
+
+    def test_metadata_prefix_stored_separately(self, search_db):
+        """Metadata prefix should be stored in a separate column."""
+        conn = search_db.get_sqlite_conn()
+        rows = conn.execute(
+            "SELECT metadata_prefix FROM chunks WHERE metadata_prefix != ''"
+        ).fetchall()
+        assert len(rows) > 0
+        for row in rows:
+            assert row["metadata_prefix"].startswith("[Meeting:")
+
+    def test_fts_does_not_match_metadata_noise(self, search_db):
+        """Searching for 'Date' should not match metadata prefixes."""
+        from kb.search import _fts_search
+
+        results = _fts_search(search_db, "Date", limit=50)
+        # With metadata separation, "Date" in prefix is not in FTS content
+        # Only actual content mentions of "Date" should match
+        # In our test data, no actual content uses the word "Date"
+        assert len(results) == 0
+
+    def test_snippet_still_clean(self, search_db):
+        """Snippets should show clean content without metadata prefix."""
+        results = search(search_db, None, "MFA", fast=True)
+        for r in results.results:
+            assert not r.snippet.startswith("[Meeting:")
