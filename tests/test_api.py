@@ -799,6 +799,168 @@ class TestFactCounts:
         assert result == {}
 
 
+class TestPostMutationReindex:
+    """Mutations that change memory files should update the index."""
+
+    def test_delete_note_cleans_document_attendees(self, kb_instance, project_root):
+        """delete_note removes document_attendees rows too."""
+        notes_dir = project_root / "memory" / "notes"
+        notes_dir.mkdir(parents=True, exist_ok=True)
+        (notes_dir / "2026-02-28-att.md").write_text(
+            "---\ntitle: Attendee Test\ndate: 2026-02-28\n---\nBody\n"
+        )
+        kb_instance.index()
+
+        conn = kb_instance._get_conn()
+        doc = conn.execute(
+            "SELECT id FROM documents WHERE path = 'memory/notes/2026-02-28-att.md'"
+        ).fetchone()
+        assert doc is not None
+        doc_id = doc["id"]
+
+        # Manually insert a document_attendees row
+        conn.execute(
+            "INSERT INTO document_attendees (document_id, entity_id, name, email, matched_by)"
+            " VALUES (?, 1, 'Test', 'test@example.com', 'email')",
+            (doc_id,),
+        )
+        conn.commit()
+
+        kb_instance.delete_note("memory/notes/2026-02-28-att.md")
+
+        # document_attendees should be cleaned
+        cnt = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM document_attendees WHERE document_id = ?",
+            (doc_id,),
+        ).fetchone()["cnt"]
+        assert cnt == 0
+
+    def test_delete_note_cleans_fts(self, kb_instance, project_root):
+        """delete_note removes content from FTS index."""
+        notes_dir = project_root / "memory" / "notes"
+        notes_dir.mkdir(parents=True, exist_ok=True)
+        (notes_dir / "2026-02-28-fts.md").write_text(
+            "---\ntitle: FTS Cleanup\ndate: 2026-02-28\n---\nXylophone unique word\n"
+        )
+        kb_instance.index()
+
+        conn = kb_instance._get_conn()
+        # Verify FTS has the content
+        fts_before = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM chunks_fts WHERE chunks_fts MATCH 'Xylophone'"
+        ).fetchone()["cnt"]
+        assert fts_before > 0
+
+        kb_instance.delete_note("memory/notes/2026-02-28-fts.md")
+
+        # FTS should be clean (triggers fire on chunk DELETE)
+        fts_after = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM chunks_fts WHERE chunks_fts MATCH 'Xylophone'"
+        ).fetchone()["cnt"]
+        assert fts_after == 0
+
+    def test_edit_glossary_reindexes(self, kb_instance, project_root):
+        """edit_glossary_term updates the FTS index with new expansion."""
+        (project_root / "memory" / "glossary.md").write_text(
+            "# Glossary\n\n## Acronyms\n\n| Term | Expansion |\n"
+            "|------|----------|\n| API | Application Programming Interface |\n"
+        )
+        kb_instance.index()
+
+        conn = kb_instance._get_conn()
+        # Verify old expansion is searchable
+        fts_old = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM chunks_fts WHERE chunks_fts MATCH 'Application'"
+        ).fetchone()["cnt"]
+        assert fts_old > 0
+
+        # Edit the term
+        kb_instance.edit_glossary_term("API", "App Prog Iface")
+
+        # New expansion should be searchable
+        fts_new = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM chunks_fts WHERE chunks_fts MATCH 'Iface'"
+        ).fetchone()["cnt"]
+        assert fts_new > 0
+
+        # Old expansion should be gone
+        fts_old_after = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM chunks_fts WHERE chunks_fts MATCH 'Application'"
+        ).fetchone()["cnt"]
+        assert fts_old_after == 0
+
+    def test_edit_fact_reindexes_source_file(self, kb_instance, project_root):
+        """edit_fact re-indexes the entity's source file."""
+        people_dir = project_root / "memory" / "people"
+        people_dir.mkdir(parents=True, exist_ok=True)
+        (people_dir / "jane.md").write_text(
+            "# Jane\n\n**Role:** Engineer\n\n## Recent Facts\n- [2026-01-15] Promoted to Lead\n"
+        )
+        kb_instance.index()
+
+        conn = kb_instance._get_conn()
+        # Seed entity with source_path
+        conn.execute(
+            "INSERT OR IGNORE INTO entities (name, entity_type, aliases, metadata, source_path)"
+            " VALUES ('Jane', 'person', '[]', '{}', 'memory/people/jane.md')"
+        )
+        conn.execute(
+            "INSERT INTO facts (entity_id, fact_text, fact_date)"
+            " VALUES ((SELECT id FROM entities WHERE name = 'Jane'), 'Promoted to Lead', '2026-01-15')"
+        )
+        conn.commit()
+
+        fact_row = conn.execute(
+            "SELECT id FROM facts WHERE fact_text = 'Promoted to Lead'"
+        ).fetchone()
+
+        # Verify old text in FTS
+        fts_before = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM chunks_fts WHERE chunks_fts MATCH 'Promoted'"
+        ).fetchone()["cnt"]
+        assert fts_before > 0
+
+        kb_instance.edit_fact(fact_row["id"], text="Became Staff Engineer")
+
+        # New text should be in FTS
+        fts_after = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM chunks_fts WHERE chunks_fts MATCH '\"Staff Engineer\"'"
+        ).fetchone()["cnt"]
+        assert fts_after > 0
+
+    def test_delete_fact_reindexes_source_file(self, kb_instance, project_root):
+        """delete_fact re-indexes the entity's source file."""
+        people_dir = project_root / "memory" / "people"
+        people_dir.mkdir(parents=True, exist_ok=True)
+        (people_dir / "bob.md").write_text(
+            "# Soren\n\n**Role:** SRE\n\n## Recent Facts\n- [2026-01-15] Deployed zephyr service\n"
+        )
+        kb_instance.index()
+
+        conn = kb_instance._get_conn()
+        conn.execute(
+            "INSERT OR IGNORE INTO entities (name, entity_type, aliases, metadata, source_path)"
+            " VALUES ('Soren', 'person', '[]', '{}', 'memory/people/bob.md')"
+        )
+        conn.execute(
+            "INSERT INTO facts (entity_id, fact_text, fact_date)"
+            " VALUES ((SELECT id FROM entities WHERE name = 'Soren'), 'Deployed zephyr service', '2026-01-15')"
+        )
+        conn.commit()
+
+        fact_row = conn.execute(
+            "SELECT id FROM facts WHERE fact_text = 'Deployed zephyr service'"
+        ).fetchone()
+
+        kb_instance.delete_fact(fact_row["id"])
+
+        # "zephyr" should be gone from FTS (the fact line was removed from file, file re-indexed)
+        fts_after = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM chunks_fts WHERE chunks_fts MATCH 'zephyr'"
+        ).fetchone()["cnt"]
+        assert fts_after == 0
+
+
 class TestIndex:
     def test_index_with_glossary(self, kb_instance):
         # project_root fixture creates memory/glossary.md, so indexer finds it

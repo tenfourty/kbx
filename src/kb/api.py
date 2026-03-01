@@ -380,9 +380,10 @@ class KnowledgeBase:
         conn.execute("DELETE FROM facts WHERE id = ?", (fact_id,))
         conn.commit()
 
-        # Remove from entity markdown file if present
+        # Remove from entity markdown file if present, then reindex
         if source_path:
             self._remove_fact_from_file(source_path, fact_text, fact_date or "")
+            self._reindex_memory_file(source_path)
 
         return {"fact_id": fact_id, "fact_text": fact_text, "deleted": True}
 
@@ -425,7 +426,7 @@ class KnowledgeBase:
         )
         conn.commit()
 
-        # Update entity markdown file if present
+        # Update entity markdown file if present, then reindex
         if source_path:
             file_path = self._project_root / source_path
             if file_path.exists():
@@ -439,6 +440,7 @@ class KnowledgeBase:
                 )
                 if new_content != content:
                     self._atomic_write(file_path, new_content)
+            self._reindex_memory_file(source_path)
 
         return {
             "fact_id": fact_id,
@@ -475,6 +477,83 @@ class KnowledgeBase:
             with contextlib.suppress(OSError):
                 os.unlink(tmp)
             raise
+
+    def _reindex_memory_file(self, rel_path: str) -> None:
+        """Re-index a single memory file: delete old data, re-parse, re-insert.
+
+        Text-only (no embedding). FTS5 is updated via triggers.
+        Safe to call after any mutation to a memory file.
+        """
+        from kb.db import normalize_path
+        from kb.entities import build_entity_patterns, find_entity_mentions, load_entities
+        from kb.indexer import _delete_document
+        from kb.sources.memory import _SUBDIR_DOC_TYPES, _parse_glossary, _parse_memory_file
+
+        conn = self._get_conn()
+        norm_path = normalize_path(rel_path)
+
+        # Delete old document + chunks + mentions (cascade handles attendees)
+        _delete_document(self._db, norm_path)
+        conn.commit()
+
+        # Re-parse the file
+        abs_path = self._project_root / rel_path
+        if not abs_path.exists():
+            return
+
+        if norm_path == "memory/glossary.md":
+            text = abs_path.read_text(encoding="utf-8")
+            doc = _parse_glossary(text, norm_path)
+        else:
+            # Determine doc_type from subdirectory
+            parts = norm_path.split("/")
+            subdir = parts[1] if len(parts) > 2 else ""
+            doc_type = _SUBDIR_DOC_TYPES.get(subdir, "memory_doc")
+            doc = _parse_memory_file(abs_path, norm_path, doc_type)
+
+        # Insert document row
+        cursor = conn.execute(
+            """INSERT INTO documents (path, title, doc_date, doc_type, source_system,
+               source_id, tags, content_hash, chunk_count, pinned)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                doc.path,
+                doc.title,
+                doc.date,
+                doc.doc_type,
+                doc.source_system,
+                doc.source_id,
+                json.dumps(doc.tags),
+                doc.content_hash,
+                len(doc.chunks),
+                1 if doc.pinned else 0,
+            ),
+        )
+        doc_id = cursor.lastrowid
+
+        # Insert chunks (FTS5 triggers handle the virtual table)
+        for chunk in doc.chunks:
+            conn.execute(
+                "INSERT INTO chunks (document_id, chunk_index, heading, content, metadata_prefix)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (doc_id, chunk.index, chunk.heading, chunk.content, chunk.metadata_prefix),
+            )
+
+        # Entity linking
+        entities = load_entities(self._db)
+        patterns = build_entity_patterns(entities)
+        section_content = " ".join(c.content for c in doc.chunks)
+        mentions = find_entity_mentions(
+            doc.title, doc.tags, section_content, entities, cached_patterns=patterns
+        )
+        if mentions:
+            conn.executemany(
+                "INSERT OR IGNORE INTO entity_mentions (entity_id, document_id, mention_type)"
+                " VALUES (?, ?, ?)",
+                [(m.entity_id, doc_id, m.mention_type) for m in mentions],
+            )
+
+        conn.commit()
 
     # ------------------------------------------------------------------
     # Document operations
@@ -668,7 +747,9 @@ class KnowledgeBase:
         """Update an existing glossary term's expansion. Raises ValueError if not found."""
         from kb.glossary import edit_term
 
-        return edit_term(self._project_root, term, expansion)
+        result = edit_term(self._project_root, term, expansion)
+        self._reindex_memory_file("memory/glossary.md")
+        return result
 
     # ------------------------------------------------------------------
     # Embedder

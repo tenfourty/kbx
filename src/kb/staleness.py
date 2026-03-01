@@ -30,7 +30,7 @@ def find_stale_sources(db: Database, project_root: Path) -> list[str]:
 
     # Check all memory source files — only files already in the index
     # (new files need full `kb index run` for proper entity/mention setup)
-    for subdir in ["memory/people", "memory/projects", "memory/context"]:
+    for subdir in ["memory/people", "memory/projects", "memory/context", "memory/notes"]:
         dir_path = project_root / subdir
         if not dir_path.exists():
             continue

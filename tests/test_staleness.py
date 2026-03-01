@@ -78,3 +78,26 @@ class TestStalenessDetection:
         db, root, _person = stale_env
         reindexed = auto_reindex_if_stale(db, root)
         assert reindexed == 0
+
+    def test_detects_stale_notes(self, stale_env):
+        """find_stale_sources watches memory/notes/ directory."""
+        from kb.staleness import find_stale_sources
+
+        db, root, _person = stale_env
+        # Create and index a note
+        notes_dir = root / "memory" / "notes"
+        notes_dir.mkdir(parents=True, exist_ok=True)
+        note = notes_dir / "2026-02-28-test.md"
+        note.write_text("---\ntitle: Test Note\ndate: 2026-02-28\n---\nOriginal\n")
+
+        from kb.indexer import index_all
+
+        index_all(db, None, root, memory_only=True, skip_seed=True)
+
+        # Modify the note
+        note.write_text("---\ntitle: Test Note\ndate: 2026-02-28\n---\nModified\n")
+        future_time = time.time() + 2
+        os.utime(note, (future_time, future_time))
+
+        stale = find_stale_sources(db, root)
+        assert any("notes" in s for s in stale)
