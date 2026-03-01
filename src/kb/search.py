@@ -98,12 +98,49 @@ def _strip_metadata_prefix(text: str) -> str:
     return stripped.strip()
 
 
-def _make_snippet(content: str, max_chars: int = 200) -> str:
-    """Extract a display snippet from chunk content."""
+def _make_snippet(content: str, max_chars: int = 200, query: str = "") -> str:
+    """Extract a display snippet from chunk content.
+
+    When *query* is provided, centers the snippet window around the first
+    matching term so that ``_highlight_snippet`` will almost always have
+    something to bold.  Falls back to the beginning of the content when no
+    match is found.
+    """
     clean = _strip_metadata_prefix(content)
     if len(clean) <= max_chars:
         return clean
-    return clean[:max_chars].rsplit(" ", 1)[0] + "..."
+
+    # Try to center the window on the first query-term match
+    start = 0
+    if query:
+        terms = _sanitize_fts_input(query).split()
+        for term in terms:
+            clean_term = term.rstrip("*")
+            if not clean_term:
+                continue
+            m = re.search(rf"\b{re.escape(clean_term)}\b", clean, re.IGNORECASE)
+            if m:
+                # Place the match ~50 chars from the left edge of the window
+                start = max(0, m.start() - 50)
+                break
+
+    window = clean[start : start + max_chars]
+
+    # Trim to word boundary at both ends
+    if start > 0:
+        # Drop partial leading word
+        first_space = window.find(" ")
+        if first_space != -1 and first_space < 30:
+            window = window[first_space + 1 :]
+
+    # Drop partial trailing word
+    if start + max_chars < len(clean):
+        window = window.rsplit(" ", 1)[0] + "..."
+
+    if start > 0:
+        window = "..." + window
+
+    return window
 
 
 # ---------------------------------------------------------------------------
@@ -622,7 +659,7 @@ def search(
     results: list[SearchResult] = []
     for chunk_id, score in scored:
         info = enriched[chunk_id]
-        snippet = _make_snippet(info["content"])
+        snippet = _make_snippet(info["content"], query=query)
         snippet = _highlight_snippet(snippet, query)
         doc_id = info["document_id"]
         results.append(

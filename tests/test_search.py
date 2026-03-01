@@ -673,6 +673,43 @@ class TestMakeSnippet:
         result = _make_snippet(text)
         assert not result.startswith("[Meeting:")
 
+    def test_query_centers_on_match(self):
+        """When query matches deep in content, snippet should center on the match."""
+        from kb.search import _make_snippet
+
+        # Build content where "kubernetes" appears far from the start
+        filler = "This is filler text about general topics. " * 10
+        content = filler + "We deployed kubernetes clusters for production."
+        result = _make_snippet(content, max_chars=100, query="kubernetes")
+        assert "kubernetes" in result
+        assert result.startswith("...")
+
+    def test_query_no_match_falls_back_to_start(self):
+        """When no query term matches, snippet starts from the beginning."""
+        from kb.search import _make_snippet
+
+        content = "The beginning of the content. " * 20
+        result = _make_snippet(content, max_chars=100, query="xyznonexistent")
+        assert result.startswith("The beginning")
+
+    def test_query_match_near_start(self):
+        """When match is near the start, snippet starts from the beginning (no leading ...)."""
+        from kb.search import _make_snippet
+
+        content = "MFA rollout is planned. " * 20
+        result = _make_snippet(content, max_chars=100, query="MFA")
+        assert "MFA" in result
+        assert not result.startswith("...")
+
+    def test_query_empty_string_same_as_no_query(self):
+        """Empty query string should behave like no query."""
+        from kb.search import _make_snippet
+
+        content = "Some content here. " * 20
+        assert _make_snippet(content, max_chars=50) == _make_snippet(
+            content, max_chars=50, query=""
+        )
+
 
 # ---------------------------------------------------------------------------
 # Equal BM25 scores
