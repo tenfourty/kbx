@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+
+import yaml
 
 from kb.types import Entity as Entity
 from kb.types import EntityData
@@ -72,38 +74,65 @@ _PERSON_SPECIAL_FIELDS = frozenset({"also_known_as", "pinned"})
 # Fields that are handled specially (not metadata) for project files
 _PROJECT_SPECIAL_FIELDS = frozenset({"codename/also_called", "pinned"})
 
+# YAML frontmatter fields that reference other entities (wikilinks stripped)
+_ENTITY_REF_FIELDS = frozenset({"team", "reports_to", "lead", "company"})
+
+# YAML frontmatter fields handled specially (not stored as metadata)
+_YAML_SPECIAL = frozenset({"aliases", "pinned"})
+
+
+def _parse_yaml_frontmatter(text: str) -> dict[str, Any] | None:
+    """Parse YAML frontmatter from text. Returns None if no frontmatter found."""
+    m = re.match(r"^---\s*\n(.*?)\n---\s*\n", text, re.DOTALL)
+    if not m:
+        return None
+    try:
+        data = yaml.safe_load(m.group(1))
+        return data if isinstance(data, dict) else None
+    except yaml.YAMLError:
+        return None
+
 
 def _parse_person_file(path: Path) -> EntityData:
     """Parse a memory/people/*.md file into entity data.
 
-    Picks up all **Key:** Value lines in the header block, not just hardcoded
-    fields. Special fields (Also known as, Pinned) are handled separately.
+    Tries YAML frontmatter first, falls back to legacy **Key:** Value format.
     """
     text = path.read_text(encoding="utf-8")
     name = _parse_title(text) or path.stem.replace("-", " ").title()
 
-    also_known = _parse_field(text, "Also known as")
+    fm = _parse_yaml_frontmatter(text)
+    if fm is not None:
+        raw_aliases = fm.get("aliases", []) or []
+        aliases = [str(a).strip() for a in raw_aliases]
+        is_pinned = bool(fm.get("pinned", False))
+        metadata: dict[str, str] = {}
+        for key, value in fm.items():
+            if key in _YAML_SPECIAL:
+                continue
+            str_val = str(value).strip()
+            if key in _ENTITY_REF_FIELDS:
+                str_val = strip_wikilinks(str_val)
+            if str_val:
+                metadata[key] = str_val
+    else:
+        # Legacy **Key:** Value format
+        also_known = _parse_field(text, "Also known as")
+        aliases = []
+        if also_known:
+            aliases.extend(a.strip() for a in also_known.split(","))
+        pinned_str = _parse_field(text, "Pinned")
+        is_pinned = bool(pinned_str and pinned_str.lower() in ("true", "yes", "1"))
+        all_fields = _parse_all_fields(text)
+        metadata = {k: v for k, v in all_fields.items() if k not in _PERSON_SPECIAL_FIELDS}
 
-    aliases: list[str] = []
-    if also_known:
-        aliases.extend(a.strip() for a in also_known.split(","))
-
+    # Auto-add first name and file stem aliases
     first_name = _stem_to_first_name(name)
     if first_name and first_name not in aliases:
         aliases.append(first_name)
-
     file_stem = path.stem
     if file_stem not in aliases:
         aliases.append(file_stem)
-
-    pinned_str = _parse_field(text, "Pinned")
-    is_pinned = bool(pinned_str and pinned_str.lower() in ("true", "yes", "1"))
-
-    # Parse all **Key:** Value fields — includes both known and custom fields
-    all_fields = _parse_all_fields(text)
-    metadata: dict[str, str] = {
-        k: v for k, v in all_fields.items() if k not in _PERSON_SPECIAL_FIELDS
-    }
 
     return EntityData(
         name=name,
@@ -118,30 +147,40 @@ def _parse_person_file(path: Path) -> EntityData:
 def _parse_project_file(path: Path) -> EntityData:
     """Parse a memory/projects/*.md file into entity data.
 
-    Picks up all **Key:** Value lines in the header block, not just hardcoded
-    fields. Special fields (Codename/Also called, Pinned) are handled separately.
+    Tries YAML frontmatter first, falls back to legacy **Key:** Value format.
     """
     text = path.read_text(encoding="utf-8")
     name = _parse_title(text) or path.stem.replace("-", " ").title()
 
-    codename = _parse_field(text, "Codename/Also called")
+    fm = _parse_yaml_frontmatter(text)
+    if fm is not None:
+        raw_aliases = fm.get("aliases", []) or []
+        aliases = [str(a).strip() for a in raw_aliases]
+        is_pinned = bool(fm.get("pinned", False))
+        metadata: dict[str, str] = {}
+        for key, value in fm.items():
+            if key in _YAML_SPECIAL:
+                continue
+            str_val = str(value).strip()
+            if key in _ENTITY_REF_FIELDS:
+                str_val = strip_wikilinks(str_val)
+            if str_val:
+                metadata[key] = str_val
+    else:
+        # Legacy **Key:** Value format
+        codename = _parse_field(text, "Codename/Also called")
+        aliases = []
+        if codename:
+            aliases.extend(a.strip() for a in codename.split(","))
+        pinned_str = _parse_field(text, "Pinned")
+        is_pinned = bool(pinned_str and pinned_str.lower() in ("true", "yes", "1"))
+        all_fields = _parse_all_fields(text)
+        metadata = {k: v for k, v in all_fields.items() if k not in _PROJECT_SPECIAL_FIELDS}
 
-    pinned_str = _parse_field(text, "Pinned")
-    is_pinned = bool(pinned_str and pinned_str.lower() in ("true", "yes", "1"))
-
-    aliases: list[str] = []
-    if codename:
-        aliases.extend(a.strip() for a in codename.split(","))
-
+    # Auto-add file stem alias
     file_stem = path.stem
     if file_stem not in aliases:
         aliases.append(file_stem)
-
-    # Parse all **Key:** Value fields — includes both known and custom fields
-    all_fields = _parse_all_fields(text)
-    metadata: dict[str, str] = {
-        k: v for k, v in all_fields.items() if k not in _PROJECT_SPECIAL_FIELDS
-    }
 
     return EntityData(
         name=name,

@@ -814,6 +814,120 @@ class TestParserPydanticOutput:
         assert result.entity_type == "project"
 
 
+class TestYamlFrontmatterParsing:
+    """Parse person/project files with YAML frontmatter."""
+
+    def test_parse_person_yaml_frontmatter(self, tmp_path):
+        from kb.entities import _parse_person_file
+
+        f = tmp_path / "jane-doe.md"
+        f.write_text(
+            "---\n"
+            "aliases: [JD, Jane D.]\n"
+            "email: jane@example.com\n"
+            "role: Engineering Lead\n"
+            'team: "[[Core]]"\n'
+            'reports_to: "[[CTO]]"\n'
+            "pinned: true\n"
+            "---\n"
+            "# Jane Doe\n\n"
+            "## Notes\n\nSome notes here.\n"
+        )
+        result = _parse_person_file(f)
+        assert result.name == "Jane Doe"
+        assert result.entity_type == "person"
+        assert "JD" in result.aliases
+        assert "Jane D." in result.aliases
+        assert "Jane" in result.aliases  # auto first-name
+        assert "jane-doe" in result.aliases  # auto file-stem
+        assert result.metadata["email"] == "jane@example.com"
+        assert result.metadata["role"] == "Engineering Lead"
+        assert result.metadata["team"] == "Core"  # wikilinks stripped
+        assert result.metadata["reports_to"] == "CTO"  # wikilinks stripped
+        assert result.pinned is True
+
+    def test_parse_person_yaml_no_aliases(self, tmp_path):
+        from kb.entities import _parse_person_file
+
+        f = tmp_path / "solo.md"
+        f.write_text("---\nemail: solo@example.com\nrole: Dev\n---\n# Solo Dev\n")
+        result = _parse_person_file(f)
+        assert result.name == "Solo Dev"
+        assert "Solo" in result.aliases
+        assert "solo" in result.aliases
+
+    def test_parse_person_old_format_still_works(self, tmp_path):
+        from kb.entities import _parse_person_file
+
+        f = tmp_path / "old-style.md"
+        f.write_text(
+            "# Old Style\n\n**Also known as:** OS\n**Role:** Legacy Dev\n**Team:** Platform\n"
+        )
+        result = _parse_person_file(f)
+        assert result.name == "Old Style"
+        assert "OS" in result.aliases
+        assert result.metadata["role"] == "Legacy Dev"
+        assert result.metadata["team"] == "Platform"
+
+    def test_parse_project_yaml_frontmatter(self, tmp_path):
+        from kb.entities import _parse_project_file
+
+        f = tmp_path / "my-project.md"
+        f.write_text(
+            "---\n"
+            "aliases: [MP, MyProj]\n"
+            "status: Active\n"
+            "started: January 2026\n"
+            'lead: "[[Wren Smith]] — Tech Lead"\n'
+            "---\n"
+            "# My Project\n\n"
+            "## Overview\n\nProject details.\n"
+        )
+        result = _parse_project_file(f)
+        assert result.name == "My Project"
+        assert result.entity_type == "project"
+        assert "MP" in result.aliases
+        assert "MyProj" in result.aliases
+        assert "my-project" in result.aliases
+        assert result.metadata["status"] == "Active"
+        assert result.metadata["started"] == "January 2026"
+        assert result.metadata["lead"] == "Wren Smith — Tech Lead"
+
+    def test_parse_project_old_format_still_works(self, tmp_path):
+        from kb.entities import _parse_project_file
+
+        f = tmp_path / "old-proj.md"
+        f.write_text("# Old Project\n\n**Codename/Also called:** OP\n**Status:** Done\n")
+        result = _parse_project_file(f)
+        assert result.name == "Old Project"
+        assert "OP" in result.aliases
+        assert result.metadata["status"] == "Done"
+
+    def test_yaml_custom_fields_preserved(self, tmp_path):
+        from kb.entities import _parse_person_file
+
+        f = tmp_path / "custom.md"
+        f.write_text("---\nrole: Dev\npreferred_lang: Python\n---\n# Custom Dev\n")
+        result = _parse_person_file(f)
+        assert result.metadata["preferred_lang"] == "Python"
+
+    def test_yaml_pcm_fields(self, tmp_path):
+        from kb.entities import _parse_person_file
+
+        f = tmp_path / "pcm.md"
+        f.write_text(
+            "---\n"
+            "role: Dev\n"
+            'pcm_base: "Persister (Persévérant)"\n'
+            'pcm_phase: "Thinker (Analyseur)"\n'
+            "---\n"
+            "# PCM Person\n"
+        )
+        result = _parse_person_file(f)
+        assert result.metadata["pcm_base"] == "Persister (Persévérant)"
+        assert result.metadata["pcm_phase"] == "Thinker (Analyseur)"
+
+
 class TestStripWikilinks:
     def test_strip_simple(self):
         from kb.entities import strip_wikilinks
