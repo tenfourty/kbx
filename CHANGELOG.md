@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.1.9](https://github.com/tenfourty/kbx/compare/kbx-v0.1.8...kbx-v0.1.9) (2026-03-01)
+
+
+### Features
+
+* **api:** add LanceDB cleanup and optional re-embedding to reindex helper ([430cfcc](https://github.com/tenfourty/kbx/commit/430cfccf3568263e85e31bc805283be4ce73370e))
+* **api:** add post-mutation reindexing for memory file mutations ([e6d9442](https://github.com/tenfourty/kbx/commit/e6d9442640748cbd7af950cc3d77c1c7b2c8f194))
+* **api:** expose dedupe, fts_weight, vector_weight in KnowledgeBase.search() ([8eed97a](https://github.com/tenfourty/kbx/commit/8eed97acee8471b6703d6948f2eb7da49f529b89))
+* **kbx:** add 'entity stale' command for freshness detection ([20eeec6](https://github.com/tenfourty/kbx/commit/20eeec6002b6abcfa05d26c973fd311ff9f5760f))
+* **kbx:** add entity freshness columns (migration 008) ([477b396](https://github.com/tenfourty/kbx/commit/477b396cef8042d73659d021326f8a4838cec77a))
+* **kbx:** add entity_stale MCP tool and freshness fields to person_find ([2cb9b83](https://github.com/tenfourty/kbx/commit/2cb9b83cd416bf1f2a39b6bde30402a3c810aa6e))
+* **kbx:** add missing CRUD operations — note delete, glossary edit, fact delete/edit ([f654d04](https://github.com/tenfourty/kbx/commit/f654d04343f952e6f16b08a8662cdd3b6567e1b7))
+* **kbx:** backfill entity freshness from existing data (migration 009) ([f67b898](https://github.com/tenfourty/kbx/commit/f67b89889a94077da204bc7775513611ddbba14d))
+* **kbx:** FTS5 search quick wins — heading boost, AND variant, prefix search ([df0bf82](https://github.com/tenfourty/kbx/commit/df0bf825e01f301ba548054e06f1989890ee194e))
+* **kbx:** set updated_at on entity profile edits ([b34fdc5](https://github.com/tenfourty/kbx/commit/b34fdc5d2e1a481282931c45cec613f3da9e447b))
+* **kbx:** show freshness indicators in context output ([2239bdd](https://github.com/tenfourty/kbx/commit/2239bdde2394a6f3a716e803142a24377597be2d))
+* **kbx:** update last_mentioned_at on entity mention linking ([caaee1e](https://github.com/tenfourty/kbx/commit/caaee1e4991f7810a2ba0a48e97f6b89a792bcef))
+* **search:** add configurable weights, dedup, glossary expansion, entity boost, highlighting ([39f65a1](https://github.com/tenfourty/kbx/commit/39f65a17ef0e636f86bae7096bb2e711b0d447bf))
+* **search:** add FTS5 UPDATE trigger for chunk content sync ([132d1b0](https://github.com/tenfourty/kbx/commit/132d1b08f1f26893cb1c24d87ccd9b6658758386))
+* **search:** center snippet window on first query match ([f59a9a9](https://github.com/tenfourty/kbx/commit/f59a9a97ad44bc585606586ff9ca3f6c873d11bb))
+* **search:** separate metadata prefix from chunk content to reduce FTS noise ([2aa2164](https://github.com/tenfourty/kbx/commit/2aa216464b8c18082f2847ed12ceb052c1e23d3e))
+
+
+### Bug Fixes
+
+* **kbx:** commit DDL migrations before dependent backfills ([08efccf](https://github.com/tenfourty/kbx/commit/08efccf1404bb1b761fdf18af1d0b00ea5530431))
+* **kbx:** set updated_at on entity creation, validate --days ([4280c87](https://github.com/tenfourty/kbx/commit/4280c87cb4c76981f90c19e5df0d5d668e0e1f1c))
+
 ## [0.1.8](https://github.com/tenfourty/kbx/compare/kbx-v0.1.7...kbx-v0.1.8) (2026-02-25)
 
 
