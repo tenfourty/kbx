@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.11](https://github.com/tenfourty/kbx/compare/kbx-v0.1.10...kbx-v0.1.11) (2026-03-01)
+
+
+### Features
+
+* preserve list metadata in entity parser ([3a7e58d](https://github.com/tenfourty/kbx/commit/3a7e58d0a310cd5cc471a746fc27140eb380ad3e))
+
 ## [0.1.10](https://github.com/tenfourty/kbx/compare/kbx-v0.1.9...kbx-v0.1.10) (2026-03-01)
 
 
