@@ -646,8 +646,8 @@ class TestMetaFlag:
 
             # Verify file
             content = (root / "memory" / "people" / "test-person.md").read_text()
-            assert "**Preferred Lang:** French" in content
-            assert "**Timezone:** CET" in content
+            assert "preferred_lang: French" in content
+            assert "timezone: CET" in content
 
     def test_person_edit_meta_remove(self, runner):
         """kb person edit --meta 'key=' removes a custom field."""
@@ -691,7 +691,7 @@ class TestMetaFlag:
                 )
             assert result.exit_code == 0
             content = (root / "memory" / "people" / "test-person.md").read_text()
-            assert "**Preferred Lang:**" not in content
+            assert "preferred_lang:" not in content
 
     def test_project_edit_meta_flag(self, runner):
         """kb project edit --meta 'key=value' sets custom metadata."""
@@ -722,8 +722,8 @@ class TestMetaFlag:
                 )
             assert result.exit_code == 0
             content = (root / "memory" / "projects" / "new-project.md").read_text()
-            assert "**Priority:** High" in content
-            assert "**Status:** Active" in content
+            assert "priority: High" in content
+            assert "status: Active" in content
 
     def test_person_find_includes_custom_metadata(self, runner):
         """kb person find --json includes custom metadata in output."""

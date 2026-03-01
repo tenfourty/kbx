@@ -1127,3 +1127,24 @@ class TestImportChain:
                 del sys.modules["kb.indexer"]
             if "kb.embeddings" in sys.modules:
                 del sys.modules["kb.embeddings"]
+
+
+# ---------------------------------------------------------------------------
+# Wikilink stripping in memory chunks
+# ---------------------------------------------------------------------------
+
+
+class TestWikilinksInChunks:
+    def test_memory_chunks_strip_wikilinks(self):
+        """Memory file chunks should not contain [[wikilinks]]."""
+        from kb.sources.memory import _parse_memory_file
+
+        with tempfile.NamedTemporaryFile(suffix=".md", mode="w", delete=False) as f:
+            f.write("# Test\n\nReports to [[Idris Kalmar]] on [[Core]] team.\n")
+            f.flush()
+            doc = _parse_memory_file(Path(f.name), "memory/people/test.md", "memory_person")
+
+        assert doc.chunks
+        for chunk in doc.chunks:
+            assert "[[" not in chunk.content
+            assert "Idris Kalmar" in chunk.content

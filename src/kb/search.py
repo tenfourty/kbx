@@ -11,6 +11,7 @@ import time
 from datetime import date
 from typing import TYPE_CHECKING, Any
 
+from kb.entities import strip_wikilinks
 from kb.types import SearchMeta, SearchResponse, SearchResult
 
 if TYPE_CHECKING:
@@ -107,6 +108,7 @@ def _make_snippet(content: str, max_chars: int = 200, query: str = "") -> str:
     match is found.
     """
     clean = _strip_metadata_prefix(content)
+    clean = strip_wikilinks(clean)
     if len(clean) <= max_chars:
         return clean
 

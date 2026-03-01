@@ -7,6 +7,8 @@ import re
 import unicodedata
 from typing import TYPE_CHECKING, Any
 
+import yaml
+
 from kb.entities import seed_entities
 from kb.types import EntityTypeConfig
 from kb.writeback import _write_atomic
@@ -74,6 +76,9 @@ def get_type_registry() -> dict[str, EntityTypeConfig]:
     return dict(_TYPE_REGISTRY)
 
 
+_ENTITY_REF_FIELDS = frozenset({"team", "reports_to", "lead", "company"})
+
+
 def _name_to_slug(name: str) -> str:
     """Convert 'Jane Doe' to 'jane-doe' for filenames.
 
@@ -95,34 +100,33 @@ def _build_markdown(
     metadata: dict[str, str] | None = None,
     aliases: list[str] | None = None,
 ) -> str:
-    """Build a markdown file for an entity.
-
-    Writes registered fields first (in their defined order), then any custom
-    metadata keys not in the registry (in insertion order, Title Case labels).
-    """
+    """Build a markdown file for an entity with YAML frontmatter."""
     metadata = metadata or {}
     aliases = aliases or []
     reg = _TYPE_REGISTRY[entity_type]
 
-    lines = [f"# {name}", ""]
-
+    fm: dict[str, object] = {}
     if aliases:
-        lines.append(f"**{reg.alias_label}:** {', '.join(aliases)}")
+        fm["aliases"] = aliases
 
-    # Registered fields first
     registered_keys = {key for _label, key in reg.fields}
-    for label, key in reg.fields:
+    for _label, key in reg.fields:
         value = metadata.get(key)
         if value:
-            lines.append(f"**{label}:** {value}")
+            if key in _ENTITY_REF_FIELDS:
+                fm[key] = f"[[{value}]]" if "[[" not in value else value
+            else:
+                fm[key] = value
 
-    # Custom fields (not in registry) — Title Case labels
     for key, value in metadata.items():
         if key not in registered_keys and value:
-            lines.append(f"**{_snake_to_title(key)}:** {value}")
+            fm[key] = value
 
-    lines.append("")
-    return "\n".join(lines)
+    if not fm:
+        return f"# {name}\n"
+
+    yaml_str = yaml.dump(fm, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    return f"---\n{yaml_str}---\n# {name}\n"
 
 
 def create_entity(

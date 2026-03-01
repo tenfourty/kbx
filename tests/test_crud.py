@@ -62,8 +62,8 @@ class TestPersonCreate:
         assert (root / "memory" / "people" / "jane-doe.md").exists()
         content = (root / "memory" / "people" / "jane-doe.md").read_text()
         assert "# Jane Doe" in content
-        assert "**Role:** Engineer" in content
-        assert "**Email:** jane@example.com" in content
+        assert "role: Engineer" in content
+        assert "email: jane@example.com" in content
 
     def test_create_person_seeds_sqlite(self, crud_env):
         from kb.crud import create_entity
@@ -81,7 +81,8 @@ class TestPersonCreate:
         db, root = crud_env
         create_entity(db, root, "person", "Jane Doe", aliases=["JD", "Jane D."])
         content = (root / "memory" / "people" / "jane-doe.md").read_text()
-        assert "**Also known as:** JD, Jane D." in content
+        assert "JD" in content
+        assert "Jane D." in content
 
     def test_create_duplicate_raises(self, crud_env):
         from kb.crud import EntityExistsError, create_entity
@@ -121,8 +122,8 @@ class TestProjectCreate:
         assert path.exists()
         content = path.read_text()
         assert "# AI Adoption" in content
-        assert "**Status:** Active" in content
-        assert "**Lead:** Wren Kasper" in content
+        assert "status: Active" in content
+        assert "[[Wren Kasper]]" in content
 
 
 class TestEntityEdit:
@@ -133,7 +134,7 @@ class TestEntityEdit:
         create_entity(db, root, "person", "Jane Doe", metadata={"role": "Engineer"})
         edit_entity(db, root, "Jane Doe", metadata={"role": "Staff Engineer"})
         content = (root / "memory" / "people" / "jane-doe.md").read_text()
-        assert "**Role:** Staff Engineer" in content
+        assert "role: Staff Engineer" in content
 
     def test_edit_preserves_freeform(self, crud_env):
         from kb.crud import create_entity, edit_entity
@@ -148,7 +149,7 @@ class TestEntityEdit:
         content = path.read_text()
         assert "## Notes" in content
         assert "Some important notes" in content
-        assert "**Role:** Staff Engineer" in content
+        assert "role: Staff Engineer" in content
 
     def test_edit_not_found_raises(self, crud_env):
         from kb.crud import EntityNotFoundError, edit_entity
@@ -186,7 +187,7 @@ class TestCustomMetadata:
 
         # Check file
         content = (root / "memory" / "people" / "jane-doe.md").read_text()
-        assert "**Preferred Lang:** French" in content
+        assert "preferred_lang: French" in content
 
         # Check DB
         conn = db.get_sqlite_conn()
@@ -210,8 +211,8 @@ class TestCustomMetadata:
             metadata={"preferred_lang": "French", "timezone": "CET"},
         )
         content = (root / "memory" / "people" / "jane-doe.md").read_text()
-        assert "**Preferred Lang:** French" in content
-        assert "**Timezone:** CET" in content
+        assert "preferred_lang: French" in content
+        assert "timezone: CET" in content
 
     def test_edit_remove_custom_field(self, crud_env):
         """Setting a custom field to empty string removes it."""
@@ -223,12 +224,12 @@ class TestCustomMetadata:
 
         # Verify it's there
         content = (root / "memory" / "people" / "jane-doe.md").read_text()
-        assert "**Preferred Lang:** French" in content
+        assert "preferred_lang: French" in content
 
         # Remove it
         edit_entity(db, root, "Jane Doe", metadata={"preferred_lang": ""})
         content = (root / "memory" / "people" / "jane-doe.md").read_text()
-        assert "**Preferred Lang:**" not in content
+        assert "preferred_lang:" not in content
 
         # Verify DB
         import json
@@ -292,8 +293,8 @@ class TestCustomMetadata:
         edit_entity(db, root, "AI Adoption", metadata={"priority": "High"})
 
         content = (root / "memory" / "projects" / "ai-adoption.md").read_text()
-        assert "**Priority:** High" in content
-        assert "**Status:** Active" in content
+        assert "priority: High" in content
+        assert "status: Active" in content
 
     def test_custom_metadata_roundtrip(self, crud_env):
         """Custom metadata survives create -> edit -> re-seed cycle."""
@@ -324,8 +325,8 @@ class TestCustomMetadata:
         edit_entity(db, root, "Jane Doe", metadata={"preferred_lang": "French"})
 
         content = (root / "memory" / "people" / "jane-doe.md").read_text()
-        # File should have Title Case
-        assert "**Preferred Lang:** French" in content
+        # File should have snake_case key in YAML frontmatter
+        assert "preferred_lang: French" in content
 
         # DB should have snake_case
         import json
@@ -348,8 +349,8 @@ class TestCustomMetadata:
             metadata={"role": "Engineer", "preferred_lang": "French"},
         )
         content = (root / "memory" / "people" / "jane-doe.md").read_text()
-        assert "**Role:** Engineer" in content
-        assert "**Preferred Lang:** French" in content
+        assert "role: Engineer" in content
+        assert "preferred_lang: French" in content
 
 
 class TestNameToSlugAccentStripping:
@@ -482,6 +483,55 @@ class TestAccentInsensitiveFind:
         row = find_entity(conn, "Heloise")
         assert row is not None
         assert row["name"] == "Jane Doe"
+
+
+class TestYamlFrontmatterCreate:
+    """New entities should be created with YAML frontmatter."""
+
+    def test_build_markdown_person_yaml(self):
+        from kb.crud import _build_markdown
+
+        md = _build_markdown(
+            "Jane Doe",
+            "person",
+            metadata={"email": "j@x.com", "role": "Dev", "team": "Core"},
+            aliases=["JD"],
+        )
+        assert md.startswith("---\n")
+        assert "aliases:" in md
+        assert "JD" in md
+        assert "email: j@x.com" in md
+        assert "role: Dev" in md
+        assert "[[Core]]" in md  # team is entity-ref field
+        assert "# Jane Doe" in md
+
+    def test_build_markdown_project_yaml(self):
+        from kb.crud import _build_markdown
+
+        md = _build_markdown(
+            "Big Project",
+            "project",
+            metadata={"status": "Active", "lead": "Wren"},
+            aliases=["BP"],
+        )
+        assert md.startswith("---\n")
+        assert "status: Active" in md
+        assert "[[Wren]]" in md  # lead is entity-ref field
+        assert "# Big Project" in md
+
+    def test_build_markdown_no_aliases(self):
+        from kb.crud import _build_markdown
+
+        md = _build_markdown("Solo", "person", metadata={"role": "Dev"})
+        assert "aliases" not in md
+        assert "role: Dev" in md
+        assert "# Solo" in md
+
+    def test_build_markdown_empty_metadata(self):
+        from kb.crud import _build_markdown
+
+        md = _build_markdown("Empty", "person")
+        assert md == "# Empty\n"  # no frontmatter if nothing to write
 
 
 class TestEntityDelete:

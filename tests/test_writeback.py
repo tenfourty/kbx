@@ -85,30 +85,33 @@ class TestRebuildPersonHeader:
     def test_basic_person(self):
         entity = _make_entity()
         header = _rebuild_person_header(entity)
-        assert header.startswith("# Jane Doe\n")
-        assert "**Also known as:** JD, Jane D." in header
-        assert "**Role:** Engineer" in header
-        assert "**Team:** Core" in header
-        assert "**Pinned:**" not in header
+        assert header.startswith("---\n")
+        assert "---\n# Jane Doe\n" in header
+        assert "aliases:" in header
+        assert "- JD" in header
+        assert "- Jane D." in header
+        assert "role: Engineer" in header
+        assert "team: '[[Core]]'" in header
+        assert "pinned" not in header
 
     def test_with_email_and_company(self):
         entity = _make_entity(
             metadata={"email": "jane@example.com", "role": "Eng", "company": "Lattice"},
         )
         header = _rebuild_person_header(entity)
-        assert "**Email:** jane@example.com" in header
-        assert "**Company:** Lattice" in header
+        assert "email: jane@example.com" in header
+        assert "company: '[[Lattice]]'" in header
 
     def test_pinned_true(self):
         entity = _make_entity(pinned=True)
         header = _rebuild_person_header(entity)
-        assert "**Pinned:** true" in header
+        assert "pinned: true" in header
 
     def test_omits_empty_fields(self):
         entity = _make_entity(metadata={}, aliases=[])
         header = _rebuild_person_header(entity)
-        assert "**Also known as:**" not in header
-        assert "**Role:**" not in header
+        assert "aliases:" not in header
+        assert "role:" not in header
 
 
 class TestRebuildProjectHeader:
@@ -123,10 +126,11 @@ class TestRebuildProjectHeader:
             pinned=False,
         )
         header = _rebuild_project_header(entity)
-        assert "# My Project" in header
-        assert "**Codename/Also called:** MP" in header
-        assert "**Status:** Active" in header
-        assert "**Lead:** Jane" in header
+        assert header.startswith("---\n")
+        assert "---\n# My Project\n" in header
+        assert "- MP" in header
+        assert "status: Active" in header
+        assert "lead: '[[Jane]]'" in header
 
 
 class TestLoadEntityById:
@@ -268,8 +272,8 @@ class TestWriteEntityToFile:
         write_entity_to_file(tmp_db, eid, tmp_path)
 
         content = person_file.read_text()
-        # New email field added
-        assert "**Email:** test@example.com" in content
+        # New email field added (now in YAML frontmatter)
+        assert "email: test@example.com" in content
         # Freeform preserved
         assert "## Communication\n- Weekly syncs\n- Slack active\n" in content
         assert "## Notes\nImportant stuff here.\n" in content
@@ -300,8 +304,8 @@ class TestWriteEntityToFile:
         """If header matches DB state, file should not be rewritten."""
         person_file = tmp_path / "memory" / "people" / "same.md"
         person_file.parent.mkdir(parents=True)
-        # Must match the canonical format produced by _rebuild_person_header
-        person_file.write_text("# Same Person\n\n**Role:** Dev\n")
+        # Must match the canonical YAML format produced by _rebuild_person_header
+        person_file.write_text("---\nrole: Dev\n---\n# Same Person\n\n")
 
         conn = tmp_db.get_sqlite_conn()
         conn.execute(
@@ -319,6 +323,94 @@ class TestWriteEntityToFile:
         eid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
 
         assert write_entity_to_file(tmp_db, eid, tmp_path) is False
+
+
+class TestYamlFrontmatterWriteback:
+    """Writeback should emit YAML frontmatter."""
+
+    def test_person_yaml_header(self):
+        entity = _make_entity(
+            metadata={
+                "email": "jane@x.com",
+                "role": "Lead",
+                "team": "Core",
+                "reports_to": "CTO",
+            },
+        )
+        header = _rebuild_person_header(entity)
+        assert header.startswith("---\n")
+        assert "---\n# Jane Doe" in header
+        assert "aliases:" in header
+        assert "JD" in header
+        assert "jane-doe" not in header  # file stem excluded by _derive_aliases
+        # "Jane" (first name only) excluded from aliases by _derive_aliases
+        # but "Jane D." is kept — check aliases list doesn't have bare "Jane"
+        assert "- Jane\n" not in header
+        assert "email: jane@x.com" in header
+        assert "role: Lead" in header
+        assert "team: '[[Core]]'" in header
+        assert "reports_to: '[[CTO]]'" in header
+        assert "pinned" not in header  # not pinned
+
+    def test_person_yaml_header_pinned(self):
+        entity = _make_entity(
+            name="Boss",
+            aliases=["boss"],
+            metadata={"role": "CEO"},
+            source_path="memory/people/boss.md",
+            pinned=True,
+        )
+        header = _rebuild_person_header(entity)
+        assert "pinned: true" in header
+
+    def test_project_yaml_header(self):
+        entity = Entity(
+            id=1,
+            name="My Project",
+            entity_type="project",
+            aliases=["MP", "my-project"],
+            metadata={"status": "Active", "lead": "Wren Smith"},
+            source_path="memory/projects/my-project.md",
+            pinned=False,
+        )
+        header = _rebuild_project_header(entity)
+        assert header.startswith("---\n")
+        assert "---\n# My Project" in header
+        assert "MP" in header
+        assert "my-project" not in header  # file stem excluded
+        assert "status: Active" in header
+        assert "[[Wren Smith]]" in header
+
+    def test_split_header_body_yaml(self):
+        content = "---\nrole: Dev\n---\n# Name\n\n## Notes\n\nBody here.\n"
+        header, body = _split_header_and_body(content)
+        assert "---" in header
+        assert body.startswith("## Notes")
+
+    def test_split_header_body_legacy(self):
+        content = "# Name\n\n**Role:** Dev\n\n## Notes\n\nBody here.\n"
+        header, body = _split_header_and_body(content)
+        assert "# Name" in header
+        assert body.startswith("## Notes")
+
+    def test_person_yaml_custom_fields(self):
+        """Custom metadata fields not in the registry should still appear."""
+        entity = _make_entity(
+            metadata={"role": "Dev", "timezone": "Europe/Paris"},
+            aliases=[],
+        )
+        header = _rebuild_person_header(entity)
+        assert "timezone: Europe/Paris" in header
+
+    def test_entity_ref_already_wikilinked(self):
+        """If a ref field already has [[wikilinks]], don't double-wrap."""
+        entity = _make_entity(
+            metadata={"team": "[[Core]]"},
+            aliases=[],
+        )
+        header = _rebuild_person_header(entity)
+        assert "[[Core]]" in header
+        assert "[[[[" not in header  # no double-wrapping
 
 
 class TestParsePersonEmailCompany:

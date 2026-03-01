@@ -1,7 +1,7 @@
 """Write entity metadata from DB back to source markdown files.
 
 Preserves freeform content (## sections) while rewriting the structured
-header fields (# Title, **Field:** value lines).
+YAML frontmatter header.
 """
 
 from __future__ import annotations
@@ -9,6 +9,8 @@ from __future__ import annotations
 import os
 import re
 from typing import TYPE_CHECKING
+
+import yaml
 
 from kb.entities import Entity, load_entity_by_id
 
@@ -18,43 +20,44 @@ if TYPE_CHECKING:
     from kb.db import Database
 
 
-def _snake_to_title(key: str) -> str:
-    """Convert snake_case metadata key to Title Case label.
-
-    Examples: 'preferred_lang' -> 'Preferred Lang', 'timezone' -> 'Timezone'
-    """
-    return " ".join(word.capitalize() for word in key.split("_"))
-
-
-# Person fields in output order (field_name, metadata_key)
-_PERSON_FIELDS = [
-    ("Also known as", None),  # special: from aliases list
-    ("Email", "email"),
-    ("Role", "role"),
-    ("Team", "team"),
-    ("Reports to", "reports_to"),
-    ("Company", "company"),
-    ("Pinned", None),  # special: from entity.pinned
+# Person YAML fields in output order: (key, is_entity_ref)
+_PERSON_YAML_FIELDS = [
+    ("email", False),
+    ("role", False),
+    ("team", True),
+    ("reports_to", True),
+    ("company", True),
+    ("pcm_base", False),
+    ("pcm_phase", False),
 ]
 
-# Project fields in output order
-_PROJECT_FIELDS = [
-    ("Codename/Also called", None),  # special: from aliases list
-    ("Status", "status"),
-    ("Started", "started"),
-    ("Lead", "lead"),
-    ("Pinned", None),
+# Project YAML fields in output order
+_PROJECT_YAML_FIELDS = [
+    ("status", False),
+    ("started", False),
+    ("lead", True),
 ]
 
 
 def _split_header_and_body(content: str) -> tuple[str, str]:
     """Split file content into structured header and freeform body.
 
+    Handles both YAML frontmatter (---...---) and legacy (**Key:** value) formats.
     The header is everything before the first ## heading.
     The body is the ## heading and everything after it.
     Returns (header, body) where body may be empty.
     """
-    # Find first ## heading (not inside the title # line)
+    # Check for YAML frontmatter first
+    fm_match = re.match(r"^---\s*\n.*?\n---\s*\n", content, re.DOTALL)
+    if fm_match:
+        after_fm = content[fm_match.end() :]
+        body_match = re.search(r"^## ", after_fm, re.MULTILINE)
+        if body_match:
+            header_end = fm_match.end() + body_match.start()
+            return content[:header_end], content[header_end:]
+        return content, ""
+
+    # Legacy format: split at first ##
     match = re.search(r"^## ", content, re.MULTILINE)
     if match:
         return content[: match.start()], content[match.start() :]
@@ -82,70 +85,67 @@ def _derive_aliases(entity: Entity) -> list[str]:
     return result
 
 
-def _rebuild_person_header(entity: Entity) -> str:
-    """Rebuild the structured header for a person entity file.
+def _add_wikilinks_to_entity_ref(value: str) -> str:
+    """Add [[wikilinks]] to entity-reference field values.
 
-    Writes registered fields first, then any custom metadata keys.
+    If value already contains [[...]], return as-is.
+    Otherwise, wrap the entire value in [[ ]].
     """
-    lines = [f"# {entity.name}", ""]
+    if "[[" in value:
+        return value
+    return f"[[{value}]]"
 
+
+def _rebuild_person_header(entity: Entity) -> str:
+    """Rebuild the YAML frontmatter header for a person entity file."""
     aliases = _derive_aliases(entity)
+    fm: dict[str, object] = {}
+    if aliases:
+        fm["aliases"] = aliases
 
     registered_keys: set[str] = set()
-    for field_name, meta_key in _PERSON_FIELDS:
-        if meta_key:
-            registered_keys.add(meta_key)
-        if field_name == "Also known as":
-            if aliases:
-                lines.append(f"**Also known as:** {', '.join(aliases)}")
-        elif field_name == "Pinned":
-            if entity.pinned:
-                lines.append("**Pinned:** true")
-        else:
-            value = entity.metadata.get(meta_key) if meta_key else None
-            if value:
-                lines.append(f"**{field_name}:** {value}")
+    for key, is_ref in _PERSON_YAML_FIELDS:
+        registered_keys.add(key)
+        value = entity.metadata.get(key)
+        if value:
+            fm[key] = _add_wikilinks_to_entity_ref(value) if is_ref else value
 
-    # Custom fields (not in registry) — Title Case labels
+    if entity.pinned:
+        fm["pinned"] = True
+
+    # Custom fields (not in registry)
     for key, value in entity.metadata.items():
         if key not in registered_keys and value:
-            lines.append(f"**{_snake_to_title(key)}:** {value}")
+            fm[key] = value
 
-    lines.append("")
-    return "\n".join(lines)
+    yaml_str = yaml.dump(fm, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    return f"---\n{yaml_str}---\n# {entity.name}\n\n"
 
 
 def _rebuild_project_header(entity: Entity) -> str:
-    """Rebuild the structured header for a project entity file.
-
-    Writes registered fields first, then any custom metadata keys.
-    """
-    lines = [f"# {entity.name}", ""]
-
+    """Rebuild the YAML frontmatter header for a project entity file."""
     aliases = _derive_aliases(entity)
+    fm: dict[str, object] = {}
+    if aliases:
+        fm["aliases"] = aliases
 
     registered_keys: set[str] = set()
-    for field_name, meta_key in _PROJECT_FIELDS:
-        if meta_key:
-            registered_keys.add(meta_key)
-        if field_name == "Codename/Also called":
-            if aliases:
-                lines.append(f"**Codename/Also called:** {', '.join(aliases)}")
-        elif field_name == "Pinned":
-            if entity.pinned:
-                lines.append("**Pinned:** true")
-        else:
-            value = entity.metadata.get(meta_key) if meta_key else None
-            if value:
-                lines.append(f"**{field_name}:** {value}")
+    for key, is_ref in _PROJECT_YAML_FIELDS:
+        registered_keys.add(key)
+        value = entity.metadata.get(key)
+        if value:
+            fm[key] = _add_wikilinks_to_entity_ref(value) if is_ref else value
 
-    # Custom fields (not in registry) — Title Case labels
+    if entity.pinned:
+        fm["pinned"] = True
+
+    # Custom fields (not in registry)
     for key, value in entity.metadata.items():
         if key not in registered_keys and value:
-            lines.append(f"**{_snake_to_title(key)}:** {value}")
+            fm[key] = value
 
-    lines.append("")
-    return "\n".join(lines)
+    yaml_str = yaml.dump(fm, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    return f"---\n{yaml_str}---\n# {entity.name}\n\n"
 
 
 def _write_atomic(path: Path, content: str) -> None:

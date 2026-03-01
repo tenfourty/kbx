@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from kb.chunker import Chunk, ParsedDocument, content_hash, parse_frontmatter
 from kb.db import normalize_path
+from kb.entities import strip_wikilinks
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -91,7 +92,7 @@ def _parse_memory_file(
         tags = [str(t) for t in fm["tags"]]
     pinned = bool(fm.get("pinned", False))
 
-    chunk_content = text.strip()
+    chunk_content = strip_wikilinks(text.strip())
     chunks = [Chunk(index=0, heading=None, content=chunk_content)] if chunk_content else []
 
     return ParsedDocument(

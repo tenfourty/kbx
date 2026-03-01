@@ -1252,3 +1252,27 @@ class TestMetadataSeparation:
         results = search(search_db, None, "MFA", fast=True)
         for r in results.results:
             assert not r.snippet.startswith("[Meeting:")
+
+
+# ---------------------------------------------------------------------------
+# Wikilink stripping in snippets
+# ---------------------------------------------------------------------------
+
+
+class TestWikilinkStripping:
+    def test_snippet_strips_wikilinks(self):
+        """Snippets should not contain [[wikilinks]]."""
+        from kb.search import _make_snippet
+
+        content = "Reports to [[Idris Kalmar]] who leads [[Engineering]]"
+        snippet = _make_snippet(content)
+        assert "[[" not in snippet
+        assert "Idris Kalmar" in snippet
+
+    def test_snippet_strips_wikilinks_in_metadata(self):
+        """Wikilinks after metadata prefix should also be stripped."""
+        from kb.search import _make_snippet
+
+        content = "[Meeting: Test | Date: 2026-01-01]\nDiscussed [[Helix Refactor]] with [[Wren]]"
+        snippet = _make_snippet(content)
+        assert "[[" not in snippet
