@@ -836,3 +836,92 @@ class TestSearchDocTypeFilter:
         results = search(search_db, None, "migration", fast=True, doc_type="transcript")
         # All test docs are "notes", filtering by "transcript" should get 0
         assert results.meta.total == 0
+
+
+# ---------------------------------------------------------------------------
+# Heading weight boost (bm25 column weights)
+# ---------------------------------------------------------------------------
+
+
+class TestHeadingWeightBoost:
+    def test_heading_match_ranks_higher(self, search_db):
+        """Chunks where the query matches the heading should rank above content-only matches.
+
+        "Performance" appears as a heading in doc2 chunk1 and also as plain content
+        in other chunks. With heading boost, the heading-match chunk should rank first.
+        """
+        from kb.search import _fts_search
+
+        results = _fts_search(search_db, "Performance", limit=10)
+        assert len(results) > 0
+        # The chunk with heading="Performance" should be the top result
+        assert results[0]["heading"] == "Performance"
+
+
+# ---------------------------------------------------------------------------
+# AND query variant
+# ---------------------------------------------------------------------------
+
+
+class TestAndQueryVariant:
+    def test_and_variant_in_query_chain(self):
+        """Multi-word queries should include an AND variant between NEAR and OR."""
+        from kb.search import _build_fts_query
+
+        variants = _build_fts_query("rust migration status")
+        # Should have: phrase, NEAR, AND (implicit), OR
+        assert len(variants) == 4
+        # The AND variant is space-separated terms (implicit AND in FTS5)
+        assert "rust migration status" in variants
+        # OR variant is still last
+        assert variants[-1] == "rust OR migration OR status"
+
+    def test_and_variant_catches_scattered_terms(self, search_db):
+        """AND variant should find chunks containing all terms even if not near each other."""
+        # "Rust" and "modules" both appear in Helix Refactor Status doc
+        # but may not be within 10 tokens of each other
+        results = search(search_db, None, "Rust modules", fast=True)
+        assert results.meta.total > 0
+
+
+# ---------------------------------------------------------------------------
+# Prefix search
+# ---------------------------------------------------------------------------
+
+
+class TestPrefixSearch:
+    def test_trailing_star_preserved(self):
+        """Trailing * should NOT be stripped from query terms."""
+        from kb.search import _sanitize_fts_input
+
+        result = _sanitize_fts_input("migr*")
+        assert result == "migr*"
+
+    def test_leading_star_stripped(self):
+        """Leading * (not valid FTS5 prefix) should be stripped."""
+        from kb.search import _sanitize_fts_input
+
+        result = _sanitize_fts_input("*migration")
+        assert "*" not in result
+
+    def test_middle_star_stripped(self):
+        """Stars in the middle of words should be stripped."""
+        from kb.search import _sanitize_fts_input
+
+        result = _sanitize_fts_input("mi*gration")
+        assert "*" not in result
+
+    def test_prefix_search_finds_results(self, search_db):
+        """A prefix query like 'migr*' should match 'migration'."""
+        results = search(search_db, None, "migr*", fast=True)
+        assert results.meta.total > 0
+        # Should find migration-related docs
+        titles = [r.title for r in results.results]
+        assert any("Migration" in t for t in titles)
+
+    def test_standalone_star_stripped(self):
+        """A bare * should be stripped entirely."""
+        from kb.search import _sanitize_fts_input
+
+        result = _sanitize_fts_input("* test")
+        assert result == "test"

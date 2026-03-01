@@ -131,18 +131,24 @@ class SearchProgressHook:
 
 # FTS5 reserved operators that should be stripped from user input
 _FTS5_OPERATORS = re.compile(r"\b(AND|OR|NOT|NEAR)\b", re.IGNORECASE)
-_FTS5_SPECIAL = re.compile(r"[*^():\"]")
+_FTS5_SPECIAL = re.compile(r"[\^():\"]")
+# Strip * that is NOT a valid FTS5 suffix wildcard (trailing after word chars)
+_INVALID_STAR = re.compile(r"(?<!\w)\*|\*(?=\w)")
 
 
 def _sanitize_fts_input(text: str) -> str:
-    """Strip FTS5 operators and special characters from user input."""
+    """Strip FTS5 operators and special characters from user input.
+
+    Trailing ``*`` on words is preserved for FTS5 prefix matching (e.g. ``migr*``).
+    """
     text = _FTS5_OPERATORS.sub(" ", text)
     text = _FTS5_SPECIAL.sub("", text)
+    text = _INVALID_STAR.sub("", text)
     return " ".join(text.split())  # collapse whitespace
 
 
 def _build_fts_query(query: str) -> list[str]:
-    """Build FTS5 query variants: phrase, proximity, OR fallback.
+    """Build FTS5 query variants: phrase → proximity → AND → OR.
 
     Returns a list of FTS5 match expressions to try in order.
     """
@@ -157,9 +163,10 @@ def _build_fts_query(query: str) -> list[str]:
 
     phrase = '"' + " ".join(words) + '"'
     proximity = f"NEAR({' '.join(words)}, 10)"
+    and_query = " ".join(words)  # implicit AND — all terms must appear in row
     or_query = " OR ".join(words)
 
-    return [phrase, proximity, or_query]
+    return [phrase, proximity, and_query, or_query]
 
 
 def _fts_search(
@@ -187,11 +194,11 @@ def _fts_search(
                     c.document_id,
                     c.content,
                     c.heading,
-                    bm25(chunks_fts) as raw_bm25
+                    bm25(chunks_fts, 1.0, 2.0) as raw_bm25
                 FROM chunks_fts
                 JOIN chunks c ON c.id = chunks_fts.rowid
                 WHERE chunks_fts MATCH ?
-                ORDER BY bm25(chunks_fts)
+                ORDER BY bm25(chunks_fts, 1.0, 2.0)
                 LIMIT ?
                 """,
                 (fts_expr, limit),
@@ -274,9 +281,6 @@ def _is_strong_signal(fts_results: list[dict[str, Any]]) -> bool:
     top = fts_results[0]["bm25_score"]
     if top < 0.85:
         return False
-
-    if len(fts_results) < 2:
-        return True
 
     gap = top - fts_results[1]["bm25_score"]
     return bool(gap >= 0.15)

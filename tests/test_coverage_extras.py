@@ -79,10 +79,11 @@ class TestBuildFtsQuery:
         from kb.search import _build_fts_query
 
         variants = _build_fts_query("Rust migration")
-        assert len(variants) == 3
+        assert len(variants) == 4
         assert variants[0] == '"Rust migration"'
         assert "NEAR" in variants[1]
-        assert "OR" in variants[2]
+        assert variants[2] == "Rust migration"  # implicit AND
+        assert "OR" in variants[3]
 
     def test_empty_after_sanitize(self):
         from kb.search import _build_fts_query

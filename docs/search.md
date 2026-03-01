@@ -31,24 +31,20 @@ flowchart TD
 
 ### BM25 Score Normalization
 
-FTS5 `bm25()` returns negative scores (more negative = more relevant). These are normalized to [0,1] using sigmoid: `1 / (1 + exp(raw))`.
+FTS5 `bm25()` returns negative scores (more negative = more relevant). These are normalized to [0,1] using min-max normalization: most negative (best match) → 1.0, least negative (worst match) → 0.0. Single results get score 1.0.
 
-| Raw BM25 | Normalized |
-|----------|-----------|
-| -10.0 | ~0.99 |
-| -1.0 | ~0.73 |
-| -0.1 | ~0.52 |
-| 0.0 | 0.50 |
+Column weights: `bm25(chunks_fts, 1.0, 2.0)` — heading matches get 2x boost over content matches.
 
 ### FTS5 Phrase + Proximity Search
 
-Multi-word queries try three match levels in order:
+Multi-word queries try four match levels, merging results across all variants:
 
 1. **Phrase**: `"rust migration"` — exact phrase match
 2. **Proximity**: `NEAR(rust migration, 10)` — words within 10 tokens
-3. **OR fallback**: `rust OR migration` — either word
+3. **AND** (implicit): `rust migration` — all terms must appear in the row
+4. **OR fallback**: `rust OR migration` — either word
 
-Single-word queries use the term directly. First level that returns results is used.
+Single-word queries use the term directly. Prefix matching is supported via trailing `*` (e.g. `migr*`).
 
 ### Strong Signal Fast Path
 
