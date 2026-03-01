@@ -641,6 +641,40 @@ class TestSearch:
         result = kb_instance.search("test", fast=True)
         assert isinstance(result, SearchResponse)
 
+    def test_search_accepts_fts_weight(self, kb_instance):
+        result = kb_instance.search("test", fast=True, fts_weight=2.0)
+        assert result.meta.query == "test"
+
+    def test_search_accepts_vector_weight(self, kb_instance):
+        result = kb_instance.search("test", fast=True, vector_weight=0.5)
+        assert result.meta.query == "test"
+
+    def test_search_accepts_dedupe(self, kb_instance):
+        result = kb_instance.search("test", fast=True, dedupe=True)
+        assert result.meta.query == "test"
+
+    def test_search_passes_params_through(self, kb_instance, monkeypatch):
+        """Verify fts_weight, vector_weight, dedupe are forwarded to internal search."""
+        captured: dict = {}
+
+        def fake_search(db, embedder, query, **kwargs):
+            captured.update(kwargs)
+            from kb.types import SearchMeta, SearchResponse
+
+            return SearchResponse(
+                results=[],
+                meta=SearchMeta(query=query, total=0, limit=10, sort_by="score", execution_ms=0),
+            )
+
+        import kb.search
+
+        monkeypatch.setattr(kb.search, "search", fake_search)
+
+        kb_instance.search("test", fast=True, fts_weight=2.5, vector_weight=0.3, dedupe=True)
+        assert captured["fts_weight"] == 2.5
+        assert captured["vector_weight"] == 0.3
+        assert captured["dedupe"] is True
+
 
 class TestContext:
     def test_context_empty_db(self, kb_instance):

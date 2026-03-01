@@ -701,6 +701,9 @@ class KnowledgeBase:
         to_date: str | None = None,
         tag: str | None = None,
         sort_by: str = "score",
+        fts_weight: float = 1.0,
+        vector_weight: float = 1.0,
+        dedupe: bool = False,
     ) -> SearchResponse:
         """Run a hybrid search (FTS5 + vector + RRF fusion).
 
@@ -725,6 +728,9 @@ class KnowledgeBase:
             to_date=to_date,
             tag=tag,
             sort_by=sort_by,
+            fts_weight=fts_weight,
+            vector_weight=vector_weight,
+            dedupe=dedupe,
         )
 
     # ------------------------------------------------------------------
