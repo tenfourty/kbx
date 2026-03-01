@@ -1,6 +1,6 @@
 # Granola Plugin
 
-Granola is a meeting transcript tool that records meetings and generates AI notes. The Granola plugin syncs meetings from the Granola API into `meetings/organised/` and indexes them into kb.
+Granola is a meeting transcript tool that records meetings and generates AI notes. The Granola plugin syncs meetings from the Granola API into `memory/meetings/` and indexes them into kb.
 
 ## How Sync Works
 
@@ -10,7 +10,7 @@ Granola is a meeting transcript tool that records meetings and generates AI note
 4. For each document, fetches the transcript via a separate API call
 5. Converts ProseMirror notes to Markdown, merges transcript segments
 6. Builds YAML frontmatter (title, date, attendees, calendar event, tags)
-7. Writes `.notes.md` and `.transcript.md` files to `meetings/organised/YYYY/MM/DD/`
+7. Writes `.notes.md` and `.transcript.md` files to `memory/meetings/YYYY/MM/DD/`
 8. Tracks sync state in `.granola_sync_state.json` for incremental runs
 
 Existing files are skipped unless the remote `updated_at` is newer. The `--force` flag overwrites regardless.
@@ -51,7 +51,7 @@ kb ingest --dry-run                     # preview only
 kb ingest --skip-organise               # index only (already organised)
 ```
 
-This runs `meetings/organise_granola.py` to unpack exports into `meetings/organised/`, then indexes them.
+This runs `meetings/organise_granola.py` to unpack exports into `memory/meetings/`, then indexes them.
 
 ## Rate Limiting
 

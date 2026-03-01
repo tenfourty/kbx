@@ -152,6 +152,7 @@ def index_all(
     *,
     memory_only: bool = False,
     skip_seed: bool = False,
+    meetings_dir: Path | None = None,
 ) -> IndexResult:
     """Index all sources. Incremental by default, full if requested.
 
@@ -182,7 +183,7 @@ def index_all(
     # Collect all documents from all sources, filter to those needing indexing
     docs_to_index: list[ParsedDocument] = []
     if not memory_only:
-        for doc in walk_meetings(project_root):
+        for doc in walk_meetings(project_root, meetings_dir=meetings_dir):
             if doc.path in existing_hashes and existing_hashes[doc.path] == doc.content_hash:
                 result.documents_skipped += 1
                 continue

@@ -123,7 +123,7 @@ Pluggable adapters in `kb/sources/`:
 
 ### `meetings.py`
 
-Walks `meetings/organised/YYYY/MM/DD/*.md`. Processes files with `.notes.md` and `.transcript.md` suffixes. Parses YAML frontmatter for title, date, type, granola_id, tags.
+Walks `memory/meetings/YYYY/MM/DD/*.md`. Processes files with `.notes.md` and `.transcript.md` suffixes. Parses YAML frontmatter for title, date, type, granola_id, tags.
 
 ### `memory.py`
 
@@ -138,7 +138,7 @@ Walks `memory/` subdirectories:
 ```mermaid
 flowchart LR
     subgraph Sources
-        MF["Meeting Files<br/>(meetings/organised/)"]
+        MF["Meeting Files<br/>(memory/meetings/)"]
         MM["Memory Files<br/>(memory/*/)"]
     end
 

@@ -158,8 +158,12 @@ def walk_memory(project_root: Path) -> Iterator[ParsedDocument]:
             yielded.add(rel_path)
             yield _parse_memory_file(f, rel_path, doc_type)
 
-    # Catch-all: any other memory/**/*.md not yet yielded
+    # Catch-all: any other memory/**/*.md not yet yielded.
+    # Skip memory/meetings/ — those are handled by the meetings source adapter.
+    meetings_subdir = memory_dir / "meetings"
     for f in sorted(memory_dir.rglob("*.md")):
+        if f.is_relative_to(meetings_subdir):
+            continue
         rel_path = normalize_path(str(f.relative_to(project_root)))
         if rel_path in yielded:
             continue

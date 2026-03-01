@@ -625,10 +625,10 @@ class TestSyncOrchestration:
         import glob
 
         notes_files = glob.glob(
-            str(tmp_dir / "meetings" / "organised" / "**/*.notes.md"), recursive=True
+            str(tmp_dir / "memory" / "meetings" / "**/*.notes.md"), recursive=True
         )
         transcript_files = glob.glob(
-            str(tmp_dir / "meetings" / "organised" / "**/*.transcript.md"), recursive=True
+            str(tmp_dir / "memory" / "meetings" / "**/*.transcript.md"), recursive=True
         )
         assert len(notes_files) == 1
         assert len(transcript_files) == 1

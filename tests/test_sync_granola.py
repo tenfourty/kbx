@@ -724,7 +724,7 @@ class TestWriteMeeting:
         from kb.sync.granola import write_meeting
 
         # Create old-pattern files manually
-        day_dir = tmp_dir / "meetings" / "organised" / "2026" / "01" / "27"
+        day_dir = tmp_dir / "memory" / "meetings" / "2026" / "01" / "27"
         day_dir.mkdir(parents=True)
         old_notes = day_dir / "Alice___Thomas_aabb1122.notes.md"
         old_transcript = day_dir / "Alice___Thomas_aabb1122.transcript.md"
@@ -823,7 +823,7 @@ class TestSyncCLI:
             )
 
         assert result.exit_code == 0
-        meetings_dir = tmp_dir / "meetings" / "organised"
+        meetings_dir = tmp_dir / "memory" / "meetings"
         assert not meetings_dir.exists() or not list(meetings_dir.rglob("*.md"))
 
     def test_sync_since_date(self):
@@ -1063,7 +1063,7 @@ tags:
         from kb.sources.meetings import walk_meetings
 
         # Create a meeting file with enriched frontmatter
-        day_dir = tmp_dir / "meetings" / "organised" / "2026" / "01" / "27"
+        day_dir = tmp_dir / "memory" / "meetings" / "2026" / "01" / "27"
         day_dir.mkdir(parents=True)
         notes = day_dir / "abc12345_Alice___Thomas.granola.notes.md"
         notes.write_text("""---

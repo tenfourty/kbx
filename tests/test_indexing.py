@@ -151,8 +151,8 @@ class TestNotesChunking:
 
         path = (
             project_root
+            / "memory"
             / "meetings"
-            / "organised"
             / "2026"
             / "01"
             / "27"
@@ -397,7 +397,7 @@ class TestGlossaryParsing:
 @pytest.fixture
 def meetings_root(tmp_path):
     """Synthetic meeting files for fast walker tests."""
-    base = tmp_path / "meetings" / "organised" / "2026" / "01" / "15"
+    base = tmp_path / "memory" / "meetings" / "2026" / "01" / "15"
     base.mkdir(parents=True)
     for i, (name, tag) in enumerate(
         [
@@ -603,7 +603,7 @@ class TestIndexer:
             )
 
             # Create a meeting that mentions Jane
-            meetings_dir = tmp_root / "meetings" / "organised" / "2026" / "01" / "01"
+            meetings_dir = tmp_root / "memory" / "meetings" / "2026" / "01" / "01"
             meetings_dir.mkdir(parents=True)
             (meetings_dir / "aabbccdd_Test_Meeting.granola.notes.md").write_text(
                 "---\ntitle: Test Meeting\ndate: 2026-01-01\ntype: notes\n"
@@ -628,7 +628,7 @@ class TestIndexer:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_root = Path(tmpdir)
 
-            meetings_dir = tmp_root / "meetings" / "organised" / "2026" / "01" / "01"
+            meetings_dir = tmp_root / "memory" / "meetings" / "2026" / "01" / "01"
             meetings_dir.mkdir(parents=True)
             (meetings_dir / "aabbccdd_Test_Meeting.granola.notes.md").write_text(
                 "---\ntitle: Test Meeting\ndate: 2026-01-01\ntype: notes\n"
@@ -654,7 +654,7 @@ class TestIndexer:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_root = Path(tmpdir)
 
-            meetings_dir = tmp_root / "meetings" / "organised" / "2026" / "01" / "01"
+            meetings_dir = tmp_root / "memory" / "meetings" / "2026" / "01" / "01"
             meetings_dir.mkdir(parents=True)
             (meetings_dir / "aabbccdd_Test_Meeting.granola.notes.md").write_text(
                 "---\ntitle: Test Meeting\ndate: 2026-01-01\ntype: notes\n"
@@ -717,7 +717,7 @@ class TestIndexerWithMockEmbedder:
             people_dir.mkdir(parents=True)
             (people_dir / "test.md").write_text("# Test\n\n**Role:** Test\n")
 
-            meetings_dir = tmp_root / "meetings" / "organised" / "2026" / "01" / "01"
+            meetings_dir = tmp_root / "memory" / "meetings" / "2026" / "01" / "01"
             meetings_dir.mkdir(parents=True)
             (meetings_dir / "aabbccdd_Test_Meeting.granola.notes.md").write_text(
                 "---\ntitle: Test Meeting\ndate: 2026-01-01\ntype: notes\n"
@@ -818,7 +818,7 @@ class TestNoEmbedIndexing:
                 "# Jane Doe\n\n**Also known as:** Jane\n**Role:** Engineer\n"
             )
 
-            meetings_dir = tmp_root / "meetings" / "organised" / "2026" / "01" / "01"
+            meetings_dir = tmp_root / "memory" / "meetings" / "2026" / "01" / "01"
             meetings_dir.mkdir(parents=True)
             (meetings_dir / "aabbccdd_Test_Meeting.granola.notes.md").write_text(
                 "---\ntitle: Test Meeting\ndate: 2026-01-01\ntype: notes\n"
@@ -845,7 +845,7 @@ class TestNoEmbedIndexing:
                 "# Jane Doe\n\n**Email:** jane@example.com\n**Role:** Engineer\n"
             )
 
-            meetings_dir = tmp_root / "meetings" / "organised" / "2026" / "01" / "01"
+            meetings_dir = tmp_root / "memory" / "meetings" / "2026" / "01" / "01"
             meetings_dir.mkdir(parents=True)
             (meetings_dir / "aabbccdd_Test_Meeting.granola.notes.md").write_text(
                 "---\ntitle: Test Meeting\ndate: 2026-01-01\ntype: notes\n"
@@ -959,7 +959,7 @@ class TestNoEmbedIndexing:
             )
 
             # Create meeting that mentions Jane with a specific date
-            meetings_dir = tmp_root / "meetings" / "organised" / "2026" / "02" / "15"
+            meetings_dir = tmp_root / "memory" / "meetings" / "2026" / "02" / "15"
             meetings_dir.mkdir(parents=True)
             (meetings_dir / "aabbccdd_Test_Meeting.granola.notes.md").write_text(
                 "---\ntitle: Test Meeting\ndate: 2026-02-15\ntype: notes\n"
@@ -1052,7 +1052,7 @@ class TestIndexingDeleteAndReindex:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_root = Path(tmpdir)
-            meet_dir = tmp_root / "meetings" / "organised" / "2026" / "01" / "15"
+            meet_dir = tmp_root / "memory" / "meetings" / "2026" / "01" / "15"
             meet_dir.mkdir(parents=True)
             (meet_dir / "aabb0001_User___Bob.granola.notes.md").write_text(
                 "---\ntitle: Meeting 1\ndate: 2026-01-15\ntype: notes\n"

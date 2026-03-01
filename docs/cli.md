@@ -56,7 +56,7 @@ Options:
 ### view
 
 ```bash
-kb view "meetings/organised/2026/01/27/Alice___Bob.notes.md"
+kb view "memory/meetings/2026/01/27/Alice___Bob.notes.md"
 kb view "Alice___Bob.notes.md"               # suffix match
 kb view #abcdef                              # content-hash lookup (first 6+ chars)
 kb view "path.md:42"                         # line range (future)

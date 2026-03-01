@@ -1,4 +1,4 @@
-"""Meeting source adapter — walks meetings/organised/ and yields ParsedDocuments."""
+"""Meeting source adapter — walks a meetings directory and yields ParsedDocuments."""
 
 from __future__ import annotations
 
@@ -19,12 +19,19 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-def walk_meetings(project_root: Path) -> Iterator[ParsedDocument]:
-    """Yield ParsedDocument for each meeting file in meetings/organised/.
+def walk_meetings(
+    project_root: Path, *, meetings_dir: Path | None = None
+) -> Iterator[ParsedDocument]:
+    """Yield ParsedDocument for each meeting file under meetings_dir.
+
+    Args:
+        project_root: Root of the project (used for relative path calculation).
+        meetings_dir: Resolved meetings directory. Defaults to project_root / "meetings".
 
     Parses .notes.md and .transcript.md files with YAML frontmatter.
     """
-    meetings_dir = project_root / "meetings" / "organised"
+    if meetings_dir is None:
+        meetings_dir = project_root / "memory" / "meetings"
     if not meetings_dir.exists():
         return
 

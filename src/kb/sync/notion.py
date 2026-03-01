@@ -503,7 +503,7 @@ def write_meeting(
     else:
         year, month, day = "unknown", "00", "00"
 
-    out_dir = project_root / "meetings" / "organised" / year / month / day
+    out_dir = project_root / "memory" / "meetings" / year / month / day
 
     notes_path = out_dir / f"{base_name}.{source}.notes.md"
     transcript_path = out_dir / f"{base_name}.{source}.transcript.md"

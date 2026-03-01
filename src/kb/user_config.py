@@ -23,7 +23,7 @@ from pydantic import BaseModel
 class SourcesConfig(BaseModel):
     """Source directory configuration."""
 
-    meetings: str = "meetings/organised"
+    meetings: str = "memory/meetings"
     memory: str = "memory"
 
 

@@ -8,7 +8,7 @@ def test_default_config():
     from kb.user_config import KbxConfig
 
     cfg = KbxConfig()
-    assert cfg.sources.meetings == "meetings/organised"
+    assert cfg.sources.meetings == "memory/meetings"
     assert cfg.sources.memory == "memory"
     assert cfg.data.dir is None  # None = auto-detect
 
@@ -170,7 +170,7 @@ def test_resolve_source_dir_no_config():
     cfg = KbxConfig()
     meetings_dir = resolve_source_dir(cfg, "meetings", config_path=None)
     # Without config_path, path is resolved from CWD
-    assert meetings_dir == Path("meetings/organised").resolve()
+    assert meetings_dir == Path("memory/meetings").resolve()
 
 
 # ---------------------------------------------------------------------------
@@ -260,12 +260,12 @@ def test_init_creates_local_config(tmp_path, monkeypatch):
 
     monkeypatch.chdir(tmp_path)
     runner = CliRunner()
-    result = runner.invoke(cli, ["init"], input="meetings/organised\nmemory\n.kbx\n")
+    result = runner.invoke(cli, ["init"], input="memory/meetings\nmemory\n.kbx\n")
     assert result.exit_code == 0
     assert (tmp_path / "kbx.toml").exists()
     content = (tmp_path / "kbx.toml").read_text()
     assert "[sources]" in content
-    assert "meetings/organised" in content
+    assert "memory/meetings" in content
     assert "[data]" in content
 
 

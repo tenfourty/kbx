@@ -104,7 +104,7 @@ search(
       "chunk_id": 42,
       "document_id": 7,
       "title": "Wren / Soren",
-      "path": "meetings/organised/2026/01/27/...",
+      "path": "memory/meetings/2026/01/27/...",
       "date": "2026-01-27",
       "doc_type": "notes",
       "score": 0.94,

@@ -1634,7 +1634,7 @@ def init(global_: bool) -> None:
         click.echo(f"Config already exists: {config_path}")
         return
 
-    meetings = click.prompt("Where are your meeting transcripts?", default="meetings/organised")
+    meetings = click.prompt("Where are your meeting transcripts?", default="memory/meetings")
     memory = click.prompt("Where are your memory files?", default="memory")
 
     default_data = str(Path.home() / ".local" / "share" / "kbx")

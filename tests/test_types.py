@@ -303,11 +303,11 @@ class TestApiTypes:
         t = TimelineEntry(
             title="Weekly Standup",
             date="2026-02-20",
-            path="meetings/organised/2026/02/20/abc_Weekly-Standup.granola.notes.md",
+            path="memory/meetings/2026/02/20/abc_Weekly-Standup.granola.notes.md",
         )
         assert t.title == "Weekly Standup"
         assert t.date == "2026-02-20"
-        assert t.path.startswith("meetings/")
+        assert t.path.startswith("memory/meetings/")
 
     def test_entity_pin_result(self):
         from kb.types import EntityPinResult

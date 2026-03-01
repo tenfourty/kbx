@@ -678,14 +678,14 @@ def write_meeting(
         created = doc.get("created_at", "")
         date = created[:10] if created else "unknown"
 
-    # Build output directory: meetings/organised/YYYY/MM/DD/
+    # Build output directory: memory/meetings/YYYY/MM/DD/
     parts = date.split("-")
     if len(parts) == 3:
         year, month, day = parts
     else:
         year, month, day = "unknown", "00", "00"
 
-    out_dir = project_root / "meetings" / "organised" / year / month / day
+    out_dir = project_root / "memory" / "meetings" / year / month / day
     granola_id = doc.get("id", "unknown")
     id_prefix = granola_id[:8] if len(granola_id) >= 8 else granola_id
 
@@ -788,7 +788,7 @@ def _should_skip_early(doc: dict[str, Any], project_root: Path) -> bool:
         return False
     year, month, day = parts
 
-    out_dir = project_root / "meetings" / "organised" / year / month / day
+    out_dir = project_root / "memory" / "meetings" / year / month / day
     granola_id = doc.get("id", "unknown")
     id_prefix = granola_id[:8] if len(granola_id) >= 8 else granola_id
 
