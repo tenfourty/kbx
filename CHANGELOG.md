@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.1.10](https://github.com/tenfourty/kbx/compare/kbx-v0.1.9...kbx-v0.1.10) (2026-03-01)
+
+
+### Features
+
+* add batch wikilinks script for memory files ([6be8296](https://github.com/tenfourty/kbx/commit/6be8296c4fe951eb71bd852ba898dc9a4f62693d))
+* add strip_wikilinks() utility for [[wikilink]] removal ([388194a](https://github.com/tenfourty/kbx/commit/388194af8ca1c48089286d6c177c46699edad3a6))
+* add YAML frontmatter migration script ([30ea238](https://github.com/tenfourty/kbx/commit/30ea23862a126a232837a3bebe58a07ecea6313b))
+* **entities:** parse YAML frontmatter with fallback to legacy format ([0ea1b18](https://github.com/tenfourty/kbx/commit/0ea1b18553ea9ba033c6f80e8514e4b1051628d8))
+* YAML frontmatter + wikilinks for entity files (Tasks 2-5, 7) ([50b6148](https://github.com/tenfourty/kbx/commit/50b6148d05d19acd33cfaeea9cef6d7f63d44529))
+
+
+### Bug Fixes
+
+* **entities:** strip wikilinks from team names parsed from company.md ([7e2d658](https://github.com/tenfourty/kbx/commit/7e2d658173a63a8002f71a850f3f9bc90eaf0976))
+
+
+### Documentation
+
+* add YAML frontmatter + wikilinks design doc ([76d150d](https://github.com/tenfourty/kbx/commit/76d150da3ff9aa1bbf3c1185bd1158d26f9c0a86))
+* add YAML frontmatter + wikilinks implementation plan ([31b15af](https://github.com/tenfourty/kbx/commit/31b15af76558439665f264dc65def2b81718c134))
+
 ## [0.1.9](https://github.com/tenfourty/kbx/compare/kbx-v0.1.8...kbx-v0.1.9) (2026-03-01)
 
 
