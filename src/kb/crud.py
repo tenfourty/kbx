@@ -97,7 +97,7 @@ def _name_to_slug(name: str) -> str:
 def _build_markdown(
     name: str,
     entity_type: str,
-    metadata: dict[str, str] | None = None,
+    metadata: dict[str, Any] | None = None,
     aliases: list[str] | None = None,
 ) -> str:
     """Build a markdown file for an entity with YAML frontmatter."""
@@ -135,7 +135,7 @@ def create_entity(
     entity_type: str,
     name: str,
     *,
-    metadata: dict[str, str] | None = None,
+    metadata: dict[str, Any] | None = None,
     aliases: list[str] | None = None,
 ) -> dict[str, Any]:
     """Create a new entity: write markdown file + seed into SQLite.
@@ -173,7 +173,7 @@ def edit_entity(
     project_root: Path,
     name: str,
     *,
-    metadata: dict[str, str] | None = None,
+    metadata: dict[str, Any] | None = None,
     aliases: list[str] | None = None,
 ) -> dict[str, Any]:
     """Edit an existing entity's metadata. Preserves freeform content.

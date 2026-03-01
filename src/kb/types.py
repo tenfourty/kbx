@@ -9,6 +9,8 @@ All other models use frozen=True for immutability.
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict
 
 # ---------------------------------------------------------------------------
@@ -39,7 +41,7 @@ class EntityData(StrictFrozen):
     name: str
     entity_type: str
     aliases: list[str] = []
-    metadata: dict[str, str] = {}
+    metadata: dict[str, Any] = {}
     source_path: str | None = None
     pinned: bool = False
 
@@ -51,7 +53,7 @@ class Entity(StrictMutable):
     name: str
     entity_type: str
     aliases: list[str] = []
-    metadata: dict[str, str] = {}
+    metadata: dict[str, Any] = {}
     source_path: str | None = None
     pinned: bool = False
 
@@ -228,7 +230,7 @@ class EntitySummary(StrictFrozen):
     id: int
     name: str
     entity_type: str
-    metadata: dict[str, str]
+    metadata: dict[str, Any]
     mention_count: int
     pinned: bool
 
@@ -240,7 +242,7 @@ class EntityDetail(StrictFrozen):
     name: str
     entity_type: str
     aliases: list[str]
-    metadata: dict[str, str]
+    metadata: dict[str, Any]
     mention_count: int
     pinned: bool
     source_path: str | None
@@ -299,7 +301,7 @@ class ContextEntity(StrictMutable):
     name: str
     entity_type: str
     aliases: list[str] = []
-    metadata: dict[str, str] = {}
+    metadata: dict[str, Any] = {}
     source_path: str | None = None
     mention_count: int = 0
     pinned: bool = False

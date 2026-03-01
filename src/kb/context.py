@@ -734,9 +734,9 @@ def generate_context(
     for r in rows:
         raw_aliases = json.loads(r["aliases"]) if r["aliases"] else []
         raw_metadata = json.loads(r["metadata"]) if r["metadata"] else {}
-        # Ensure aliases are list[str] and metadata is dict[str, str] for strict Pydantic
+        # Ensure aliases are list[str] and metadata keys are str for strict Pydantic
         aliases = [str(a) for a in raw_aliases]
-        metadata = {str(k): str(v) for k, v in raw_metadata.items()}
+        metadata = {str(k): v for k, v in raw_metadata.items()}
         all_entities.append(
             ContextEntity(
                 id=int(r["id"]),

@@ -106,15 +106,18 @@ def _parse_person_file(path: Path) -> EntityData:
         raw_aliases = fm.get("aliases", []) or []
         aliases = [str(a).strip() for a in raw_aliases]
         is_pinned = bool(fm.get("pinned", False))
-        metadata: dict[str, str] = {}
+        metadata: dict[str, Any] = {}
         for key, value in fm.items():
             if key in _YAML_SPECIAL:
                 continue
-            str_val = str(value).strip()
-            if key in _ENTITY_REF_FIELDS:
-                str_val = strip_wikilinks(str_val)
-            if str_val:
-                metadata[key] = str_val
+            if isinstance(value, list):
+                metadata[key] = value
+            else:
+                str_val = str(value).strip()
+                if key in _ENTITY_REF_FIELDS:
+                    str_val = strip_wikilinks(str_val)
+                if str_val:
+                    metadata[key] = str_val
     else:
         # Legacy **Key:** Value format
         also_known = _parse_field(text, "Also known as")
@@ -157,15 +160,18 @@ def _parse_project_file(path: Path) -> EntityData:
         raw_aliases = fm.get("aliases", []) or []
         aliases = [str(a).strip() for a in raw_aliases]
         is_pinned = bool(fm.get("pinned", False))
-        metadata: dict[str, str] = {}
+        metadata: dict[str, Any] = {}
         for key, value in fm.items():
             if key in _YAML_SPECIAL:
                 continue
-            str_val = str(value).strip()
-            if key in _ENTITY_REF_FIELDS:
-                str_val = strip_wikilinks(str_val)
-            if str_val:
-                metadata[key] = str_val
+            if isinstance(value, list):
+                metadata[key] = value
+            else:
+                str_val = str(value).strip()
+                if key in _ENTITY_REF_FIELDS:
+                    str_val = strip_wikilinks(str_val)
+                if str_val:
+                    metadata[key] = str_val
     else:
         # Legacy **Key:** Value format
         codename = _parse_field(text, "Codename/Also called")
