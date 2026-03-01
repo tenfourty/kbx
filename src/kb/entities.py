@@ -15,6 +15,14 @@ if TYPE_CHECKING:
     from kb.db import Database
 
 
+def strip_wikilinks(text: str) -> str:
+    """Strip [[wikilinks]] from text: '[[Foo]]' → 'Foo'.
+
+    Used when reading values for DB storage, FTS indexing, and snippet display.
+    """
+    return re.sub(r"\[\[([^\]]+)\]\]", r"\1", text)
+
+
 def _parse_field(text: str, field_name: str) -> str | None:
     """Extract a **Field:** value from markdown text."""
     pattern = rf"\*\*{re.escape(field_name)}:\*\*\s*(.+)"

@@ -812,3 +812,38 @@ class TestParserPydanticOutput:
         assert isinstance(result, EntityData)
         assert result.name == "Test Project"
         assert result.entity_type == "project"
+
+
+class TestStripWikilinks:
+    def test_strip_simple(self):
+        from kb.entities import strip_wikilinks
+
+        assert strip_wikilinks("[[Foo]]") == "Foo"
+
+    def test_strip_multiple(self):
+        from kb.entities import strip_wikilinks
+
+        assert strip_wikilinks("[[Foo]] and [[Bar]]") == "Foo and Bar"
+
+    def test_strip_in_sentence(self):
+        from kb.entities import strip_wikilinks
+
+        assert (
+            strip_wikilinks("Reports to [[Idris Kalmar]] (CTO)") == "Reports to Idris Kalmar (CTO)"
+        )
+
+    def test_no_wikilinks(self):
+        from kb.entities import strip_wikilinks
+
+        assert strip_wikilinks("plain text") == "plain text"
+
+    def test_empty_string(self):
+        from kb.entities import strip_wikilinks
+
+        assert strip_wikilinks("") == ""
+
+    def test_nested_brackets(self):
+        from kb.entities import strip_wikilinks
+
+        # Edge case: only strips [[...]], not single brackets
+        assert strip_wikilinks("[not a link]") == "[not a link]"
