@@ -925,3 +925,39 @@ class TestPrefixSearch:
 
         result = _sanitize_fts_input("* test")
         assert result == "test"
+
+
+# ---------------------------------------------------------------------------
+# FTS5 UPDATE trigger
+# ---------------------------------------------------------------------------
+
+
+class TestFTSUpdateTrigger:
+    def test_updated_chunk_is_searchable(self, search_db):
+        """After updating chunk content, FTS should find the new text."""
+        conn = search_db.get_sqlite_conn()
+        pre = conn.execute(
+            "SELECT count(*) as cnt FROM chunks_fts WHERE chunks_fts MATCH 'kubernetes'"
+        ).fetchone()
+        assert pre["cnt"] == 0
+
+        conn.execute(
+            "UPDATE chunks SET content = 'We are deploying kubernetes clusters' WHERE id = 1"
+        )
+        conn.commit()
+
+        post = conn.execute(
+            "SELECT count(*) as cnt FROM chunks_fts WHERE chunks_fts MATCH 'kubernetes'"
+        ).fetchone()
+        assert post["cnt"] == 1
+
+    def test_updated_heading_is_searchable(self, search_db):
+        """After updating chunk heading, FTS should find the new heading."""
+        conn = search_db.get_sqlite_conn()
+        conn.execute("UPDATE chunks SET heading = 'Kubernetes' WHERE id = 1")
+        conn.commit()
+
+        results = conn.execute(
+            "SELECT count(*) as cnt FROM chunks_fts WHERE chunks_fts MATCH 'Kubernetes'"
+        ).fetchone()
+        assert results["cnt"] == 1

@@ -130,6 +130,13 @@ MIGRATIONS: list[tuple[str, str | None]] = [
         "ALTER TABLE entities ADD COLUMN last_mentioned_at TEXT",
     ),
     ("009_backfill_last_mentioned_at", None),  # Python-based backfill
+    (
+        "010_fts_update_trigger",
+        """CREATE TRIGGER IF NOT EXISTS chunks_au AFTER UPDATE ON chunks BEGIN
+        INSERT INTO chunks_fts(chunks_fts, rowid, content, heading) VALUES ('delete', old.id, old.content, old.heading);
+        INSERT INTO chunks_fts(rowid, content, heading) VALUES (new.id, new.content, new.heading);
+    END;""",
+    ),
 ]
 
 
@@ -218,6 +225,10 @@ TRIGGERS_SQL = [
     END;""",
     """CREATE TRIGGER chunks_ad AFTER DELETE ON chunks BEGIN
         INSERT INTO chunks_fts(chunks_fts, rowid, content, heading) VALUES ('delete', old.id, old.content, old.heading);
+    END;""",
+    """CREATE TRIGGER chunks_au AFTER UPDATE ON chunks BEGIN
+        INSERT INTO chunks_fts(chunks_fts, rowid, content, heading) VALUES ('delete', old.id, old.content, old.heading);
+        INSERT INTO chunks_fts(rowid, content, heading) VALUES (new.id, new.content, new.heading);
     END;""",
 ]
 
