@@ -28,17 +28,17 @@ def walk_meetings(
         project_root: Root of the project (used for relative path calculation).
         meetings_dir: Resolved meetings directory. Defaults to project_root / "meetings".
 
-    Parses .notes.md and .transcript.md files with YAML frontmatter.
+    Parses .notes.md, .transcript.md, and .ai-summary.md files with YAML frontmatter.
     """
     if meetings_dir is None:
         meetings_dir = project_root / "memory" / "meetings"
     if not meetings_dir.exists():
         return
 
+    suffixes = (".notes.md", ".transcript.md", ".ai-summary.md")
     for md_file in sorted(meetings_dir.rglob("*.md")):
-        # Only process .notes.md and .transcript.md files
         name = md_file.name
-        if not (name.endswith(".notes.md") or name.endswith(".transcript.md")):
+        if not any(name.endswith(s) for s in suffixes):
             continue
 
         try:
