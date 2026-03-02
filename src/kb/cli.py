@@ -1580,6 +1580,11 @@ def usage() -> None:
   kb sync notion --since 2026-01-01    # sync Notion AI Meeting Notes since date
   Options: --dry-run | --force | --no-index
 
+  Granola sync produces three files per meeting:
+    .granola.notes.md        — human-written notes
+    .granola.transcript.md   — full transcript
+    .granola.ai-summary.md   — AI-generated summary (from Granola's summary panel)
+
 ## 10. Granola Write
   kb granola push <calendar-uid> --notes "# Prep\\n- Topic A"    # push notes (prepends above existing)
   kb granola push <calendar-uid> --notes-file prep.md            # push from file
