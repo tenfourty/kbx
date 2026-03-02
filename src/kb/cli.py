@@ -1581,10 +1581,8 @@ def usage() -> None:
   Options: --dry-run | --force | --no-index
 
 ## 10. Granola Write
-  kb granola push --calendar-uid <uid> --notes "# Prep"          # match by calendar UID (preferred)
-  kb granola push --title "Meeting" --notes "# Prep"             # match by title (fallback)
-  kb granola push --calendar-uid <uid> --notes-file prep.md      # push from file
-  kb granola push --title "Meeting" --notes "..." --prepend      # prepend above existing notes
+  kb granola push <calendar-uid> --notes "# Prep\\n- Topic A"    # push notes (prepends by default)
+  kb granola push <calendar-uid> --notes-file prep.md            # push from file
 
 ## 11. Python API
 
@@ -2522,10 +2520,7 @@ def granola() -> None:
 
 
 @granola.command("push")
-@click.option(
-    "--calendar-uid", default=None, help="Google Calendar event ID or iCalUID (preferred)."
-)
-@click.option("--title", default=None, help="Match by title substring (fallback).")
+@click.argument("calendar_uid")
 @click.option("--notes", default=None, help="Markdown notes to write.")
 @click.option(
     "--notes-file",
@@ -2533,25 +2528,20 @@ def granola() -> None:
     type=click.Path(exists=True),
     help="Path to a markdown file to write.",
 )
-@click.option("--prepend", is_flag=True, help="Prepend above existing notes instead of replacing.")
 def granola_push(
-    calendar_uid: str | None,
-    title: str | None,
+    calendar_uid: str,
     notes: str | None,
     notes_file: str | None,
-    prepend: bool,
 ) -> None:
-    """Push markdown notes to a Granola meeting document.
+    """Push prep notes to a Granola meeting document.
 
-    Match by --calendar-uid (preferred, exact) or --title (substring fallback).
-    At least one of --calendar-uid or --title is required.
+    CALENDAR_UID is the Google Calendar event ID or iCalUID.
+    Notes are prepended above any existing content.
     """
     from pathlib import Path as P
 
     from kb.sync.granola import GranolaClient
 
-    if not calendar_uid and not title:
-        raise click.UsageError("Provide --calendar-uid or --title to identify the document.")
     if not notes and not notes_file:
         raise click.UsageError("Provide --notes or --notes-file.")
     if notes and notes_file:
@@ -2568,21 +2558,16 @@ def granola_push(
 
     client = GranolaClient()
 
-    # Find the document — calendar UID first, then title fallback
-    label = calendar_uid or title
-    click.echo(f"Searching for document matching '{label}'...", err=True)
-    doc = client.find_document(title=title, calendar_uid=calendar_uid)
+    click.echo(f"Searching for document matching '{calendar_uid}'...", err=True)
+    doc = client.find_document(calendar_uid=calendar_uid)
 
     if not doc:
-        click.echo(
-            f"No document found matching '{label}'.",
-            err=True,
-        )
+        click.echo(f"No document found for calendar UID '{calendar_uid}'.", err=True)
         raise SystemExit(1)
 
     doc_id = doc["id"]
-    doc_title = doc.get("title", label)
+    doc_title = doc.get("title", calendar_uid)
     click.echo(f"Writing to '{doc_title}' ({doc_id})...", err=True)
 
-    client.update_document_notes(doc_id, notes, prepend=prepend)
+    client.update_document_notes(doc_id, notes, prepend=True)
     click.echo("Done.", err=True)
