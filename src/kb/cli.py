@@ -1580,7 +1580,13 @@ def usage() -> None:
   kb sync notion --since 2026-01-01    # sync Notion AI Meeting Notes since date
   Options: --dry-run | --force | --no-index
 
-## 10. Python API
+## 10. Granola Write
+  kb granola push "Meeting Title" --notes "# Prep\\n- Topic A"   # push notes by title match
+  kb granola push "Title" --notes-file prep.md                   # push from file
+  kb granola push "Title" --notes "..." --prepend                # prepend above existing notes
+  kb granola push "Title" --notes "..." --create                 # create doc if not found
+
+## 11. Python API
 
     from kb import KnowledgeBase
 
@@ -2503,3 +2509,75 @@ def sync_notion_cmd(since: str | None, dry_run: bool, force: bool, no_index: boo
 
     if not dry_run and not no_index:
         click.echo("Tip: Run `kb index run` to index new files.", err=True)
+
+
+# ---------------------------------------------------------------------------
+# Granola write commands
+# ---------------------------------------------------------------------------
+
+
+@cli.group()
+def granola() -> None:
+    """Granola integration — push notes to meetings."""
+
+
+@granola.command("push")
+@click.argument("title")
+@click.option("--notes", default=None, help="Markdown notes to write.")
+@click.option(
+    "--notes-file",
+    default=None,
+    type=click.Path(exists=True),
+    help="Path to a markdown file to write.",
+)
+@click.option("--prepend", is_flag=True, help="Prepend above existing notes instead of replacing.")
+@click.option("--create", is_flag=True, help="Create the document if not found.")
+def granola_push(
+    title: str,
+    notes: str | None,
+    notes_file: str | None,
+    prepend: bool,
+    create: bool,
+) -> None:
+    """Push markdown notes to a Granola meeting document.
+
+    TITLE is matched against existing document titles (substring, case-insensitive).
+    """
+    from pathlib import Path as P
+
+    from kb.sync.granola import GranolaClient
+
+    if not notes and not notes_file:
+        raise click.UsageError("Provide --notes or --notes-file.")
+    if notes and notes_file:
+        raise click.UsageError("Provide --notes or --notes-file, not both.")
+
+    if notes_file:
+        notes = P(notes_file).read_text(encoding="utf-8")
+
+    assert notes is not None  # mypy
+
+    client = GranolaClient()
+
+    # Find or create the document
+    click.echo(f"Searching for document matching '{title}'...", err=True)
+    doc = client.find_document(title=title)
+
+    if not doc:
+        if create:
+            click.echo(f"Document not found. Creating '{title}'...", err=True)
+            doc = client.create_document(title=title)
+            click.echo(f"Created document {doc['id']}.", err=True)
+        else:
+            click.echo(
+                f"No document found matching '{title}'. Use --create to create one.",
+                err=True,
+            )
+            raise SystemExit(1)
+
+    doc_id = doc["id"]
+    doc_title = doc.get("title", title)
+    click.echo(f"Writing to '{doc_title}' ({doc_id})...", err=True)
+
+    client.update_document_notes(doc_id, notes, prepend=prepend)
+    click.echo("Done.", err=True)

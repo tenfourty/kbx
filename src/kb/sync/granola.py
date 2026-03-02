@@ -11,7 +11,7 @@ import json
 import os
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, cast
 
@@ -24,7 +24,7 @@ from typing import Any, cast
 
 GRANOLA_API_BASE = "https://api.granola.ai"
 WORKOS_AUTH_URL = "https://api.workos.com/user_management/authenticate"
-USER_AGENT = "Granola/5.354.0"
+USER_AGENT = "Granola/7.45.0"
 
 # Default token path on macOS
 DEFAULT_TOKEN_PATH = Path.home() / "Library" / "Application Support" / "Granola" / "supabase.json"
@@ -258,6 +258,145 @@ class GranolaClient:
         )
         return cast("dict[Any, Any]", response.json())
 
+    # ------------------------------------------------------------------
+    # Write methods
+    # ------------------------------------------------------------------
+
+    def get_user_id(self) -> str:
+        """Get the current authenticated user's UUID.
+
+        Extracts user_id from a recent document (the /v1/get-current-user
+        endpoint does not exist in the current API).
+        """
+        from datetime import timedelta
+
+        since = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+        docs = self.list_documents(since=since)
+        for doc in docs:
+            uid: str = doc.get("user_id", "")
+            if uid:
+                return uid
+        raise ValueError("Could not determine user ID — no recent documents with user_id found")
+
+    def find_document(
+        self,
+        title: str | None = None,
+        calendar_uid: str | None = None,
+        since: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Find a Granola document by title substring or calendar event UID.
+
+        Searches the last 30 days of docs by default (or since ``since``).
+        Returns the first matching doc dict, or None.
+        """
+        effective_since = since
+        if not effective_since:
+            from datetime import timedelta
+
+            effective_since = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+
+        docs = self.list_documents(since=effective_since)
+
+        for doc in docs:
+            # Match by calendar UID
+            if calendar_uid:
+                gcal = doc.get("google_calendar_event") or {}
+                doc_uid = gcal.get("iCalUID") or gcal.get("id") or ""
+                if doc_uid and calendar_uid in doc_uid:
+                    return doc
+
+            # Match by title substring (case-insensitive)
+            if title:
+                doc_title = doc.get("title") or ""
+                if title.lower() in doc_title.lower():
+                    return doc
+
+        return None
+
+    def create_document(
+        self,
+        title: str,
+        calendar_event: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Create a new Granola document.
+
+        Args:
+            title: Meeting title.
+            calendar_event: Google Calendar event data for linking. Should have
+                keys like ``id``, ``summary``, ``start``, ``end``.
+
+        Returns the created document dict with ``id``.
+        """
+        import uuid
+
+        now = datetime.now(timezone.utc)
+        now_str = now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
+        doc_id = str(uuid.uuid4())
+        user_id = self.get_user_id()
+
+        payload: dict[str, Any] = {
+            "id": doc_id,
+            "user_id": user_id,
+            "title": title,
+            "type": "meeting",
+            "google_calendar_event": calendar_event,
+            "notes": None,
+            "notes_plain": None,
+            "notes_markdown": None,
+            "created_at": now_str,
+            "updated_at": now_str,
+        }
+
+        self._request("POST", "/v1/create-document", json_data=payload)
+        return {"id": doc_id, "title": title, "created_at": now_str, "updated_at": now_str}
+
+    def update_document_notes(
+        self,
+        doc_id: str,
+        markdown: str,
+        prepend: bool = False,
+    ) -> dict[str, Any]:
+        """Write markdown notes to a Granola document.
+
+        Args:
+            doc_id: The Granola document UUID.
+            markdown: Markdown content to write.
+            prepend: If True and the doc has existing notes, prepend above them
+                separated by a horizontal rule.
+
+        Returns the API response.
+        """
+        # If prepend, fetch existing notes and combine
+        if prepend:
+            docs = self.list_documents()
+            for doc in docs:
+                if doc.get("id") == doc_id:
+                    existing_md = doc.get("notes_markdown") or ""
+                    if existing_md.strip():
+                        markdown = markdown.rstrip() + "\n\n---\n\n" + existing_md
+                    break
+
+        # Convert markdown to ProseMirror
+        pm_doc = markdown_to_prosemirror(markdown)
+
+        # Generate plain text (strip markdown formatting)
+        plain = re.sub(r"[#*`\[\]()]", "", markdown)
+        plain = re.sub(r"\n{3,}", "\n\n", plain)
+
+        now = datetime.now(timezone.utc)
+        updated_at = now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
+
+        payload: dict[str, Any] = {
+            "id": doc_id,
+            "updated_at": updated_at,
+            "notes": pm_doc,
+            "notes_plain": plain,
+            "notes_markdown": markdown,
+        }
+
+        response = self._request("POST", "/v1/update-document", json_data=payload)
+        return cast("dict[str, Any]", response.json()) if hasattr(response, "json") else {}
+
 
 # ---------------------------------------------------------------------------
 # ProseMirror → Markdown
@@ -371,6 +510,157 @@ def _render_text_node(node: dict[str, Any]) -> str:
             text = f"[{text}]({href})"
 
     return text
+
+
+# ---------------------------------------------------------------------------
+# Markdown → ProseMirror
+# ---------------------------------------------------------------------------
+
+
+def markdown_to_prosemirror(markdown: str) -> dict[str, Any]:
+    """Convert markdown text to a ProseMirror document JSON structure.
+
+    Each block-level node (heading, paragraph) gets a unique UUID in attrs.id,
+    which Granola requires for rendering. Handles: headings, paragraphs, bold,
+    italic, code spans, links, bullet lists, ordered lists, horizontal rules.
+
+    Returns a dict with ``{"type": "doc", "content": [...]}``.
+    """
+    import uuid
+
+    lines = markdown.split("\n")
+    nodes: list[dict[str, Any]] = []
+    i = 0
+
+    while i < len(lines):
+        line = lines[i]
+
+        # Horizontal rule
+        if re.match(r"^---+\s*$", line):
+            nodes.append({"type": "horizontalRule"})
+            i += 1
+            continue
+
+        # Heading
+        heading_match = re.match(r"^(#{1,6})\s+(.*)", line)
+        if heading_match:
+            level = len(heading_match.group(1))
+            text = heading_match.group(2).strip()
+            node: dict[str, Any] = {
+                "type": "heading",
+                "attrs": {"id": str(uuid.uuid4()), "level": level},
+            }
+            if text:
+                node["content"] = _md_inline_to_pm(text)
+            nodes.append(node)
+            i += 1
+            continue
+
+        # Bullet list — collect consecutive "- " lines
+        if re.match(r"^[-*]\s+", line):
+            items: list[dict[str, Any]] = []
+            while i < len(lines) and re.match(r"^[-*]\s+", lines[i]):
+                item_text = re.sub(r"^[-*]\s+", "", lines[i])
+                items.append(
+                    {
+                        "type": "listItem",
+                        "content": [
+                            {
+                                "type": "paragraph",
+                                "attrs": {"id": str(uuid.uuid4())},
+                                "content": _md_inline_to_pm(item_text),
+                            }
+                        ],
+                    }
+                )
+                i += 1
+            nodes.append({"type": "bulletList", "content": items})
+            continue
+
+        # Ordered list — collect consecutive "N. " lines
+        if re.match(r"^\d+\.\s+", line):
+            items = []
+            while i < len(lines) and re.match(r"^\d+\.\s+", lines[i]):
+                item_text = re.sub(r"^\d+\.\s+", "", lines[i])
+                items.append(
+                    {
+                        "type": "listItem",
+                        "content": [
+                            {
+                                "type": "paragraph",
+                                "attrs": {"id": str(uuid.uuid4())},
+                                "content": _md_inline_to_pm(item_text),
+                            }
+                        ],
+                    }
+                )
+                i += 1
+            nodes.append({"type": "orderedList", "content": items})
+            continue
+
+        # Empty line — skip (paragraph boundaries)
+        if not line.strip():
+            i += 1
+            continue
+
+        # Paragraph — collect consecutive non-empty, non-special lines
+        para_lines: list[str] = []
+        while (
+            i < len(lines)
+            and lines[i].strip()
+            and not re.match(r"^(#{1,6}\s|[-*]\s|\d+\.\s|---+\s*$)", lines[i])
+        ):
+            para_lines.append(lines[i])
+            i += 1
+        text = " ".join(para_lines)
+        node = {
+            "type": "paragraph",
+            "attrs": {"id": str(uuid.uuid4())},
+        }
+        if text:
+            node["content"] = _md_inline_to_pm(text)
+        nodes.append(node)
+
+    return {"type": "doc", "content": nodes}
+
+
+def _md_inline_to_pm(text: str) -> list[dict[str, Any]]:
+    """Convert inline markdown (bold, italic, code, links) to ProseMirror text nodes."""
+    nodes: list[dict[str, Any]] = []
+    # Pattern matches: **bold**, *italic*, `code`, [text](url)
+    pattern = re.compile(
+        r"(\*\*(.+?)\*\*)"  # bold
+        r"|(\*(.+?)\*)"  # italic
+        r"|(`(.+?)`)"  # code
+        r"|(\[(.+?)\]\((.+?)\))"  # link
+    )
+    pos = 0
+    for m in pattern.finditer(text):
+        # Add plain text before this match
+        if m.start() > pos:
+            nodes.append({"type": "text", "text": text[pos : m.start()]})
+
+        if m.group(2):  # bold
+            nodes.append({"type": "text", "text": m.group(2), "marks": [{"type": "bold"}]})
+        elif m.group(4):  # italic
+            nodes.append({"type": "text", "text": m.group(4), "marks": [{"type": "italic"}]})
+        elif m.group(6):  # code
+            nodes.append({"type": "text", "text": m.group(6), "marks": [{"type": "code"}]})
+        elif m.group(8):  # link
+            nodes.append(
+                {
+                    "type": "text",
+                    "text": m.group(8),
+                    "marks": [{"type": "link", "attrs": {"href": m.group(9)}}],
+                }
+            )
+        pos = m.end()
+
+    # Remaining text after last match
+    if pos < len(text):
+        nodes.append({"type": "text", "text": text[pos:]})
+
+    return nodes if nodes else [{"type": "text", "text": text}]
 
 
 # ---------------------------------------------------------------------------

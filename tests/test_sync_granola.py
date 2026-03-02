@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from click.testing import CliRunner
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -1291,3 +1292,498 @@ class TestPagination:
             docs = client.list_documents()
 
         assert docs == []
+
+
+# ---------------------------------------------------------------------------
+# Markdown → ProseMirror converter
+# ---------------------------------------------------------------------------
+
+
+class TestMarkdownToProseMirror:
+    def test_simple_paragraph(self):
+        """Converts a plain paragraph to ProseMirror doc."""
+        from kb.sync.granola import markdown_to_prosemirror
+
+        result = markdown_to_prosemirror("Hello world")
+        assert result["type"] == "doc"
+        assert len(result["content"]) == 1
+        node = result["content"][0]
+        assert node["type"] == "paragraph"
+        assert "id" in node["attrs"]
+        assert node["content"][0]["text"] == "Hello world"
+
+    def test_heading(self):
+        """Converts headings with correct level."""
+        from kb.sync.granola import markdown_to_prosemirror
+
+        result = markdown_to_prosemirror("## Section Title")
+        node = result["content"][0]
+        assert node["type"] == "heading"
+        assert node["attrs"]["level"] == 2
+        assert node["content"][0]["text"] == "Section Title"
+
+    def test_heading_levels(self):
+        """Supports h1 through h6."""
+        from kb.sync.granola import markdown_to_prosemirror
+
+        for level in range(1, 7):
+            md = "#" * level + " Title"
+            result = markdown_to_prosemirror(md)
+            assert result["content"][0]["attrs"]["level"] == level
+
+    def test_horizontal_rule(self):
+        """Converts --- to horizontalRule."""
+        from kb.sync.granola import markdown_to_prosemirror
+
+        result = markdown_to_prosemirror("Above\n\n---\n\nBelow")
+        types = [n["type"] for n in result["content"]]
+        assert "horizontalRule" in types
+
+    def test_bullet_list(self):
+        """Converts bullet list items."""
+        from kb.sync.granola import markdown_to_prosemirror
+
+        result = markdown_to_prosemirror("- Item A\n- Item B\n- Item C")
+        assert result["content"][0]["type"] == "bulletList"
+        items = result["content"][0]["content"]
+        assert len(items) == 3
+        assert items[0]["type"] == "listItem"
+        para = items[0]["content"][0]
+        assert para["content"][0]["text"] == "Item A"
+
+    def test_ordered_list(self):
+        """Converts ordered list items."""
+        from kb.sync.granola import markdown_to_prosemirror
+
+        result = markdown_to_prosemirror("1. First\n2. Second")
+        assert result["content"][0]["type"] == "orderedList"
+        items = result["content"][0]["content"]
+        assert len(items) == 2
+
+    def test_empty_paragraph(self):
+        """Empty lines between content produce no empty-text paragraphs."""
+        from kb.sync.granola import markdown_to_prosemirror
+
+        result = markdown_to_prosemirror("Para one\n\nPara two")
+        # Should be two paragraphs (empty line is a separator, not a node)
+        assert len(result["content"]) == 2
+        assert all(n["type"] == "paragraph" for n in result["content"])
+
+    def test_unique_ids(self):
+        """Every block-level node gets a unique UUID."""
+        from kb.sync.granola import markdown_to_prosemirror
+
+        result = markdown_to_prosemirror("## Heading\n\nPara 1\n\nPara 2")
+        ids = []
+        for node in result["content"]:
+            if "attrs" in node and "id" in node["attrs"]:
+                ids.append(node["attrs"]["id"])
+        assert len(ids) == len(set(ids)), "IDs must be unique"
+        assert len(ids) >= 3
+
+    def test_bold_inline(self):
+        """Converts **bold** to bold mark."""
+        from kb.sync.granola import markdown_to_prosemirror
+
+        result = markdown_to_prosemirror("Hello **world**")
+        content = result["content"][0]["content"]
+        bold_nodes = [n for n in content if n.get("marks") and n["marks"][0]["type"] == "bold"]
+        assert len(bold_nodes) == 1
+        assert bold_nodes[0]["text"] == "world"
+
+    def test_italic_inline(self):
+        """Converts *italic* to italic mark."""
+        from kb.sync.granola import markdown_to_prosemirror
+
+        result = markdown_to_prosemirror("Hello *world*")
+        content = result["content"][0]["content"]
+        italic_nodes = [n for n in content if n.get("marks") and n["marks"][0]["type"] == "italic"]
+        assert len(italic_nodes) == 1
+        assert italic_nodes[0]["text"] == "world"
+
+    def test_code_inline(self):
+        """Converts `code` to code mark."""
+        from kb.sync.granola import markdown_to_prosemirror
+
+        result = markdown_to_prosemirror("Use `kbx search` here")
+        content = result["content"][0]["content"]
+        code_nodes = [n for n in content if n.get("marks") and n["marks"][0]["type"] == "code"]
+        assert len(code_nodes) == 1
+        assert code_nodes[0]["text"] == "kbx search"
+
+    def test_link_inline(self):
+        """Converts [text](url) to link mark."""
+        from kb.sync.granola import markdown_to_prosemirror
+
+        result = markdown_to_prosemirror("See [docs](https://example.com)")
+        content = result["content"][0]["content"]
+        link_nodes = [n for n in content if n.get("marks") and n["marks"][0]["type"] == "link"]
+        assert len(link_nodes) == 1
+        assert link_nodes[0]["text"] == "docs"
+        assert link_nodes[0]["marks"][0]["attrs"]["href"] == "https://example.com"
+
+    def test_mixed_content(self):
+        """Handles a document with headings, paragraphs, and lists."""
+        from kb.sync.granola import markdown_to_prosemirror
+
+        md = "## Prep Notes\n\nKey topics:\n\n- Topic A\n- Topic B\n\nConclusion here."
+        result = markdown_to_prosemirror(md)
+        types = [n["type"] for n in result["content"]]
+        assert types == ["heading", "paragraph", "bulletList", "paragraph"]
+
+
+class TestMdInlineToPm:
+    def test_plain_text(self):
+        """Plain text without formatting returns single text node."""
+        from kb.sync.granola import _md_inline_to_pm
+
+        result = _md_inline_to_pm("hello world")
+        assert len(result) == 1
+        assert result[0] == {"type": "text", "text": "hello world"}
+
+    def test_multiple_marks(self):
+        """Multiple inline marks in one string."""
+        from kb.sync.granola import _md_inline_to_pm
+
+        result = _md_inline_to_pm("**bold** and *italic*")
+        assert len(result) == 3  # bold + " and " + italic
+        assert result[0]["marks"][0]["type"] == "bold"
+        assert result[1]["text"] == " and "
+        assert result[2]["marks"][0]["type"] == "italic"
+
+
+# ---------------------------------------------------------------------------
+# Write methods
+# ---------------------------------------------------------------------------
+
+
+class TestGetUserId:
+    def test_returns_user_id(self, client):
+        """get_user_id extracts user_id from the first document."""
+        docs = [{"id": "doc-1", "user_id": "user-abc-123"}]
+
+        with patch.object(client, "list_documents", return_value=docs):
+            uid = client.get_user_id()
+
+        assert uid == "user-abc-123"
+
+    def test_skips_docs_without_user_id(self, client):
+        """get_user_id skips documents missing user_id."""
+        docs = [
+            {"id": "doc-1"},
+            {"id": "doc-2", "user_id": "user-xyz-789"},
+        ]
+
+        with patch.object(client, "list_documents", return_value=docs):
+            uid = client.get_user_id()
+
+        assert uid == "user-xyz-789"
+
+    def test_raises_on_empty(self, client):
+        """get_user_id raises ValueError when no documents have user_id."""
+        with (
+            patch.object(client, "list_documents", return_value=[]),
+            pytest.raises(ValueError, match="Could not determine user ID"),
+        ):
+            client.get_user_id()
+
+
+class TestFindDocument:
+    def test_find_by_title(self, client):
+        """find_document matches by title substring (case-insensitive)."""
+        docs = [
+            {"id": "doc-1", "title": "Weekly Standup"},
+            {"id": "doc-2", "title": "1:1 with Wren"},
+        ]
+        with (
+            patch.object(client, "list_documents", return_value=docs),
+            patch("time.sleep"),
+        ):
+            result = client.find_document(title="standup")
+
+        assert result is not None
+        assert result["id"] == "doc-1"
+
+    def test_find_by_calendar_uid(self, client):
+        """find_document matches by calendar event UID."""
+        docs = [
+            {
+                "id": "doc-1",
+                "title": "Meeting",
+                "google_calendar_event": {"iCalUID": "abc123@google.com"},
+            },
+        ]
+        with (
+            patch.object(client, "list_documents", return_value=docs),
+            patch("time.sleep"),
+        ):
+            result = client.find_document(calendar_uid="abc123")
+
+        assert result is not None
+        assert result["id"] == "doc-1"
+
+    def test_returns_none_when_not_found(self, client):
+        """find_document returns None when no match."""
+        with (
+            patch.object(client, "list_documents", return_value=[]),
+            patch("time.sleep"),
+        ):
+            result = client.find_document(title="nonexistent")
+
+        assert result is None
+
+    def test_calendar_uid_takes_priority(self, client):
+        """Calendar UID match is checked before title match."""
+        docs = [
+            {
+                "id": "doc-1",
+                "title": "Standup",
+                "google_calendar_event": {"iCalUID": "uid-match@google.com"},
+            },
+            {"id": "doc-2", "title": "Standup"},
+        ]
+        with (
+            patch.object(client, "list_documents", return_value=docs),
+            patch("time.sleep"),
+        ):
+            result = client.find_document(title="standup", calendar_uid="uid-match")
+
+        assert result is not None
+        assert result["id"] == "doc-1"
+
+
+class TestCreateDocument:
+    def test_creates_document(self, client):
+        """create_document sends correct payload and returns doc info."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+
+        call_log = []
+
+        def capture_request(method, path, **kwargs):
+            call_log.append((method, path))
+            return mock_resp
+
+        with (
+            patch.object(client, "get_user_id", return_value="user-123"),
+            patch.object(client, "_request", side_effect=capture_request),
+        ):
+            result = client.create_document(title="Test Meeting")
+
+        assert result["id"]  # UUID was generated
+        assert result["title"] == "Test Meeting"
+        assert ("POST", "/v1/create-document") in call_log
+
+    def test_includes_calendar_event(self, client):
+        """create_document passes calendar_event to payload."""
+        payloads = []
+
+        def capture_request(method, path, **kwargs):
+            payloads.append(kwargs.get("json_data"))
+            resp = MagicMock()
+            resp.status_code = 200
+            return resp
+
+        with (
+            patch.object(client, "get_user_id", return_value="user-123"),
+            patch.object(client, "_request", side_effect=capture_request),
+        ):
+            client.create_document(
+                title="Test",
+                calendar_event={"id": "cal-123", "summary": "Test"},
+            )
+
+        # The create-document payload should include the calendar event
+        create_payload = [p for p in payloads if p and p.get("title") == "Test"]
+        assert len(create_payload) == 1
+        assert create_payload[0]["google_calendar_event"] == {"id": "cal-123", "summary": "Test"}
+
+
+class TestUpdateDocumentNotes:
+    def test_writes_notes(self, client):
+        """update_document_notes sends markdown + prosemirror + plain."""
+        payloads = []
+
+        def capture_request(method, path, **kwargs):
+            payloads.append(kwargs.get("json_data"))
+            resp = MagicMock()
+            resp.json.return_value = {}
+            return resp
+
+        with patch.object(client, "_request", side_effect=capture_request):
+            client.update_document_notes("doc-123", "## Hello\n\nWorld")
+
+        assert len(payloads) == 1
+        payload = payloads[0]
+        assert payload["id"] == "doc-123"
+        assert payload["notes"]["type"] == "doc"
+        assert payload["notes_markdown"] == "## Hello\n\nWorld"
+        assert "updated_at" in payload
+        assert payload["updated_at"].endswith("Z")
+
+    def test_prepend_combines_notes(self, client):
+        """update_document_notes with prepend=True prepends above existing."""
+        existing_docs = [
+            {"id": "doc-123", "notes_markdown": "Existing notes here."},
+        ]
+
+        payloads = []
+
+        def capture_request(method, path, **kwargs):
+            payloads.append(kwargs.get("json_data"))
+            resp = MagicMock()
+            resp.json.return_value = {}
+            return resp
+
+        with (
+            patch.object(client, "list_documents", return_value=existing_docs),
+            patch.object(client, "_request", side_effect=capture_request),
+            patch("time.sleep"),
+        ):
+            client.update_document_notes("doc-123", "New prep notes", prepend=True)
+
+        payload = payloads[0]
+        md = payload["notes_markdown"]
+        assert md.startswith("New prep notes")
+        assert "---" in md
+        assert "Existing notes here." in md
+
+    def test_prepend_with_empty_existing(self, client):
+        """Prepend with no existing notes just writes new notes."""
+        existing_docs = [
+            {"id": "doc-123", "notes_markdown": ""},
+        ]
+
+        payloads = []
+
+        def capture_request(method, path, **kwargs):
+            payloads.append(kwargs.get("json_data"))
+            resp = MagicMock()
+            resp.json.return_value = {}
+            return resp
+
+        with (
+            patch.object(client, "list_documents", return_value=existing_docs),
+            patch.object(client, "_request", side_effect=capture_request),
+            patch("time.sleep"),
+        ):
+            client.update_document_notes("doc-123", "Just new notes", prepend=True)
+
+        payload = payloads[0]
+        assert payload["notes_markdown"] == "Just new notes"
+        assert "---" not in payload["notes_markdown"]
+
+
+# ---------------------------------------------------------------------------
+# CLI: granola push
+# ---------------------------------------------------------------------------
+
+
+class TestGranolaPushCLI:
+    def test_push_notes_by_title(self):
+        """granola push writes notes to a matching document."""
+        from kb.cli import cli
+
+        runner = CliRunner()
+        mock_client = MagicMock()
+        mock_client.find_document.return_value = {"id": "doc-1", "title": "Standup"}
+        mock_client.update_document_notes.return_value = {}
+
+        with patch("kb.sync.granola.GranolaClient", return_value=mock_client):
+            result = runner.invoke(cli, ["granola", "push", "Standup", "--notes", "# Prep"])
+
+        assert result.exit_code == 0
+        mock_client.find_document.assert_called_once_with(title="Standup")
+        mock_client.update_document_notes.assert_called_once_with("doc-1", "# Prep", prepend=False)
+
+    def test_push_notes_from_file(self, tmp_dir):
+        """granola push --notes-file reads from a file."""
+        from kb.cli import cli
+
+        notes_file = tmp_dir / "prep.md"
+        notes_file.write_text("# File Notes\n\nFrom file.", encoding="utf-8")
+
+        runner = CliRunner()
+        mock_client = MagicMock()
+        mock_client.find_document.return_value = {"id": "doc-1", "title": "Meeting"}
+        mock_client.update_document_notes.return_value = {}
+
+        with patch("kb.sync.granola.GranolaClient", return_value=mock_client):
+            result = runner.invoke(
+                cli, ["granola", "push", "Meeting", "--notes-file", str(notes_file)]
+            )
+
+        assert result.exit_code == 0
+        mock_client.update_document_notes.assert_called_once()
+        call_md = mock_client.update_document_notes.call_args[0][1]
+        assert "# File Notes" in call_md
+
+    def test_push_requires_notes_or_file(self):
+        """granola push fails without --notes or --notes-file."""
+        from kb.cli import cli
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["granola", "push", "Title"])
+        assert result.exit_code != 0
+
+    def test_push_rejects_both_notes_and_file(self, tmp_dir):
+        """granola push fails with both --notes and --notes-file."""
+        from kb.cli import cli
+
+        notes_file = tmp_dir / "prep.md"
+        notes_file.write_text("content", encoding="utf-8")
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["granola", "push", "Title", "--notes", "text", "--notes-file", str(notes_file)]
+        )
+        assert result.exit_code != 0
+
+    def test_push_not_found_exits_1(self):
+        """granola push exits 1 when doc not found and --create not set."""
+        from kb.cli import cli
+
+        runner = CliRunner()
+        mock_client = MagicMock()
+        mock_client.find_document.return_value = None
+
+        with patch("kb.sync.granola.GranolaClient", return_value=mock_client):
+            result = runner.invoke(cli, ["granola", "push", "Missing", "--notes", "text"])
+
+        assert result.exit_code == 1
+
+    def test_push_create_flag(self):
+        """granola push --create creates the doc when not found."""
+        from kb.cli import cli
+
+        runner = CliRunner()
+        mock_client = MagicMock()
+        mock_client.find_document.return_value = None
+        mock_client.create_document.return_value = {"id": "new-doc", "title": "New Meeting"}
+        mock_client.update_document_notes.return_value = {}
+
+        with patch("kb.sync.granola.GranolaClient", return_value=mock_client):
+            result = runner.invoke(
+                cli, ["granola", "push", "New Meeting", "--notes", "# Prep", "--create"]
+            )
+
+        assert result.exit_code == 0
+        mock_client.create_document.assert_called_once_with(title="New Meeting")
+        mock_client.update_document_notes.assert_called_once()
+
+    def test_push_prepend_flag(self):
+        """granola push --prepend passes prepend=True to update."""
+        from kb.cli import cli
+
+        runner = CliRunner()
+        mock_client = MagicMock()
+        mock_client.find_document.return_value = {"id": "doc-1", "title": "Standup"}
+        mock_client.update_document_notes.return_value = {}
+
+        with patch("kb.sync.granola.GranolaClient", return_value=mock_client):
+            result = runner.invoke(
+                cli, ["granola", "push", "Standup", "--notes", "# Prep", "--prepend"]
+            )
+
+        assert result.exit_code == 0
+        mock_client.update_document_notes.assert_called_once_with("doc-1", "# Prep", prepend=True)
