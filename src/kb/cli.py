@@ -1585,10 +1585,17 @@ def usage() -> None:
     .granola.transcript.md   — full transcript
     .granola.ai-summary.md   — AI-generated summary (from Granola's summary panel)
 
-## 10. Granola Write
-  kb granola push <calendar-uid> --notes "# Prep\\n- Topic A"    # push notes (prepends above existing)
-  kb granola push <calendar-uid> --notes-file prep.md            # push from file
-  kb granola push <calendar-uid> --notes "..." --title "1:1"     # auto-creates doc if not found
+## 10. Granola
+  kb granola view <calendar-uid>                                  # view notes (YAML header + markdown)
+  kb granola view <calendar-uid> --summary                        # view AI summary
+  kb granola view <calendar-uid> --all                            # view notes + summary
+  kb granola view <calendar-uid> --plain                          # raw markdown only (no header)
+  kb granola edit <calendar-uid> --body "new content"             # replace notes
+  kb granola edit <calendar-uid> --body-file updated.md           # replace from file
+  kb granola edit <calendar-uid> --append "extra content"         # append to notes
+  kb granola push <calendar-uid> --notes "# Prep\\n- Topic A"    # prepend notes (auto-creates doc)
+  kb granola push <calendar-uid> --notes-file prep.md             # prepend from file
+  kb granola push <calendar-uid> --notes "..." --title "1:1"     # set title on auto-created doc
 
 ## 11. Python API
 
@@ -2522,7 +2529,7 @@ def sync_notion_cmd(since: str | None, dry_run: bool, force: bool, no_index: boo
 
 @cli.group()
 def granola() -> None:
-    """Granola integration — push notes to meetings."""
+    """Granola integration — view, edit, and push notes to meetings."""
 
 
 @granola.command("push")
@@ -2580,4 +2587,144 @@ def granola_push(
     click.echo(f"Writing to '{doc_title}' ({doc_id})...", err=True)
 
     client.update_document_notes(doc_id, notes, prepend=True)
+    click.echo("Done.", err=True)
+
+
+@granola.command("view")
+@click.argument("calendar_uid")
+@click.option("--summary", "mode", flag_value="summary", help="Show AI summary instead of notes.")
+@click.option("--all", "mode", flag_value="all", help="Show notes and AI summary.")
+@click.option("--plain", is_flag=True, help="Raw markdown only (no YAML header).")
+def granola_view(calendar_uid: str, mode: str | None, plain: bool) -> None:
+    """View notes on a Granola meeting document.
+
+    CALENDAR_UID is the Google Calendar event ID or iCalUID.
+    """
+    from kb.sync.granola import GranolaClient, extract_panel_markdown
+
+    client = GranolaClient()
+    click.echo(f"Searching for document matching '{calendar_uid}'...", err=True)
+    doc = client.find_document(calendar_uid=calendar_uid)
+
+    if not doc:
+        raise click.ClickException(f"No Granola document found for UID '{calendar_uid}'.")
+
+    notes_md = doc.get("notes_markdown") or ""
+    summary_md = extract_panel_markdown(doc)
+
+    if mode == "summary":
+        body = summary_md or "(no AI summary)"
+    elif mode == "all":
+        parts = []
+        parts.append(notes_md if notes_md.strip() else "(no notes)")
+        if summary_md.strip():
+            parts.append("---\n\n" + summary_md)
+        body = "\n\n".join(parts)
+    else:
+        body = notes_md if notes_md.strip() else "(no notes)"
+
+    if plain:
+        click.echo(body)
+        return
+
+    # Build YAML header
+    import yaml
+
+    gcal = doc.get("google_calendar_event") or {}
+    header: dict[str, object] = {
+        "title": doc.get("title") or "Untitled",
+        "date": (doc.get("created_at") or "")[:10],
+        "granola_id": doc.get("id", ""),
+        "calendar_uid": gcal.get("iCalUID") or gcal.get("id") or calendar_uid,
+        "files": {
+            "notes": bool(notes_md.strip()),
+            "ai_summary": bool(summary_md.strip()),
+        },
+    }
+    yaml_str: str = yaml.dump(header, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    click.echo("---")
+    click.echo(yaml_str.rstrip())
+    click.echo("---")
+    click.echo()
+    click.echo(body)
+
+
+@granola.command("edit")
+@click.argument("calendar_uid")
+@click.option("--body", default=None, help="Markdown content to write (full replace).")
+@click.option(
+    "--body-file",
+    default=None,
+    type=click.Path(exists=True),
+    help="Path to a markdown file (full replace).",
+)
+@click.option("--append", default=None, help="Markdown content to append to existing notes.")
+def granola_edit(
+    calendar_uid: str,
+    body: str | None,
+    body_file: str | None,
+    append: str | None,
+) -> None:
+    """Edit notes on a Granola meeting document.
+
+    CALENDAR_UID is the Google Calendar event ID or iCalUID.
+    """
+    from pathlib import Path as P
+
+    from kb.config import find_project_root
+    from kb.sync.granola import (
+        GranolaClient,
+        build_frontmatter,
+        extract_panel_markdown,
+        write_meeting,
+    )
+
+    # Validate options — exactly one of --body, --body-file, --append
+    provided = sum(1 for x in (body, body_file, append) if x is not None)
+    if provided == 0:
+        raise click.UsageError("Provide --body, --body-file, or --append.")
+    if provided > 1:
+        raise click.UsageError("Provide only one of --body, --body-file, or --append.")
+
+    if body_file:
+        body = P(body_file).read_text(encoding="utf-8")
+
+    client = GranolaClient()
+    click.echo(f"Searching for document matching '{calendar_uid}'...", err=True)
+    doc = client.find_document(calendar_uid=calendar_uid)
+
+    if not doc:
+        raise click.ClickException(f"No Granola document found for UID '{calendar_uid}'.")
+
+    # Build the final markdown to write
+    if append is not None:
+        existing_md = doc.get("notes_markdown") or ""
+        if existing_md.strip():
+            markdown = existing_md.rstrip() + "\n\n" + append
+        else:
+            markdown = append
+    else:
+        assert body is not None  # mypy
+        markdown = body
+
+    doc_id = doc["id"]
+    doc_title = doc.get("title", calendar_uid)
+    click.echo(f"Writing to '{doc_title}' ({doc_id})...", err=True)
+
+    client.update_document_notes(doc_id, markdown, prepend=False)
+
+    # Write-through: update local .granola.notes.md
+    project_root = find_project_root()
+    if project_root:
+        # Re-fetch the doc to get updated state
+        updated_doc = client.find_document(calendar_uid=calendar_uid)
+        if updated_doc:
+            fm = build_frontmatter(updated_doc, {})
+            notes_md = updated_doc.get("notes_markdown") or markdown
+            panel_md = extract_panel_markdown(updated_doc)
+            write_meeting(
+                updated_doc, fm, notes_md, "", project_root, force=True, summary_md=panel_md
+            )
+            click.echo("Local files updated.", err=True)
+
     click.echo("Done.", err=True)

@@ -2103,3 +2103,312 @@ class TestGranolaPushCLI:
         assert result.exit_code == 0
         call_md = mock_client.update_document_notes.call_args[0][1]
         assert "\\n" in call_md  # Literal backslash-n preserved from file
+
+
+class TestGranolaViewCLI:
+    """Tests for ``kbx granola view``."""
+
+    def _make_doc(self, **overrides):
+        doc = {
+            "id": "doc-1",
+            "title": "Weekly Standup",
+            "created_at": "2026-03-03T10:00:00.000Z",
+            "notes_markdown": "## Notes\n\n- Item 1\n- Item 2",
+            "google_calendar_event": {"id": "uid-abc_20260303T100000Z"},
+            "last_viewed_panel": {
+                "content": {
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "heading",
+                            "attrs": {"level": 2, "id": "h1"},
+                            "content": [{"type": "text", "text": "Summary"}],
+                        },
+                        {
+                            "type": "paragraph",
+                            "attrs": {"id": "p1"},
+                            "content": [{"type": "text", "text": "Key decisions were made."}],
+                        },
+                    ],
+                }
+            },
+        }
+        doc.update(overrides)
+        return doc
+
+    def test_view_basic(self):
+        """granola view shows YAML header + notes markdown."""
+        from kb.cli import cli
+
+        runner = CliRunner()
+        mock_client = MagicMock()
+        mock_client.find_document.return_value = self._make_doc()
+
+        with patch("kb.sync.granola.GranolaClient", return_value=mock_client):
+            result = runner.invoke(cli, ["granola", "view", "uid-abc_20260303T100000Z"])
+
+        assert result.exit_code == 0
+        assert "title: Weekly Standup" in result.output
+        assert "date: '2026-03-03'" in result.output or "date: 2026-03-03" in result.output
+        assert "## Notes" in result.output
+        assert "- Item 1" in result.output
+
+    def test_view_plain(self):
+        """granola view --plain outputs raw markdown without YAML header."""
+        from kb.cli import cli
+
+        runner = CliRunner()
+        mock_client = MagicMock()
+        mock_client.find_document.return_value = self._make_doc()
+
+        with patch("kb.sync.granola.GranolaClient", return_value=mock_client):
+            result = runner.invoke(cli, ["granola", "view", "uid-abc_20260303T100000Z", "--plain"])
+
+        assert result.exit_code == 0
+        assert "---" not in result.output
+        assert "## Notes" in result.output
+
+    def test_view_summary(self):
+        """granola view --summary shows AI summary instead of notes."""
+        from kb.cli import cli
+
+        runner = CliRunner()
+        mock_client = MagicMock()
+        mock_client.find_document.return_value = self._make_doc()
+
+        with patch("kb.sync.granola.GranolaClient", return_value=mock_client):
+            result = runner.invoke(
+                cli, ["granola", "view", "uid-abc_20260303T100000Z", "--summary"]
+            )
+
+        assert result.exit_code == 0
+        assert "Key decisions were made." in result.output
+        # Should NOT contain the notes
+        assert "- Item 1" not in result.output
+
+    def test_view_all(self):
+        """granola view --all shows notes + summary."""
+        from kb.cli import cli
+
+        runner = CliRunner()
+        mock_client = MagicMock()
+        mock_client.find_document.return_value = self._make_doc()
+
+        with patch("kb.sync.granola.GranolaClient", return_value=mock_client):
+            result = runner.invoke(cli, ["granola", "view", "uid-abc_20260303T100000Z", "--all"])
+
+        assert result.exit_code == 0
+        assert "## Notes" in result.output
+        assert "Key decisions were made." in result.output
+
+    def test_view_not_found(self):
+        """granola view errors when no doc found."""
+        from kb.cli import cli
+
+        runner = CliRunner()
+        mock_client = MagicMock()
+        mock_client.find_document.return_value = None
+
+        with patch("kb.sync.granola.GranolaClient", return_value=mock_client):
+            result = runner.invoke(cli, ["granola", "view", "missing-uid"])
+
+        assert result.exit_code != 0
+        assert "No Granola document found" in result.output
+
+    def test_view_no_notes(self):
+        """granola view shows '(no notes)' when doc has no notes."""
+        from kb.cli import cli
+
+        runner = CliRunner()
+        mock_client = MagicMock()
+        mock_client.find_document.return_value = self._make_doc(notes_markdown="")
+
+        with patch("kb.sync.granola.GranolaClient", return_value=mock_client):
+            result = runner.invoke(cli, ["granola", "view", "uid-abc"])
+
+        assert result.exit_code == 0
+        assert "(no notes)" in result.output
+
+    def test_view_yaml_has_files_field(self):
+        """granola view YAML header includes files availability."""
+        from kb.cli import cli
+
+        runner = CliRunner()
+        mock_client = MagicMock()
+        mock_client.find_document.return_value = self._make_doc()
+
+        with patch("kb.sync.granola.GranolaClient", return_value=mock_client):
+            result = runner.invoke(cli, ["granola", "view", "uid-abc"])
+
+        assert result.exit_code == 0
+        assert "notes: true" in result.output
+        assert "ai_summary: true" in result.output
+
+
+class TestGranolaEditCLI:
+    """Tests for ``kbx granola edit``."""
+
+    def test_edit_body_replaces(self):
+        """granola edit --body does a full replace with prepend=False."""
+        from kb.cli import cli
+
+        runner = CliRunner()
+        mock_client = MagicMock()
+        mock_client.find_document.return_value = {
+            "id": "doc-1",
+            "title": "Standup",
+            "notes_markdown": "Old content",
+        }
+        mock_client.update_document_notes.return_value = {}
+
+        with (
+            patch("kb.sync.granola.GranolaClient", return_value=mock_client),
+            patch("kb.config.find_project_root", return_value=None),
+        ):
+            result = runner.invoke(cli, ["granola", "edit", "uid-abc", "--body", "# New Content"])
+
+        assert result.exit_code == 0
+        mock_client.update_document_notes.assert_called_once_with(
+            "doc-1", "# New Content", prepend=False
+        )
+
+    def test_edit_body_file(self, tmp_dir):
+        """granola edit --body-file reads content from a file."""
+        from kb.cli import cli
+
+        body_file = tmp_dir / "notes.md"
+        body_file.write_text("# From File\n\nContent here.", encoding="utf-8")
+
+        runner = CliRunner()
+        mock_client = MagicMock()
+        mock_client.find_document.return_value = {
+            "id": "doc-1",
+            "title": "Meeting",
+            "notes_markdown": "",
+        }
+        mock_client.update_document_notes.return_value = {}
+
+        with (
+            patch("kb.sync.granola.GranolaClient", return_value=mock_client),
+            patch("kb.config.find_project_root", return_value=None),
+        ):
+            result = runner.invoke(
+                cli, ["granola", "edit", "uid-123", "--body-file", str(body_file)]
+            )
+
+        assert result.exit_code == 0
+        call_md = mock_client.update_document_notes.call_args[0][1]
+        assert "# From File" in call_md
+
+    def test_edit_append(self):
+        """granola edit --append adds to existing notes."""
+        from kb.cli import cli
+
+        runner = CliRunner()
+        mock_client = MagicMock()
+        mock_client.find_document.return_value = {
+            "id": "doc-1",
+            "title": "Standup",
+            "notes_markdown": "## Existing\n\n- Old item",
+        }
+        mock_client.update_document_notes.return_value = {}
+
+        with (
+            patch("kb.sync.granola.GranolaClient", return_value=mock_client),
+            patch("kb.config.find_project_root", return_value=None),
+        ):
+            result = runner.invoke(cli, ["granola", "edit", "uid-abc", "--append", "- New item"])
+
+        assert result.exit_code == 0
+        call_md = mock_client.update_document_notes.call_args[0][1]
+        assert "## Existing" in call_md
+        assert "- Old item" in call_md
+        assert "- New item" in call_md
+
+    def test_edit_append_to_empty(self):
+        """granola edit --append on empty notes just writes the new content."""
+        from kb.cli import cli
+
+        runner = CliRunner()
+        mock_client = MagicMock()
+        mock_client.find_document.return_value = {
+            "id": "doc-1",
+            "title": "Meeting",
+            "notes_markdown": "",
+        }
+        mock_client.update_document_notes.return_value = {}
+
+        with (
+            patch("kb.sync.granola.GranolaClient", return_value=mock_client),
+            patch("kb.config.find_project_root", return_value=None),
+        ):
+            result = runner.invoke(cli, ["granola", "edit", "uid-abc", "--append", "# Fresh start"])
+
+        assert result.exit_code == 0
+        call_md = mock_client.update_document_notes.call_args[0][1]
+        assert call_md == "# Fresh start"
+
+    def test_edit_not_found(self):
+        """granola edit errors when no doc found (no auto-create)."""
+        from kb.cli import cli
+
+        runner = CliRunner()
+        mock_client = MagicMock()
+        mock_client.find_document.return_value = None
+
+        with patch("kb.sync.granola.GranolaClient", return_value=mock_client):
+            result = runner.invoke(cli, ["granola", "edit", "missing-uid", "--body", "content"])
+
+        assert result.exit_code != 0
+        assert "No Granola document found" in result.output
+
+    def test_edit_requires_option(self):
+        """granola edit fails without --body, --body-file, or --append."""
+        from kb.cli import cli
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["granola", "edit", "uid-abc"])
+        assert result.exit_code != 0
+
+    def test_edit_rejects_multiple_options(self, tmp_dir):
+        """granola edit fails with both --body and --append."""
+        from kb.cli import cli
+
+        runner = CliRunner()
+        mock_client = MagicMock()
+        mock_client.find_document.return_value = {"id": "doc-1", "title": "M"}
+
+        with patch("kb.sync.granola.GranolaClient", return_value=mock_client):
+            result = runner.invoke(
+                cli, ["granola", "edit", "uid-abc", "--body", "new", "--append", "extra"]
+            )
+
+        assert result.exit_code != 0
+
+    def test_edit_write_through(self, tmp_dir):
+        """granola edit updates local .granola.notes.md after API write."""
+        from kb.cli import cli
+
+        runner = CliRunner()
+        mock_client = MagicMock()
+        mock_client.find_document.return_value = {
+            "id": "doc-1",
+            "title": "Standup",
+            "created_at": "2026-03-03T10:00:00.000Z",
+            "notes_markdown": "# Updated",
+            "google_calendar_event": {"id": "uid-abc"},
+        }
+        mock_client.update_document_notes.return_value = {}
+
+        with (
+            patch("kb.sync.granola.GranolaClient", return_value=mock_client),
+            patch("kb.config.find_project_root", return_value=tmp_dir),
+            patch("kb.sync.granola.write_meeting") as mock_write,
+            patch("kb.sync.granola.build_frontmatter", return_value={"title": "Standup"}),
+            patch("kb.sync.granola.extract_panel_markdown", return_value=""),
+        ):
+            result = runner.invoke(cli, ["granola", "edit", "uid-abc", "--body", "# Updated"])
+
+        assert result.exit_code == 0
+        mock_write.assert_called_once()
+        assert mock_write.call_args[1]["force"] is True
