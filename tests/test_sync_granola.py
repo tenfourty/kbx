@@ -1802,18 +1802,64 @@ class TestGranolaPushCLI:
         )
         assert result.exit_code != 0
 
-    def test_push_not_found_exits_1(self):
-        """granola push exits 1 when no document matches the UID."""
+    def test_push_auto_creates_when_not_found(self):
+        """granola push auto-creates a doc when find_document returns None."""
         from kb.cli import cli
 
         runner = CliRunner()
         mock_client = MagicMock()
         mock_client.find_document.return_value = None
+        mock_client.create_document.return_value = {"id": "new-doc", "title": "Meeting"}
+        mock_client.update_document_notes.return_value = {}
 
         with patch("kb.sync.granola.GranolaClient", return_value=mock_client):
-            result = runner.invoke(cli, ["granola", "push", "missing-uid", "--notes", "text"])
+            result = runner.invoke(cli, ["granola", "push", "missing-uid", "--notes", "# Prep"])
 
-        assert result.exit_code == 1
+        assert result.exit_code == 0
+        mock_client.create_document.assert_called_once_with(
+            "Meeting", calendar_event={"id": "missing-uid"}
+        )
+        mock_client.update_document_notes.assert_called_once_with("new-doc", "# Prep", prepend=True)
+
+    def test_push_auto_create_uses_title_option(self):
+        """granola push --title is used as the doc title when auto-creating."""
+        from kb.cli import cli
+
+        runner = CliRunner()
+        mock_client = MagicMock()
+        mock_client.find_document.return_value = None
+        mock_client.create_document.return_value = {"id": "new-doc", "title": "Standup"}
+        mock_client.update_document_notes.return_value = {}
+
+        with patch("kb.sync.granola.GranolaClient", return_value=mock_client):
+            result = runner.invoke(
+                cli,
+                ["granola", "push", "uid-abc", "--notes", "prep", "--title", "Standup"],
+            )
+
+        assert result.exit_code == 0
+        mock_client.create_document.assert_called_once_with(
+            "Standup", calendar_event={"id": "uid-abc"}
+        )
+
+    def test_push_title_ignored_when_doc_exists(self):
+        """--title is ignored when the doc already exists (no create needed)."""
+        from kb.cli import cli
+
+        runner = CliRunner()
+        mock_client = MagicMock()
+        mock_client.find_document.return_value = {"id": "doc-1", "title": "Existing"}
+        mock_client.update_document_notes.return_value = {}
+
+        with patch("kb.sync.granola.GranolaClient", return_value=mock_client):
+            result = runner.invoke(
+                cli,
+                ["granola", "push", "uid-abc", "--notes", "prep", "--title", "Ignored"],
+            )
+
+        assert result.exit_code == 0
+        mock_client.create_document.assert_not_called()
+        mock_client.update_document_notes.assert_called_once_with("doc-1", "prep", prepend=True)
 
     def test_push_always_prepends(self):
         """granola push always passes prepend=True to update_document_notes."""

@@ -1581,8 +1581,9 @@ def usage() -> None:
   Options: --dry-run | --force | --no-index
 
 ## 10. Granola Write
-  kb granola push <calendar-uid> --notes "# Prep\\n- Topic A"    # push notes (prepends by default)
+  kb granola push <calendar-uid> --notes "# Prep\\n- Topic A"    # push notes (prepends above existing)
   kb granola push <calendar-uid> --notes-file prep.md            # push from file
+  kb granola push <calendar-uid> --notes "..." --title "1:1"     # auto-creates doc if not found
 
 ## 11. Python API
 
@@ -2528,15 +2529,18 @@ def granola() -> None:
     type=click.Path(exists=True),
     help="Path to a markdown file to write.",
 )
+@click.option("--title", default=None, help="Meeting title (used when creating a new doc).")
 def granola_push(
     calendar_uid: str,
     notes: str | None,
     notes_file: str | None,
+    title: str | None,
 ) -> None:
     """Push prep notes to a Granola meeting document.
 
     CALENDAR_UID is the Google Calendar event ID or iCalUID.
     Notes are prepended above any existing content.
+    If no document exists for the UID, one is created automatically.
     """
     from pathlib import Path as P
 
@@ -2562,8 +2566,9 @@ def granola_push(
     doc = client.find_document(calendar_uid=calendar_uid)
 
     if not doc:
-        click.echo(f"No document found for calendar UID '{calendar_uid}'.", err=True)
-        raise SystemExit(1)
+        doc_title = title or "Meeting"
+        click.echo(f"No document found — creating '{doc_title}'...", err=True)
+        doc = client.create_document(doc_title, calendar_event={"id": calendar_uid})
 
     doc_id = doc["id"]
     doc_title = doc.get("title", calendar_uid)
