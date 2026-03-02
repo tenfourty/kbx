@@ -193,6 +193,7 @@ class GranolaClient:
         all_docs: list[dict[str, Any]] = []
         offset = 0
         limit = 50
+        since_dt = f"{since}T00:00:00Z" if since else None
 
         while True:
             payload: dict[str, Any] = {
@@ -208,7 +209,19 @@ class GranolaClient:
             if not docs:
                 break
 
-            all_docs.extend(docs)
+            # API returns docs in reverse chronological order.  When a date
+            # filter is set we can stop as soon as an entire batch falls
+            # before the cutoff — all subsequent pages will be older.
+            if since_dt:
+                filtered = [
+                    d for d in docs if (d.get("updated_at") or d.get("created_at", "")) >= since_dt
+                ]
+                all_docs.extend(filtered)
+                if len(filtered) < len(docs):
+                    break  # hit docs older than cutoff — done
+            else:
+                all_docs.extend(docs)
+
             offset += limit
 
             # If we got fewer than limit, we've reached the end
@@ -216,13 +229,6 @@ class GranolaClient:
                 break
 
             time.sleep(BATCH_DELAY)
-
-        # Client-side date filtering (API doesn't support it)
-        if since:
-            since_dt = f"{since}T00:00:00Z"
-            all_docs = [
-                d for d in all_docs if (d.get("updated_at") or d.get("created_at", "")) >= since_dt
-            ]
 
         return all_docs
 
@@ -293,7 +299,7 @@ class GranolaClient:
         if not effective_since:
             from datetime import timedelta
 
-            effective_since = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+            effective_since = (datetime.now() - timedelta(days=14)).strftime("%Y-%m-%d")
 
         docs = self.list_documents(since=effective_since)
 
