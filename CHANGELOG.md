@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.1.12](https://github.com/tenfourty/kbx/compare/kbx-v0.1.11...kbx-v0.1.12) (2026-03-02)
+
+
+### Features
+
+* **granola:** add write API — push prep notes into Granola documents ([3599df6](https://github.com/tenfourty/kbx/commit/3599df69caa106edf03a224ed0d124b1bce2efb2))
+* **granola:** auto-create doc when push target not found ([f8bfb2b](https://github.com/tenfourty/kbx/commit/f8bfb2b46b525935014c003497f395e925643830))
+* **granola:** sync AI summary as .granola.summary.md ([6d20c05](https://github.com/tenfourty/kbx/commit/6d20c057a17aac130473eb7620ec74fbaa44294e))
+
+
+### Bug Fixes
+
+* **granola:** interpret \n escapes in --notes, clarify --create limits ([5096773](https://github.com/tenfourty/kbx/commit/5096773d39dc8b973ffd7177f6fa9f6e88f04ec2))
+* **granola:** preserve document updated_at to avoid timeline shift ([6eb7b8f](https://github.com/tenfourty/kbx/commit/6eb7b8f10e3a03cb45efbbf9a56f37275bd2b484))
+* **sync:** add progress logging to Notion page-filtering loop ([d728635](https://github.com/tenfourty/kbx/commit/d728635206e42ca96b519ddde4ba5200fe9de42d))
+
+
+### Performance Improvements
+
+* **granola:** early termination in list_documents + tighter date window ([10e4a6f](https://github.com/tenfourty/kbx/commit/10e4a6f271eb6504edba93ce386ff88f8c9e7b4d))
+* **sync:** fix Notion sync performance — 65x faster for incremental runs ([0d0045e](https://github.com/tenfourty/kbx/commit/0d0045eb50e487d278c6cc73d923c9dd57cc09d6))
+
+
+### Documentation
+
+* update Granola write API design for auto-create behavior ([63e99c1](https://github.com/tenfourty/kbx/commit/63e99c1588af771cf9e3ba9f63266cb428e3cb7f))
+* update Granola write API design for calendar UID matching ([375dd42](https://github.com/tenfourty/kbx/commit/375dd42d6e56c87b1cb0e1942d773e68a0a0fa5c))
+
 ## [0.1.11](https://github.com/tenfourty/kbx/compare/kbx-v0.1.10...kbx-v0.1.11) (2026-03-01)
 
 
