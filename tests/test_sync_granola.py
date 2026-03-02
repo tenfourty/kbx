@@ -1749,8 +1749,8 @@ class TestUpdateDocumentNotes:
 
 
 class TestGranolaPushCLI:
-    def test_push_notes_by_title(self):
-        """granola push writes notes to a matching document."""
+    def test_push_by_calendar_uid(self):
+        """granola push --calendar-uid matches by calendar event UID."""
         from kb.cli import cli
 
         runner = CliRunner()
@@ -1763,13 +1763,78 @@ class TestGranolaPushCLI:
         mock_client.update_document_notes.return_value = {}
 
         with patch("kb.sync.granola.GranolaClient", return_value=mock_client):
-            result = runner.invoke(cli, ["granola", "push", "Standup", "--notes", "# Prep"])
+            result = runner.invoke(
+                cli,
+                ["granola", "push", "--calendar-uid", "abc123@google.com", "--notes", "# Prep"],
+            )
 
         assert result.exit_code == 0
-        mock_client.find_document.assert_called_once_with(title="Standup")
+        mock_client.find_document.assert_called_once_with(
+            title=None, calendar_uid="abc123@google.com"
+        )
         mock_client.update_document_notes.assert_called_once_with(
             "doc-1", "# Prep", prepend=False, doc_updated_at="2026-03-02T09:00:00.000Z"
         )
+
+    def test_push_by_title(self):
+        """granola push --title matches by title substring."""
+        from kb.cli import cli
+
+        runner = CliRunner()
+        mock_client = MagicMock()
+        mock_client.find_document.return_value = {
+            "id": "doc-1",
+            "title": "Standup",
+            "updated_at": "2026-03-02T09:00:00.000Z",
+        }
+        mock_client.update_document_notes.return_value = {}
+
+        with patch("kb.sync.granola.GranolaClient", return_value=mock_client):
+            result = runner.invoke(
+                cli, ["granola", "push", "--title", "Standup", "--notes", "# Prep"]
+            )
+
+        assert result.exit_code == 0
+        mock_client.find_document.assert_called_once_with(title="Standup", calendar_uid=None)
+
+    def test_push_both_uid_and_title(self):
+        """granola push with both --calendar-uid and --title passes both."""
+        from kb.cli import cli
+
+        runner = CliRunner()
+        mock_client = MagicMock()
+        mock_client.find_document.return_value = {
+            "id": "doc-1",
+            "title": "Standup",
+            "updated_at": "2026-03-02T09:00:00.000Z",
+        }
+        mock_client.update_document_notes.return_value = {}
+
+        with patch("kb.sync.granola.GranolaClient", return_value=mock_client):
+            result = runner.invoke(
+                cli,
+                [
+                    "granola",
+                    "push",
+                    "--calendar-uid",
+                    "abc123",
+                    "--title",
+                    "Standup",
+                    "--notes",
+                    "# Prep",
+                ],
+            )
+
+        assert result.exit_code == 0
+        mock_client.find_document.assert_called_once_with(title="Standup", calendar_uid="abc123")
+
+    def test_push_requires_uid_or_title(self):
+        """granola push fails without --calendar-uid or --title."""
+        from kb.cli import cli
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["granola", "push", "--notes", "text"])
+        assert result.exit_code != 0
 
     def test_push_notes_from_file(self, tmp_dir):
         """granola push --notes-file reads from a file."""
@@ -1785,7 +1850,8 @@ class TestGranolaPushCLI:
 
         with patch("kb.sync.granola.GranolaClient", return_value=mock_client):
             result = runner.invoke(
-                cli, ["granola", "push", "Meeting", "--notes-file", str(notes_file)]
+                cli,
+                ["granola", "push", "--title", "Meeting", "--notes-file", str(notes_file)],
             )
 
         assert result.exit_code == 0
@@ -1798,7 +1864,7 @@ class TestGranolaPushCLI:
         from kb.cli import cli
 
         runner = CliRunner()
-        result = runner.invoke(cli, ["granola", "push", "Title"])
+        result = runner.invoke(cli, ["granola", "push", "--title", "Title"])
         assert result.exit_code != 0
 
     def test_push_rejects_both_notes_and_file(self, tmp_dir):
@@ -1810,41 +1876,34 @@ class TestGranolaPushCLI:
 
         runner = CliRunner()
         result = runner.invoke(
-            cli, ["granola", "push", "Title", "--notes", "text", "--notes-file", str(notes_file)]
+            cli,
+            [
+                "granola",
+                "push",
+                "--title",
+                "Title",
+                "--notes",
+                "text",
+                "--notes-file",
+                str(notes_file),
+            ],
         )
         assert result.exit_code != 0
 
     def test_push_not_found_exits_1(self):
-        """granola push exits 1 when doc not found and --create not set."""
+        """granola push exits 1 when doc not found."""
         from kb.cli import cli
 
         runner = CliRunner()
         mock_client = MagicMock()
         mock_client.find_document.return_value = None
-
-        with patch("kb.sync.granola.GranolaClient", return_value=mock_client):
-            result = runner.invoke(cli, ["granola", "push", "Missing", "--notes", "text"])
-
-        assert result.exit_code == 1
-
-    def test_push_create_flag(self):
-        """granola push --create creates the doc when not found."""
-        from kb.cli import cli
-
-        runner = CliRunner()
-        mock_client = MagicMock()
-        mock_client.find_document.return_value = None
-        mock_client.create_document.return_value = {"id": "new-doc", "title": "New Meeting"}
-        mock_client.update_document_notes.return_value = {}
 
         with patch("kb.sync.granola.GranolaClient", return_value=mock_client):
             result = runner.invoke(
-                cli, ["granola", "push", "New Meeting", "--notes", "# Prep", "--create"]
+                cli, ["granola", "push", "--title", "Missing", "--notes", "text"]
             )
 
-        assert result.exit_code == 0
-        mock_client.create_document.assert_called_once_with(title="New Meeting")
-        mock_client.update_document_notes.assert_called_once()
+        assert result.exit_code == 1
 
     def test_push_prepend_flag(self):
         """granola push --prepend passes prepend=True to update."""
@@ -1861,7 +1920,8 @@ class TestGranolaPushCLI:
 
         with patch("kb.sync.granola.GranolaClient", return_value=mock_client):
             result = runner.invoke(
-                cli, ["granola", "push", "Standup", "--notes", "# Prep", "--prepend"]
+                cli,
+                ["granola", "push", "--title", "Standup", "--notes", "# Prep", "--prepend"],
             )
 
         assert result.exit_code == 0
@@ -1884,7 +1944,8 @@ class TestGranolaPushCLI:
 
         with patch("kb.sync.granola.GranolaClient", return_value=mock_client):
             result = runner.invoke(
-                cli, ["granola", "push", "Meeting", "--notes", "## Heading\\n\\n- Item"]
+                cli,
+                ["granola", "push", "--title", "Meeting", "--notes", "## Heading\\n\\n- Item"],
             )
 
         assert result.exit_code == 0
@@ -1906,7 +1967,8 @@ class TestGranolaPushCLI:
 
         with patch("kb.sync.granola.GranolaClient", return_value=mock_client):
             result = runner.invoke(
-                cli, ["granola", "push", "Meeting", "--notes-file", str(notes_file)]
+                cli,
+                ["granola", "push", "--title", "Meeting", "--notes-file", str(notes_file)],
             )
 
         assert result.exit_code == 0
