@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.16](https://github.com/tenfourty/kbx/compare/kbx-v0.1.15...kbx-v0.1.16) (2026-03-02)
+
+
+### Features
+
+* add --transcript flag to granola view command ([7e58ef5](https://github.com/tenfourty/kbx/commit/7e58ef5d1e9df7e2efd1b2faedfa8c9f47dd3f65))
+
 ## [0.1.15](https://github.com/tenfourty/kbx/compare/kbx-v0.1.14...kbx-v0.1.15) (2026-03-02)
 
 
