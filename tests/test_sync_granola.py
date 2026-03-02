@@ -1621,10 +1621,51 @@ class TestUpdateDocumentNotes:
         assert "updated_at" in payload
         assert payload["updated_at"].endswith("Z")
 
+    def test_preserves_existing_updated_at(self, client):
+        """update_document_notes uses doc_updated_at instead of now."""
+        payloads = []
+
+        def capture_request(method, path, **kwargs):
+            payloads.append(kwargs.get("json_data"))
+            resp = MagicMock()
+            resp.json.return_value = {}
+            return resp
+
+        with patch.object(client, "_request", side_effect=capture_request):
+            client.update_document_notes(
+                "doc-123",
+                "Notes",
+                doc_updated_at="2026-03-03T10:00:00.000Z",
+            )
+
+        payload = payloads[0]
+        assert payload["updated_at"] == "2026-03-03T10:00:00.000Z"
+
+    def test_falls_back_to_now_without_updated_at(self, client):
+        """update_document_notes falls back to now when no doc_updated_at."""
+        payloads = []
+
+        def capture_request(method, path, **kwargs):
+            payloads.append(kwargs.get("json_data"))
+            resp = MagicMock()
+            resp.json.return_value = {}
+            return resp
+
+        with patch.object(client, "_request", side_effect=capture_request):
+            client.update_document_notes("doc-123", "Notes")
+
+        payload = payloads[0]
+        # Should still have an updated_at, just generated from now
+        assert payload["updated_at"].endswith("Z")
+
     def test_prepend_combines_notes(self, client):
         """update_document_notes with prepend=True prepends above existing."""
         existing_docs = [
-            {"id": "doc-123", "notes_markdown": "Existing notes here."},
+            {
+                "id": "doc-123",
+                "notes_markdown": "Existing notes here.",
+                "updated_at": "2026-03-01T09:00:00.000Z",
+            },
         ]
 
         payloads = []
@@ -1647,6 +1688,34 @@ class TestUpdateDocumentNotes:
         assert md.startswith("New prep notes")
         assert "---" in md
         assert "Existing notes here." in md
+
+    def test_prepend_preserves_doc_updated_at(self, client):
+        """Prepend picks up existing updated_at when caller doesn't provide one."""
+        existing_docs = [
+            {
+                "id": "doc-123",
+                "notes_markdown": "Old notes.",
+                "updated_at": "2026-03-03T14:00:00.000Z",
+            },
+        ]
+
+        payloads = []
+
+        def capture_request(method, path, **kwargs):
+            payloads.append(kwargs.get("json_data"))
+            resp = MagicMock()
+            resp.json.return_value = {}
+            return resp
+
+        with (
+            patch.object(client, "list_documents", return_value=existing_docs),
+            patch.object(client, "_request", side_effect=capture_request),
+            patch("time.sleep"),
+        ):
+            client.update_document_notes("doc-123", "New notes", prepend=True)
+
+        payload = payloads[0]
+        assert payload["updated_at"] == "2026-03-03T14:00:00.000Z"
 
     def test_prepend_with_empty_existing(self, client):
         """Prepend with no existing notes just writes new notes."""
@@ -1686,7 +1755,11 @@ class TestGranolaPushCLI:
 
         runner = CliRunner()
         mock_client = MagicMock()
-        mock_client.find_document.return_value = {"id": "doc-1", "title": "Standup"}
+        mock_client.find_document.return_value = {
+            "id": "doc-1",
+            "title": "Standup",
+            "updated_at": "2026-03-02T09:00:00.000Z",
+        }
         mock_client.update_document_notes.return_value = {}
 
         with patch("kb.sync.granola.GranolaClient", return_value=mock_client):
@@ -1694,7 +1767,9 @@ class TestGranolaPushCLI:
 
         assert result.exit_code == 0
         mock_client.find_document.assert_called_once_with(title="Standup")
-        mock_client.update_document_notes.assert_called_once_with("doc-1", "# Prep", prepend=False)
+        mock_client.update_document_notes.assert_called_once_with(
+            "doc-1", "# Prep", prepend=False, doc_updated_at="2026-03-02T09:00:00.000Z"
+        )
 
     def test_push_notes_from_file(self, tmp_dir):
         """granola push --notes-file reads from a file."""
@@ -1777,7 +1852,11 @@ class TestGranolaPushCLI:
 
         runner = CliRunner()
         mock_client = MagicMock()
-        mock_client.find_document.return_value = {"id": "doc-1", "title": "Standup"}
+        mock_client.find_document.return_value = {
+            "id": "doc-1",
+            "title": "Standup",
+            "updated_at": "2026-03-02T09:00:00.000Z",
+        }
         mock_client.update_document_notes.return_value = {}
 
         with patch("kb.sync.granola.GranolaClient", return_value=mock_client):
@@ -1786,4 +1865,6 @@ class TestGranolaPushCLI:
             )
 
         assert result.exit_code == 0
-        mock_client.update_document_notes.assert_called_once_with("doc-1", "# Prep", prepend=True)
+        mock_client.update_document_notes.assert_called_once_with(
+            "doc-1", "# Prep", prepend=True, doc_updated_at="2026-03-02T09:00:00.000Z"
+        )
