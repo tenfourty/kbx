@@ -968,12 +968,14 @@ def write_meeting(
     transcript_md: str,
     project_root: Path,
     force: bool = False,
+    summary_md: str = "",
 ) -> dict[str, Any]:
     """Write meeting files to the organised directory.
 
     Returns dict with:
         notes_path: Path to written notes file
         transcript_path: Path to written transcript file
+        summary_path: Path to written summary file (if summary_md provided)
         status: "created", "updated", or "skipped"
     """
     date = frontmatter.get("date", "")
@@ -1021,6 +1023,7 @@ def write_meeting(
 
     notes_path = out_dir / f"{base_name}.granola.notes.md"
     transcript_path = out_dir / f"{base_name}.granola.transcript.md"
+    summary_path = out_dir / f"{base_name}.granola.summary.md"
 
     # Build full file content
     fm_yaml = _frontmatter_to_yaml(frontmatter)
@@ -1029,6 +1032,12 @@ def write_meeting(
     transcript_fm = {**frontmatter, "type": "transcript"}
     transcript_fm_yaml = _frontmatter_to_yaml(transcript_fm)
     transcript_content = f"{transcript_fm_yaml}\n\n{transcript_md}"
+
+    summary_content = ""
+    if summary_md.strip():
+        summary_fm = {**frontmatter, "type": "summary"}
+        summary_fm_yaml = _frontmatter_to_yaml(summary_fm)
+        summary_content = f"{summary_fm_yaml}\n\n{summary_md}"
 
     # Check if files already exist
     if notes_path.exists() and not force:
@@ -1041,24 +1050,31 @@ def write_meeting(
             return {
                 "notes_path": notes_path,
                 "transcript_path": transcript_path,
+                "summary_path": summary_path if summary_content else None,
                 "status": "skipped",
             }
         else:
             # Update — write new content
             _write_file(notes_path, notes_content)
             _write_file(transcript_path, transcript_content)
+            if summary_content:
+                _write_file(summary_path, summary_content)
             return {
                 "notes_path": notes_path,
                 "transcript_path": transcript_path,
+                "summary_path": summary_path if summary_content else None,
                 "status": "updated",
             }
 
     # Create new files
     _write_file(notes_path, notes_content)
     _write_file(transcript_path, transcript_content)
+    if summary_content:
+        _write_file(summary_path, summary_content)
     return {
         "notes_path": notes_path,
         "transcript_path": transcript_path,
+        "summary_path": summary_path if summary_content else None,
         "status": "created",
     }
 
@@ -1286,22 +1302,12 @@ def _create_person_memory_file(
 
 
 def extract_notes_content(doc: dict[str, Any]) -> list[dict[str, Any]]:
-    """Extract ProseMirror content nodes from a Granola document.
+    """Extract human-authored ProseMirror notes from a Granola document.
 
-    Tries multiple locations:
-    1. doc['last_viewed_panel']['content'] (real API)
-    2. doc['notes']['content'] (alternative location)
-    3. doc['last_viewed_panel']['doc']['content'] (test mocks)
+    Uses ``doc['notes']['content']`` only.  Does NOT read
+    ``last_viewed_panel`` — that contains the AI-generated summary
+    (use :func:`extract_panel_markdown` for that).
     """
-    # Real API: panel.content — may be a list of nodes or a ProseMirror doc wrapper
-    panel = doc.get("last_viewed_panel") or {}
-    content = panel.get("content")
-    if isinstance(content, list):
-        return content
-    if isinstance(content, dict) and content.get("type") == "doc":
-        return cast("list[dict[Any, Any]]", content.get("content", []))
-
-    # Alternative: notes field
     notes = doc.get("notes") or {}
     if isinstance(notes, dict):
         content = notes.get("content")
@@ -1309,10 +1315,27 @@ def extract_notes_content(doc: dict[str, Any]) -> list[dict[str, Any]]:
             return content
         if isinstance(content, dict) and content.get("type") == "doc":
             return cast("list[dict[Any, Any]]", content.get("content", []))
+    return []
 
-    # Test mock fallback: panel.doc.content
-    doc_content = panel.get("doc") or {}
-    return cast("list[dict[Any, Any]]", doc_content.get("content", []))
+
+def extract_panel_markdown(doc: dict[str, Any]) -> str:
+    """Extract AI-generated summary markdown from ``last_viewed_panel``.
+
+    Returns the rendered markdown string, or empty string if no panel.
+    """
+    panel = doc.get("last_viewed_panel") or {}
+    content = panel.get("content")
+
+    nodes: list[dict[str, Any]] = []
+    if isinstance(content, dict) and content.get("type") == "doc":
+        nodes = content.get("content", [])
+    elif isinstance(content, list):
+        nodes = content
+
+    if not nodes:
+        return ""
+
+    return prosemirror_to_markdown(nodes)
 
 
 def extract_summary(doc: dict[str, Any]) -> str | None:
@@ -1418,13 +1441,16 @@ def sync_granola(
 
         transcript_md = transcript_to_markdown(transcript_segments)
         summary = extract_summary(doc)
+        panel_md = extract_panel_markdown(doc)
 
         # Build frontmatter — people/calendar data is already on the doc,
         # so we pass an empty metadata dict (no extra API call needed)
         fm = build_frontmatter(doc, {}, summary)
 
         # Write files
-        result = write_meeting(doc, fm, notes_md, transcript_md, project_root, force=force)
+        result = write_meeting(
+            doc, fm, notes_md, transcript_md, project_root, force=force, summary_md=panel_md
+        )
 
         if result["status"] == "created":
             created += 1

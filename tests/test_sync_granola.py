@@ -765,6 +765,193 @@ class TestWriteMeeting:
         assert result["status"] == "updated"
 
 
+class TestExtractNotesContent:
+    def test_extracts_from_notes_field(self):
+        """extract_notes_content reads from doc.notes.content."""
+        from kb.sync.granola import extract_notes_content
+
+        doc = {
+            "notes": {"type": "doc", "content": [{"type": "paragraph"}]},
+            "last_viewed_panel": {"content": {"type": "doc", "content": [{"type": "heading"}]}},
+        }
+        result = extract_notes_content(doc)
+        assert result == [{"type": "paragraph"}]
+
+    def test_ignores_panel(self):
+        """extract_notes_content does NOT fall back to last_viewed_panel."""
+        from kb.sync.granola import extract_notes_content
+
+        doc = {
+            "notes": None,
+            "last_viewed_panel": {"content": {"type": "doc", "content": [{"type": "heading"}]}},
+        }
+        assert extract_notes_content(doc) == []
+
+    def test_returns_empty_for_no_notes(self):
+        """extract_notes_content returns [] when no notes field."""
+        from kb.sync.granola import extract_notes_content
+
+        assert extract_notes_content({}) == []
+
+    def test_handles_notes_content_as_list(self):
+        """extract_notes_content handles notes.content as a plain list."""
+        from kb.sync.granola import extract_notes_content
+
+        doc = {"notes": {"content": [{"type": "paragraph"}]}}
+        assert extract_notes_content(doc) == [{"type": "paragraph"}]
+
+
+class TestExtractPanelMarkdown:
+    def test_extracts_panel_content(self):
+        """extract_panel_markdown renders ProseMirror from last_viewed_panel."""
+        from kb.sync.granola import extract_panel_markdown
+
+        doc = {
+            "last_viewed_panel": {
+                "content": {
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "heading",
+                            "attrs": {"level": 3},
+                            "content": [{"type": "text", "text": "Summary"}],
+                        },
+                        {
+                            "type": "paragraph",
+                            "content": [{"type": "text", "text": "Key points here."}],
+                        },
+                    ],
+                }
+            }
+        }
+        md = extract_panel_markdown(doc)
+        assert "### Summary" in md
+        assert "Key points here." in md
+
+    def test_returns_empty_for_no_panel(self):
+        """extract_panel_markdown returns '' when no panel."""
+        from kb.sync.granola import extract_panel_markdown
+
+        assert extract_panel_markdown({}) == ""
+        assert extract_panel_markdown({"last_viewed_panel": None}) == ""
+
+    def test_returns_empty_for_empty_panel(self):
+        """extract_panel_markdown returns '' for panel with no content."""
+        from kb.sync.granola import extract_panel_markdown
+
+        doc = {"last_viewed_panel": {"content": {"type": "doc", "content": []}}}
+        assert extract_panel_markdown(doc) == ""
+
+    def test_handles_content_as_list(self):
+        """extract_panel_markdown handles content as a plain list of nodes."""
+        from kb.sync.granola import extract_panel_markdown
+
+        doc = {
+            "last_viewed_panel": {
+                "content": [
+                    {
+                        "type": "paragraph",
+                        "content": [{"type": "text", "text": "Direct list."}],
+                    }
+                ]
+            }
+        }
+        md = extract_panel_markdown(doc)
+        assert "Direct list." in md
+
+
+class TestWriteMeetingSummary:
+    def test_writes_summary_file(self, tmp_dir):
+        """write_meeting creates .granola.summary.md when summary_md provided."""
+        from kb.sync.granola import write_meeting
+
+        doc = {
+            "id": "aabb1122",
+            "title": "Standup",
+            "created_at": "2026-01-27T15:00:00Z",
+        }
+        fm = {
+            "title": "Standup",
+            "date": "2026-01-27",
+            "type": "notes",
+            "granola_id": "aabb1122",
+            "granola_updated_at": "2026-01-27T16:30:00Z",
+            "tags": [],
+            "attendees": [],
+        }
+
+        result = write_meeting(
+            doc, fm, "# Notes", "transcript", tmp_dir, summary_md="### AI Summary\n\nKey points."
+        )
+
+        assert result["summary_path"] is not None
+        assert result["summary_path"].exists()
+        assert result["summary_path"].name.endswith(".granola.summary.md")
+        content = result["summary_path"].read_text()
+        assert "type: summary" in content
+        assert "### AI Summary" in content
+        assert "Key points." in content
+
+    def test_no_summary_file_when_empty(self, tmp_dir):
+        """write_meeting does NOT create summary file when summary_md is empty."""
+        from kb.sync.granola import write_meeting
+
+        doc = {
+            "id": "aabb1122",
+            "title": "Standup",
+            "created_at": "2026-01-27T15:00:00Z",
+        }
+        fm = {
+            "title": "Standup",
+            "date": "2026-01-27",
+            "type": "notes",
+            "granola_id": "aabb1122",
+            "granola_updated_at": "2026-01-27T16:30:00Z",
+            "tags": [],
+            "attendees": [],
+        }
+
+        result = write_meeting(doc, fm, "# Notes", "transcript", tmp_dir, summary_md="")
+
+        assert result["summary_path"] is None
+        # Only notes and transcript should exist
+        assert result["notes_path"].exists()
+        assert result["transcript_path"].exists()
+        summary_files = list(tmp_dir.rglob("*.granola.summary.md"))
+        assert len(summary_files) == 0
+
+    def test_summary_file_updated_on_resync(self, tmp_dir):
+        """write_meeting updates summary file on resync with newer timestamp."""
+        from kb.sync.granola import write_meeting
+
+        doc = {
+            "id": "aabb1122",
+            "title": "Standup",
+            "created_at": "2026-01-27T15:00:00Z",
+        }
+        fm_old = {
+            "title": "Standup",
+            "date": "2026-01-27",
+            "type": "notes",
+            "granola_id": "aabb1122",
+            "granola_updated_at": "2026-01-27T16:00:00Z",
+            "tags": [],
+            "attendees": [],
+        }
+        fm_new = {**fm_old, "granola_updated_at": "2026-01-27T17:00:00Z"}
+
+        # First write
+        write_meeting(doc, fm_old, "# Notes", "transcript", tmp_dir, summary_md="### V1")
+
+        # Second write with newer timestamp
+        result = write_meeting(doc, fm_new, "# Notes", "transcript", tmp_dir, summary_md="### V2")
+
+        assert result["status"] == "updated"
+        assert result["summary_path"] is not None
+        content = result["summary_path"].read_text()
+        assert "### V2" in content
+
+
 # ---------------------------------------------------------------------------
 # Phase 3: CLI Integration
 # ---------------------------------------------------------------------------
