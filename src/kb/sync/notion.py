@@ -652,7 +652,9 @@ def sync_notion(
     # Use cached recordMap from search when children are available; else API.
     all_attendee_ids: set[str] = set()
     meetings: list[dict[str, Any]] = []
-    for page_result in all_pages:
+    total_pages = len(all_pages)
+    api_calls = 0
+    for page_idx, page_result in enumerate(all_pages):
         page_id = page_result["id"]
 
         # Try cached blocks if page AND its children are in the cache
@@ -666,6 +668,9 @@ def sync_notion(
                     blocks[cid] = cached_blocks[cid]
 
         if blocks is None:
+            api_calls += 1
+            if api_calls == 1 or api_calls % 20 == 0 or page_idx == total_pages - 1:
+                _log(f"  Scanning page {page_idx + 1}/{total_pages}...")
             blocks = client.load_page_chunk(page_id, limit=5)
 
         # Find transcription block
