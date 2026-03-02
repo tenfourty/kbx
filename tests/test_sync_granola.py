@@ -862,7 +862,7 @@ class TestExtractPanelMarkdown:
 
 class TestWriteMeetingSummary:
     def test_writes_summary_file(self, tmp_dir):
-        """write_meeting creates .granola.summary.md when summary_md provided."""
+        """write_meeting creates .granola.ai-summary.md when summary_md provided."""
         from kb.sync.granola import write_meeting
 
         doc = {
@@ -886,7 +886,7 @@ class TestWriteMeetingSummary:
 
         assert result["summary_path"] is not None
         assert result["summary_path"].exists()
-        assert result["summary_path"].name.endswith(".granola.summary.md")
+        assert result["summary_path"].name.endswith(".granola.ai-summary.md")
         content = result["summary_path"].read_text()
         assert "type: summary" in content
         assert "### AI Summary" in content
@@ -917,7 +917,7 @@ class TestWriteMeetingSummary:
         # Only notes and transcript should exist
         assert result["notes_path"].exists()
         assert result["transcript_path"].exists()
-        summary_files = list(tmp_dir.rglob("*.granola.summary.md"))
+        summary_files = list(tmp_dir.rglob("*.granola.ai-summary.md"))
         assert len(summary_files) == 0
 
     def test_summary_file_updated_on_resync(self, tmp_dir):

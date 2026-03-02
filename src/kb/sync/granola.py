@@ -1023,7 +1023,7 @@ def write_meeting(
 
     notes_path = out_dir / f"{base_name}.granola.notes.md"
     transcript_path = out_dir / f"{base_name}.granola.transcript.md"
-    summary_path = out_dir / f"{base_name}.granola.summary.md"
+    summary_path = out_dir / f"{base_name}.granola.ai-summary.md"
 
     # Build full file content
     fm_yaml = _frontmatter_to_yaml(frontmatter)
