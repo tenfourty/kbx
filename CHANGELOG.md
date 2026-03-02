@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.15](https://github.com/tenfourty/kbx/compare/kbx-v0.1.14...kbx-v0.1.15) (2026-03-02)
+
+
+### Features
+
+* **granola:** add view and edit commands for meeting notes ([0bb5bd5](https://github.com/tenfourty/kbx/commit/0bb5bd5e5b91f7d71aeabce00d880b120a127afb))
+
 ## [0.1.14](https://github.com/tenfourty/kbx/compare/kbx-v0.1.13...kbx-v0.1.14) (2026-03-02)
 
 
