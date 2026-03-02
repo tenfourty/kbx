@@ -1868,3 +1868,47 @@ class TestGranolaPushCLI:
         mock_client.update_document_notes.assert_called_once_with(
             "doc-1", "# Prep", prepend=True, doc_updated_at="2026-03-02T09:00:00.000Z"
         )
+
+    def test_push_interprets_escape_sequences(self):
+        """granola push --notes interprets \\n as newlines."""
+        from kb.cli import cli
+
+        runner = CliRunner()
+        mock_client = MagicMock()
+        mock_client.find_document.return_value = {
+            "id": "doc-1",
+            "title": "Meeting",
+            "updated_at": "2026-03-02T09:00:00.000Z",
+        }
+        mock_client.update_document_notes.return_value = {}
+
+        with patch("kb.sync.granola.GranolaClient", return_value=mock_client):
+            result = runner.invoke(
+                cli, ["granola", "push", "Meeting", "--notes", "## Heading\\n\\n- Item"]
+            )
+
+        assert result.exit_code == 0
+        call_md = mock_client.update_document_notes.call_args[0][1]
+        assert call_md == "## Heading\n\n- Item"
+
+    def test_push_notes_file_no_escape_processing(self, tmp_dir):
+        """granola push --notes-file does NOT interpret escape sequences."""
+        from kb.cli import cli
+
+        notes_file = tmp_dir / "prep.md"
+        # File contains literal backslash-n (should be preserved as-is)
+        notes_file.write_text("Line with \\n literal", encoding="utf-8")
+
+        runner = CliRunner()
+        mock_client = MagicMock()
+        mock_client.find_document.return_value = {"id": "doc-1", "title": "Meeting"}
+        mock_client.update_document_notes.return_value = {}
+
+        with patch("kb.sync.granola.GranolaClient", return_value=mock_client):
+            result = runner.invoke(
+                cli, ["granola", "push", "Meeting", "--notes-file", str(notes_file)]
+            )
+
+        assert result.exit_code == 0
+        call_md = mock_client.update_document_notes.call_args[0][1]
+        assert "\\n" in call_md  # Literal backslash-n preserved from file

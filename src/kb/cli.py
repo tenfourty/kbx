@@ -2531,7 +2531,11 @@ def granola() -> None:
     help="Path to a markdown file to write.",
 )
 @click.option("--prepend", is_flag=True, help="Prepend above existing notes instead of replacing.")
-@click.option("--create", is_flag=True, help="Create the document if not found.")
+@click.option(
+    "--create",
+    is_flag=True,
+    help="Create the document if not found (unlinked — use Python API with calendar_event for proper linking).",
+)
 def granola_push(
     title: str,
     notes: str | None,
@@ -2556,6 +2560,10 @@ def granola_push(
         notes = P(notes_file).read_text(encoding="utf-8")
 
     assert notes is not None  # mypy
+
+    # Interpret common escape sequences from shell (e.g. --notes "## Heading\n- Item")
+    if not notes_file:
+        notes = notes.replace("\\n", "\n").replace("\\t", "\t")
 
     client = GranolaClient()
 
