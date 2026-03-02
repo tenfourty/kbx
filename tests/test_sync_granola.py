@@ -2187,19 +2187,76 @@ class TestGranolaViewCLI:
         assert "- Item 1" not in result.output
 
     def test_view_all(self):
-        """granola view --all shows notes + summary."""
+        """granola view --all shows notes + summary + transcript."""
         from kb.cli import cli
 
         runner = CliRunner()
         mock_client = MagicMock()
         mock_client.find_document.return_value = self._make_doc()
+        mock_client.get_transcript.return_value = [
+            {"text": "Transcript line.", "start_timestamp": 0.0, "end_timestamp": 2.0},
+        ]
 
-        with patch("kb.sync.granola.GranolaClient", return_value=mock_client):
+        with (
+            patch("kb.sync.granola.GranolaClient", return_value=mock_client),
+            patch(
+                "kb.sync.granola.transcript_to_markdown",
+                return_value="Transcript line.",
+            ),
+        ):
             result = runner.invoke(cli, ["granola", "view", "uid-abc_20260303T100000Z", "--all"])
 
         assert result.exit_code == 0
         assert "## Notes" in result.output
         assert "Key decisions were made." in result.output
+        assert "Transcript line." in result.output
+
+    def test_view_transcript(self):
+        """granola view --transcript fetches and shows transcript."""
+        from kb.cli import cli
+
+        runner = CliRunner()
+        mock_client = MagicMock()
+        mock_client.find_document.return_value = self._make_doc()
+        mock_client.get_transcript.return_value = [
+            {"text": "Hello everyone.", "start_timestamp": 0.0, "end_timestamp": 2.0},
+            {"text": "Let's start.", "start_timestamp": 2.0, "end_timestamp": 4.0},
+        ]
+
+        with (
+            patch("kb.sync.granola.GranolaClient", return_value=mock_client),
+            patch(
+                "kb.sync.granola.transcript_to_markdown",
+                return_value="Hello everyone.\n\nLet's start.",
+            ),
+        ):
+            result = runner.invoke(
+                cli, ["granola", "view", "uid-abc_20260303T100000Z", "--transcript"]
+            )
+
+        assert result.exit_code == 0
+        assert "Hello everyone." in result.output
+        assert "Let's start." in result.output
+        # Should NOT contain notes
+        assert "- Item 1" not in result.output
+
+    def test_view_no_transcript(self):
+        """granola view --transcript shows '(no transcript)' when empty."""
+        from kb.cli import cli
+
+        runner = CliRunner()
+        mock_client = MagicMock()
+        mock_client.find_document.return_value = self._make_doc()
+        mock_client.get_transcript.return_value = []
+
+        with (
+            patch("kb.sync.granola.GranolaClient", return_value=mock_client),
+            patch("kb.sync.granola.transcript_to_markdown", return_value=""),
+        ):
+            result = runner.invoke(cli, ["granola", "view", "uid-abc", "--transcript"])
+
+        assert result.exit_code == 0
+        assert "(no transcript)" in result.output
 
     def test_view_not_found(self):
         """granola view errors when no doc found."""

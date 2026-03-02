@@ -1588,7 +1588,8 @@ def usage() -> None:
 ## 10. Granola
   kb granola view <calendar-uid>                                  # view notes (YAML header + markdown)
   kb granola view <calendar-uid> --summary                        # view AI summary
-  kb granola view <calendar-uid> --all                            # view notes + summary
+  kb granola view <calendar-uid> --transcript                     # view transcript (live from API)
+  kb granola view <calendar-uid> --all                            # view notes + summary + transcript
   kb granola view <calendar-uid> --plain                          # raw markdown only (no header)
   kb granola edit <calendar-uid> --body "new content"             # replace notes
   kb granola edit <calendar-uid> --body-file updated.md           # replace from file
@@ -2593,14 +2594,21 @@ def granola_push(
 @granola.command("view")
 @click.argument("calendar_uid")
 @click.option("--summary", "mode", flag_value="summary", help="Show AI summary instead of notes.")
-@click.option("--all", "mode", flag_value="all", help="Show notes and AI summary.")
+@click.option(
+    "--transcript", "mode", flag_value="transcript", help="Show transcript (live from API)."
+)
+@click.option("--all", "mode", flag_value="all", help="Show notes, AI summary, and transcript.")
 @click.option("--plain", is_flag=True, help="Raw markdown only (no YAML header).")
 def granola_view(calendar_uid: str, mode: str | None, plain: bool) -> None:
     """View notes on a Granola meeting document.
 
     CALENDAR_UID is the Google Calendar event ID or iCalUID.
     """
-    from kb.sync.granola import GranolaClient, extract_panel_markdown
+    from kb.sync.granola import (
+        GranolaClient,
+        extract_panel_markdown,
+        transcript_to_markdown,
+    )
 
     client = GranolaClient()
     click.echo(f"Searching for document matching '{calendar_uid}'...", err=True)
@@ -2612,13 +2620,24 @@ def granola_view(calendar_uid: str, mode: str | None, plain: bool) -> None:
     notes_md = doc.get("notes_markdown") or ""
     summary_md = extract_panel_markdown(doc)
 
+    # Fetch transcript only when needed (separate API call)
+    transcript_md = ""
+    if mode in ("transcript", "all"):
+        click.echo("Fetching transcript...", err=True)
+        segments = client.get_transcript(doc["id"])
+        transcript_md = transcript_to_markdown(segments)
+
     if mode == "summary":
         body = summary_md or "(no AI summary)"
+    elif mode == "transcript":
+        body = transcript_md or "(no transcript)"
     elif mode == "all":
         parts = []
         parts.append(notes_md if notes_md.strip() else "(no notes)")
         if summary_md.strip():
             parts.append("---\n\n" + summary_md)
+        if transcript_md.strip():
+            parts.append("---\n\n" + transcript_md)
         body = "\n\n".join(parts)
     else:
         body = notes_md if notes_md.strip() else "(no notes)"
@@ -2639,6 +2658,7 @@ def granola_view(calendar_uid: str, mode: str | None, plain: bool) -> None:
         "files": {
             "notes": bool(notes_md.strip()),
             "ai_summary": bool(summary_md.strip()),
+            "transcript": bool(transcript_md.strip()),
         },
     }
     yaml_str: str = yaml.dump(header, default_flow_style=False, allow_unicode=True, sort_keys=False)
