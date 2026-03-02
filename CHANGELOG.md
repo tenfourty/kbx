@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.14](https://github.com/tenfourty/kbx/compare/kbx-v0.1.13...kbx-v0.1.14) (2026-03-02)
+
+
+### Documentation
+
+* **usage:** document Granola sync file types in kbx usage ([3874867](https://github.com/tenfourty/kbx/commit/38748670e7b022148efbc67f7b4a4f60325648a2))
+
 ## [0.1.13](https://github.com/tenfourty/kbx/compare/kbx-v0.1.12...kbx-v0.1.13) (2026-03-02)
 
 
