@@ -2584,7 +2584,5 @@ def granola_push(
     doc_title = doc.get("title", label)
     click.echo(f"Writing to '{doc_title}' ({doc_id})...", err=True)
 
-    client.update_document_notes(
-        doc_id, notes, prepend=prepend, doc_updated_at=doc.get("updated_at")
-    )
+    client.update_document_notes(doc_id, notes, prepend=prepend)
     click.echo("Done.", err=True)

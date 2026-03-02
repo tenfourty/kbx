@@ -355,7 +355,6 @@ class GranolaClient:
         doc_id: str,
         markdown: str,
         prepend: bool = False,
-        doc_updated_at: str | None = None,
     ) -> dict[str, Any]:
         """Write markdown notes to a Granola document.
 
@@ -364,24 +363,21 @@ class GranolaClient:
             markdown: Markdown content to write.
             prepend: If True and the doc has existing notes, prepend above them
                 separated by a horizontal rule.
-            doc_updated_at: The document's existing ``updated_at`` timestamp.
-                Preserves the document's position in Granola's timeline.
-                Falls back to ``datetime.now(UTC)`` only if not provided.
 
         Returns the API response.
         """
-        # If prepend, fetch existing notes and combine
-        if prepend:
-            docs = self.list_documents()
-            for doc in docs:
-                if doc.get("id") == doc_id:
-                    # Capture existing updated_at if caller didn't provide one
-                    if not doc_updated_at:
-                        doc_updated_at = doc.get("updated_at", "")
+        # Fetch the document to preserve its updated_at (avoids shifting future
+        # meetings into Granola's "Today" view) and to get existing notes for prepend.
+        existing_updated_at: str = ""
+        docs = self.list_documents()
+        for doc in docs:
+            if doc.get("id") == doc_id:
+                existing_updated_at = doc.get("updated_at", "")
+                if prepend:
                     existing_md = doc.get("notes_markdown") or ""
                     if existing_md.strip():
                         markdown = markdown.rstrip() + "\n\n---\n\n" + existing_md
-                    break
+                break
 
         # Convert markdown to ProseMirror
         pm_doc = markdown_to_prosemirror(markdown)
@@ -390,10 +386,9 @@ class GranolaClient:
         plain = re.sub(r"[#*`\[\]()]", "", markdown)
         plain = re.sub(r"\n{3,}", "\n\n", plain)
 
-        # Preserve the document's existing timestamp to avoid shifting it in
-        # Granola's timeline (e.g. future meetings appearing in "Today" view).
-        if doc_updated_at:
-            updated_at = doc_updated_at
+        # Use existing timestamp, fall back to now only for brand-new docs.
+        if existing_updated_at:
+            updated_at = existing_updated_at
         else:
             now = datetime.now(timezone.utc)
             updated_at = now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
