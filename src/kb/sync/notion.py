@@ -34,9 +34,9 @@ KEYCHAIN_SERVICE = "Notion Safe Storage"
 
 # Rate limiting
 BATCH_SIZE = 10
-BATCH_DELAY = 1.0
+BATCH_DELAY = 0.3
 # Minimum interval between API requests (global rate limit)
-MIN_REQUEST_INTERVAL = 1.0
+MIN_REQUEST_INTERVAL = 0.3
 
 
 # ---------------------------------------------------------------------------
@@ -208,7 +208,7 @@ class NotionClient:
             "createdTime": {},
         }
         if since:
-            filters["createdTime"] = {
+            filters["lastEditedTime"] = {
                 "type": "after",
                 "value": {"type": "exact", "value": since},
             }
@@ -618,6 +618,7 @@ def sync_notion(
 
     # Discover all pages — collect recordMaps from search to avoid extra API calls
     all_pages: list[dict[str, Any]] = []
+    seen_page_ids: set[str] = set()
     cached_blocks: dict[str, Any] = {}
     pagination_token: str | None = None
     while True:
@@ -627,7 +628,11 @@ def sync_notion(
             created_by=user_id,
             pagination_token=pagination_token,
         )
-        all_pages.extend(results)
+        for page in results:
+            pid = page["id"]
+            if pid not in seen_page_ids:
+                seen_page_ids.add(pid)
+                all_pages.append(page)
         cached_blocks.update(record_map)
 
         # Pagination ends when: no token returned, no results, or token repeats
@@ -635,6 +640,25 @@ def sync_notion(
             break
         pagination_token = next_token
         time.sleep(BATCH_DELAY)
+
+    # Client-side date filter — Notion's internal search API ignores date filters,
+    # so we filter locally using last_edited_time from the recordMap.
+    if effective_since:
+        since_ts = int(
+            datetime.strptime(effective_since, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp()
+            * 1000
+        )
+        before_count = len(all_pages)
+        all_pages = [
+            p
+            for p in all_pages
+            if cached_blocks.get(p["id"], {}).get("value", {}).get("last_edited_time", since_ts)
+            >= since_ts
+        ]
+        if len(all_pages) < before_count:
+            _log(
+                f"Filtered to {len(all_pages)} pages edited since {effective_since} (was {before_count})."
+            )
 
     _log(f"Found {len(all_pages)} pages. Checking for meeting transcripts...")
 
@@ -723,7 +747,6 @@ def sync_notion(
 
     for i, meeting in enumerate(meetings):
         title = meeting["title"]
-        _log(f"[{i + 1}/{len(meetings)}] {title}")
 
         fmt = meeting["transcription"].get("format", {})
         cal = fmt.get("transcription_calendar_event", {})
@@ -744,6 +767,26 @@ def sync_notion(
             calendar_uid=cal.get("uid"),
             source_id=meeting["page_id"],
         )
+
+        # Early skip: check if file exists and is up-to-date before fetching content
+        if not force:
+            date = fm.get("date", "")
+            parts = date.split("-")
+            if len(parts) == 3:
+                year, month, day = parts
+            else:
+                year, month, day = "unknown", "00", "00"
+            notes_path = project_root / "memory" / "meetings" / year / month / day
+            notes_path = notes_path / f"{base_name}.notion.notes.md"
+            if notes_path.exists():
+                existing = notes_path.read_text(encoding="utf-8")
+                existing_updated = _extract_notion_updated_at(existing)
+                new_updated = fm.get("notion_updated_at", "")
+                if existing_updated and new_updated and new_updated <= existing_updated:
+                    skipped += 1
+                    continue
+
+        _log(f"[{i + 1}/{len(meetings)}] {title}")
 
         # Fetch transcript segments
         transcript_id = fmt.get("transcription_transcript_id", "")
