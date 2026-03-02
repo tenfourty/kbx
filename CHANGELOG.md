@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.13](https://github.com/tenfourty/kbx/compare/kbx-v0.1.12...kbx-v0.1.13) (2026-03-02)
+
+
+### Bug Fixes
+
+* **meetings:** include .ai-summary.md in meetings walker ([f13f43b](https://github.com/tenfourty/kbx/commit/f13f43b379852d41896c9264fa39d2d4dbb9b1ae))
+
 ## [0.1.12](https://github.com/tenfourty/kbx/compare/kbx-v0.1.11...kbx-v0.1.12) (2026-03-02)
 
 
