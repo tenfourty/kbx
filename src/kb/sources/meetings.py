@@ -28,14 +28,15 @@ def walk_meetings(
         project_root: Root of the project (used for relative path calculation).
         meetings_dir: Resolved meetings directory. Defaults to project_root / "meetings".
 
-    Parses .notes.md, .transcript.md, and .ai-summary.md files with YAML frontmatter.
+    Parses .notes.md, .transcript.md, .ai-summary.md, .prep.md, and .debrief.md files
+    with YAML frontmatter.
     """
     if meetings_dir is None:
         meetings_dir = project_root / "memory" / "meetings"
     if not meetings_dir.exists():
         return
 
-    suffixes = (".notes.md", ".transcript.md", ".ai-summary.md")
+    suffixes = (".notes.md", ".transcript.md", ".ai-summary.md", ".prep.md", ".debrief.md")
     for md_file in sorted(meetings_dir.rglob("*.md")):
         name = md_file.name
         if not any(name.endswith(s) for s in suffixes):
@@ -62,6 +63,8 @@ def walk_meetings(
         source_field = fm.get("source", "")
         if source_field and "notion" in source_field:
             source_system = "notion"
+        elif source_field and source_field not in ("", "granola"):
+            source_system = str(source_field)
         else:
             source_system = "granola"
         source_id = str(granola_id or notion_page_id or "")

@@ -422,6 +422,17 @@ def meetings_root(tmp_path):
             f"granola_id: aabb000{i + 1}\n---\n\n"
             f"**Me:** Hello.\n\n**System:** Hi there.\n"
         )
+    # Add prep and debrief files
+    (base / "aabb0001_User___Bob.prep.md").write_text(
+        "---\ntitle: 'Prep: User / Soren'\ndate: 2026-01-15\ntype: prep\n"
+        "source: cos-agent\ncalendar_uid: aabb0001\n---\n\n"
+        "## Agenda\n\nDiscuss project updates.\n"
+    )
+    (base / "aabb0001_User___Bob.debrief.md").write_text(
+        "---\ntitle: 'Debrief: User / Soren'\ndate: 2026-01-15\ntype: debrief\n"
+        "source: cos-agent\ncalendar_uid: aabb0001\n---\n\n"
+        "## Action Items\n\n- Follow up on project timeline.\n"
+    )
     return tmp_path
 
 
@@ -432,16 +443,20 @@ class TestMeetingWalker:
         docs = list(walk_meetings(meetings_root))
         notes = [d for d in docs if d.doc_type == "notes"]
         transcripts = [d for d in docs if d.doc_type == "transcript"]
+        preps = [d for d in docs if d.doc_type == "prep"]
+        debriefs = [d for d in docs if d.doc_type == "debrief"]
 
         assert len(notes) == 3
         assert len(transcripts) == 2
+        assert len(preps) == 1
+        assert len(debriefs) == 1
 
     def test_walk_meetings_has_chunks(self, meetings_root):
         from kb.sources.meetings import walk_meetings
 
         docs = list(walk_meetings(meetings_root))
         total_chunks = sum(len(d.chunks) for d in docs)
-        assert total_chunks >= 5
+        assert total_chunks >= 7  # 5 original + at least 1 per prep/debrief
 
     def test_meetings_have_raw_body(self, meetings_root):
         from kb.sources.meetings import walk_meetings
@@ -449,6 +464,36 @@ class TestMeetingWalker:
         docs = list(walk_meetings(meetings_root))
         for doc in docs:
             assert doc.raw_body, f"Document {doc.path} missing raw_body"
+
+    def test_prep_file_indexed(self, meetings_root):
+        """Prep files (.prep.md) are picked up by the meetings walker."""
+        from kb.sources.meetings import walk_meetings
+
+        docs = list(walk_meetings(meetings_root))
+        preps = [d for d in docs if d.doc_type == "prep"]
+        assert len(preps) == 1
+        assert "Prep:" in preps[0].title
+        assert preps[0].path.endswith(".prep.md")
+
+    def test_debrief_file_indexed(self, meetings_root):
+        """Debrief files (.debrief.md) are picked up by the meetings walker."""
+        from kb.sources.meetings import walk_meetings
+
+        docs = list(walk_meetings(meetings_root))
+        debriefs = [d for d in docs if d.doc_type == "debrief"]
+        assert len(debriefs) == 1
+        assert "Debrief:" in debriefs[0].title
+        assert debriefs[0].path.endswith(".debrief.md")
+
+    def test_prep_debrief_source_system(self, meetings_root):
+        """Prep/debrief files with source: cos-agent get that as source_system."""
+        from kb.sources.meetings import walk_meetings
+
+        docs = list(walk_meetings(meetings_root))
+        agent_docs = [d for d in docs if d.doc_type in ("prep", "debrief")]
+        assert len(agent_docs) == 2
+        for doc in agent_docs:
+            assert doc.source_system == "cos-agent"
 
 
 class TestMemoryWalker:
