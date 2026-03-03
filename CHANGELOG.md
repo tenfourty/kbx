@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.18](https://github.com/tenfourty/kbx/compare/kbx-v0.1.17...kbx-v0.1.18) (2026-03-03)
+
+
+### Features
+
+* add --full-chunks, --snippet-chars, and strip HTML from JSON snippets ([ec39873](https://github.com/tenfourty/kbx/commit/ec398730f2360c4bd0b81565f93f27b76da094ad))
+
 ## [0.1.17](https://github.com/tenfourty/kbx/compare/kbx-v0.1.16...kbx-v0.1.17) (2026-03-03)
 
 
