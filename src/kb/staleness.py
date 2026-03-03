@@ -28,28 +28,20 @@ def find_stale_sources(db: Database, project_root: Path) -> list[str]:
 
     stale: list[str] = []
 
-    # Check memory source files — only files already in the index
-    # (new files need full `kb index run` for proper entity/mention setup).
-    # NOTE: meeting files (memory/meetings/) are NOT checked here — they are
-    # managed by the sync pipeline (kbx sync + kbx index run), not by ad-hoc
-    # edits. Prep/debrief files (.prep.md, .debrief.md) also require explicit
-    # `kbx index run` after creation. If auto-reindex for meetings is needed
-    # later, add a walk of memory/meetings/ here with rglob.
-    for subdir in ["memory/people", "memory/projects", "memory/context", "memory/notes"]:
-        dir_path = project_root / subdir
-        if not dir_path.exists():
-            continue
-        for f in dir_path.glob("*.md"):
+    # Walk all memory/**/*.md dynamically — matches what walk_memory() covers.
+    # Only files already in the index are checked (new files need full
+    # `kbx index run` for proper entity/mention setup).
+    # Excludes memory/meetings/ — those are managed by the sync pipeline
+    # (kbx sync + kbx index run), not by ad-hoc edits.
+    memory_dir = project_root / "memory"
+    if memory_dir.exists():
+        meetings_dir = memory_dir / "meetings"
+        for f in memory_dir.rglob("*.md"):
+            if f.is_relative_to(meetings_dir):
+                continue
             rel = str(f.relative_to(project_root))
             if rel in indexed and content_hash(f.read_text(encoding="utf-8")) != indexed[rel]:
                 stale.append(rel)
-
-    # Check glossary
-    glossary = project_root / "memory" / "glossary.md"
-    if glossary.exists():
-        rel = "memory/glossary.md"
-        if rel in indexed and content_hash(glossary.read_text(encoding="utf-8")) != indexed[rel]:
-            stale.append(rel)
 
     return stale
 

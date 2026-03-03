@@ -101,3 +101,102 @@ class TestStalenessDetection:
 
         stale = find_stale_sources(db, root)
         assert any("notes" in s for s in stale)
+
+    def test_detects_stale_in_new_subdir(self, stale_env):
+        """find_stale_sources detects changes in arbitrary memory subdirectories."""
+        from kb.staleness import find_stale_sources
+
+        db, root, _person = stale_env
+        # Create a new subdir (e.g. journal/) and index a file
+        journal_dir = root / "memory" / "journal"
+        journal_dir.mkdir(parents=True)
+        entry = journal_dir / "2026-03-03-daily.md"
+        entry.write_text("---\ntitle: Daily Journal\ndate: 2026-03-03\n---\nOriginal\n")
+
+        from kb.indexer import index_all
+
+        index_all(db, None, root, memory_only=True, skip_seed=True)
+
+        # Modify the file
+        entry.write_text("---\ntitle: Daily Journal\ndate: 2026-03-03\n---\nModified\n")
+        future_time = time.time() + 2
+        os.utime(entry, (future_time, future_time))
+
+        stale = find_stale_sources(db, root)
+        assert any("journal" in s for s in stale)
+
+    def test_detects_stale_in_nested_subdir(self, stale_env):
+        """find_stale_sources walks nested subdirectories recursively."""
+        from kb.staleness import find_stale_sources
+
+        db, root, _person = stale_env
+        # Nested path: memory/journal/daily/
+        nested_dir = root / "memory" / "journal" / "daily"
+        nested_dir.mkdir(parents=True)
+        entry = nested_dir / "2026-03-03.md"
+        entry.write_text("---\ntitle: Nested Entry\ndate: 2026-03-03\n---\nOriginal\n")
+
+        from kb.indexer import index_all
+
+        index_all(db, None, root, memory_only=True, skip_seed=True)
+
+        # Modify the file
+        entry.write_text("---\ntitle: Nested Entry\ndate: 2026-03-03\n---\nModified\n")
+        future_time = time.time() + 2
+        os.utime(entry, (future_time, future_time))
+
+        stale = find_stale_sources(db, root)
+        assert any("journal/daily" in s for s in stale)
+
+    def test_excludes_meetings_from_staleness(self, stale_env):
+        """find_stale_sources does NOT check memory/meetings/ files."""
+        from kb.staleness import find_stale_sources
+
+        db, root, _person = stale_env
+        # Create a meeting file and index it
+        meeting_dir = root / "memory" / "meetings" / "2026" / "03" / "03"
+        meeting_dir.mkdir(parents=True)
+        meeting = meeting_dir / "abc12345_Test.granola.notes.md"
+        meeting.write_text(
+            "---\ntitle: Test Meeting\ndate: 2026-03-03\ntype: notes\n"
+            "granola_id: abc12345\n---\n\n## Notes\n\nSome content.\n"
+        )
+
+        from kb.indexer import index_all
+
+        index_all(db, None, root, skip_seed=True)
+
+        # Modify the meeting file
+        meeting.write_text(
+            "---\ntitle: Test Meeting\ndate: 2026-03-03\ntype: notes\n"
+            "granola_id: abc12345\n---\n\n## Notes\n\nModified content.\n"
+        )
+        future_time = time.time() + 2
+        os.utime(meeting, (future_time, future_time))
+
+        stale = find_stale_sources(db, root)
+        assert not any("meetings" in s for s in stale)
+
+    def test_detects_stale_glossary(self, stale_env):
+        """find_stale_sources detects changes to memory/glossary.md."""
+        from kb.staleness import find_stale_sources
+
+        db, root, _person = stale_env
+        glossary = root / "memory" / "glossary.md"
+        glossary.write_text(
+            "# Glossary\n\n| Term | Expansion |\n|---|---|\n| API | Application |\n"
+        )
+
+        from kb.indexer import index_all
+
+        index_all(db, None, root, memory_only=True, skip_seed=True)
+
+        # Modify the glossary
+        glossary.write_text(
+            "# Glossary\n\n| Term | Expansion |\n|---|---|\n| API | App Interface |\n"
+        )
+        future_time = time.time() + 2
+        os.utime(glossary, (future_time, future_time))
+
+        stale = find_stale_sources(db, root)
+        assert any("glossary" in s for s in stale)
