@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.21](https://github.com/tenfourty/kbx/compare/kbx-v0.1.20...kbx-v0.1.21) (2026-03-03)
+
+
+### Features
+
+* add --merge-chunks flag to concatenate per-doc chunks when deduping ([6671cc4](https://github.com/tenfourty/kbx/commit/6671cc43d70affa33ea402101abad81aa1ce2010))
+
 ## [0.1.20](https://github.com/tenfourty/kbx/compare/kbx-v0.1.19...kbx-v0.1.20) (2026-03-03)
 
 
