@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.22](https://github.com/tenfourty/kbx/compare/kbx-v0.1.21...kbx-v0.1.22) (2026-03-03)
+
+
+### Features
+
+* add `kbx correct` command for find-and-replace across memory files ([cd363d3](https://github.com/tenfourty/kbx/commit/cd363d3427358932d4d6a9e80bb0253e8918c4b9))
+
 ## [0.1.21](https://github.com/tenfourty/kbx/compare/kbx-v0.1.20...kbx-v0.1.21) (2026-03-03)
 
 
