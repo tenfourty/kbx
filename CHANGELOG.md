@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.28](https://github.com/tenfourty/kbx/compare/kbx-v0.1.27...kbx-v0.1.28) (2026-03-03)
+
+
+### Features
+
+* dynamic staleness detection for all memory subdirectories ([853f0ce](https://github.com/tenfourty/kbx/commit/853f0ceea25f903bc7b398785dfbee098edb2c53))
+
 ## [0.1.27](https://github.com/tenfourty/kbx/compare/kbx-v0.1.26...kbx-v0.1.27) (2026-03-03)
 
 
