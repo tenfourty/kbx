@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.20](https://github.com/tenfourty/kbx/compare/kbx-v0.1.19...kbx-v0.1.20) (2026-03-03)
+
+
+### Bug Fixes
+
+* use &lt;mark&gt; for search highlighting and suppress stderr in JSON mode ([14e27d8](https://github.com/tenfourty/kbx/commit/14e27d837bca862265796b8927b8882159caeda3))
+
 ## [0.1.19](https://github.com/tenfourty/kbx/compare/kbx-v0.1.18...kbx-v0.1.19) (2026-03-03)
 
 
