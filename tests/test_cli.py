@@ -784,13 +784,6 @@ class TestMetaFlag:
                 )
             assert result.exit_code != 0
 
-    def test_usage_documents_meta_flag(self, runner, cli_db):
-        """kb usage output documents the --meta flag."""
-        _db, db_path = cli_db
-        result = invoke_cli(runner, ["usage"], db_path)
-        assert result.exit_code == 0
-        assert "--meta" in result.output
-
 
 class TestProjectCommands:
     def test_project_list_json(self, runner, cli_db):
@@ -877,33 +870,68 @@ class TestIndexCommands:
         assert "text-only" in output
         assert "embeddings: skipped" in output
 
-    def test_usage_contains_no_embed(self, runner, cli_db):
-        """kb usage output documents --no-embed flag."""
+
+# ---------------------------------------------------------------------------
+# Step 6: --help output (agent playbook + init status)
+# ---------------------------------------------------------------------------
+
+
+class TestHelpOutput:
+    """Tests for enhanced --help output with init status and agent playbook."""
+
+    def test_help_shows_init_status(self, runner, cli_db):
+        """kbx --help shows initialization frontmatter with DB stats."""
         _db, db_path = cli_db
-        result = invoke_cli(runner, ["usage"], db_path)
+        result = invoke_cli(runner, ["--help"], db_path)
+        assert result.exit_code == 0
+        assert "docs" in result.output
+        assert "entities" in result.output
+        assert "Data dir" in result.output
+
+    def test_help_shows_commands(self, runner, cli_db):
+        """kbx --help lists available commands."""
+        _db, db_path = cli_db
+        result = invoke_cli(runner, ["--help"], db_path)
+        assert result.exit_code == 0
+        assert "search" in result.output
+        assert "view" in result.output
+        assert "context" in result.output
+
+    def test_help_shows_agent_playbook(self, runner, cli_db):
+        """kbx --help includes the agent playbook content."""
+        _db, db_path = cli_db
+        result = invoke_cli(runner, ["--help"], db_path)
+        assert result.exit_code == 0
+        assert "Agent Playbook" in result.output
+        assert "Score Interpretation" in result.output
+
+    def test_help_documents_meta_flag(self, runner, cli_db):
+        """kbx --help documents the --meta flag."""
+        _db, db_path = cli_db
+        result = invoke_cli(runner, ["--help"], db_path)
+        assert result.exit_code == 0
+        assert "--meta" in result.output
+
+    def test_help_documents_no_embed(self, runner, cli_db):
+        """kbx --help documents the --no-embed flag."""
+        _db, db_path = cli_db
+        result = invoke_cli(runner, ["--help"], db_path)
         assert result.exit_code == 0
         assert "--no-embed" in result.output
 
+    def test_help_works_without_db(self, runner):
+        """kbx --help works even without an initialized database."""
+        from kb.cli import cli
 
-# ---------------------------------------------------------------------------
-# Step 6: usage command
-# ---------------------------------------------------------------------------
-
-
-class TestUsageCommand:
-    def test_usage_contains_search(self, runner, cli_db):
-        """kb usage output contains 'kb search'."""
-        _db, db_path = cli_db
-        result = invoke_cli(runner, ["usage"], db_path)
+        result = runner.invoke(cli, ["--help"], env={"KB_DATA_DIR": "/tmp/kbx-nonexistent"})
         assert result.exit_code == 0
-        assert "kb search" in result.output
+        assert "Agent Playbook" in result.output
 
-    def test_usage_contains_score_interpretation(self, runner, cli_db):
-        """kb usage output contains 'Score Interpretation'."""
-        _db, db_path = cli_db
-        result = invoke_cli(runner, ["usage"], db_path)
-        assert result.exit_code == 0
-        assert "Score Interpretation" in result.output
+    def test_usage_command_removed(self, runner, cli_db):
+        """The 'usage' command should no longer exist."""
+        from kb.cli import cli
+
+        assert "usage" not in cli.commands
 
 
 # ---------------------------------------------------------------------------

@@ -28,7 +28,7 @@ kb
 ├── index
 │   ├── run [paths...]       # Incremental index (or full with --full)
 │   └── status               # DB health: counts, size, freshness
-└── usage                    # Self-documentation for AI agents
+└── --help                   # Init status + commands + agent playbook
 ```
 
 ## Commands
@@ -115,12 +115,6 @@ kb index status --json               # structured health info
 ```
 
 Reports: document count by type, total chunks, entity count, vector count, last indexed timestamp, database file sizes.
-
-### usage
-
-```bash
-kb usage                             # self-documentation for AI agents
-```
 
 ## Output Options
 

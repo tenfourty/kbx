@@ -9,7 +9,7 @@ IMPORTANT: Prefer reading docs/ and source files over guessing. The index below 
 ```bash
 uv sync --all-extras && uv run pre-commit install   # first time
 uv run pytest -x -q --cov && uv run mypy src/       # verify
-uv run kb usage                                       # CLI self-documentation
+uv run kb --help                                      # CLI self-documentation (includes agent playbook)
 ```
 
 ## Common Commands
@@ -80,7 +80,7 @@ src/kb/|root: ./src/kb
 - mypy strict, Pydantic v2 (`strict=True`; `StrictFrozen` for immutable, `StrictMutable` for models mutated at runtime), Python 3.10+
 - Line length 100 (ruff enforced)
 - Coverage minimum 90% — enforced by pre-commit
-- **`kb usage` is the LLM API contract** — any CLI change MUST update `usage()` in `cli.py`
+- **`kb --help` is the LLM API contract** — any CLI change MUST update `_AGENT_PLAYBOOK` in `cli.py`
 - All file writes atomic (temp file → rename)
 - NFC Unicode normalization on all paths (macOS compat)
 

@@ -129,11 +129,224 @@ def _fuzzy_suggest_entity(query: str, names: list[str], max_suggestions: int = 3
 
 
 # ---------------------------------------------------------------------------
+# Custom Group with enhanced --help
+# ---------------------------------------------------------------------------
+
+
+def _get_init_status() -> str:
+    """Build a compact initialization status block for --help output."""
+    import contextlib
+
+    lines: list[str] = []
+    with contextlib.suppress(Exception):
+        from kb.user_config import find_config
+
+        config_path = find_config()
+        data_dir = _get_data_dir()
+        lines.append(f"  Config:   {config_path or 'not found'}")
+        lines.append(f"  Data dir: {data_dir}")
+
+    with contextlib.suppress(Exception):
+        db = _get_db()
+        conn = db.get_sqlite_conn()
+        total_docs = conn.execute("SELECT COUNT(*) as c FROM documents").fetchone()["c"]
+        total_entities = conn.execute("SELECT COUNT(*) as c FROM entities").fetchone()["c"]
+        total_facts = conn.execute("SELECT COUNT(*) as c FROM facts").fetchone()["c"]
+        pinned_docs = conn.execute(
+            "SELECT COUNT(*) as c FROM documents WHERE pinned = 1"
+        ).fetchone()["c"]
+        date_range = conn.execute(
+            "SELECT MIN(doc_date) as earliest, MAX(doc_date) as latest "
+            "FROM documents WHERE doc_date IS NOT NULL"
+        ).fetchone()
+        earliest = date_range["earliest"] or "N/A"
+        latest = date_range["latest"] or "N/A"
+        lines.append(
+            f"  Index:    {total_docs} docs | {total_entities} entities | "
+            f"{total_facts} facts | {pinned_docs} pinned | "
+            f"dates {earliest} to {latest}"
+        )
+
+    if not lines:
+        lines.append("  Status:   not initialized (run 'kbx init')")
+
+    return "\n".join(lines)
+
+
+_AGENT_PLAYBOOK = """\
+
+# kb — Agent Playbook
+
+## 1. Quick Start
+  kb context              # orient: pinned docs + entity index
+  kb search "topic" --fast --json --limit 5   # keyword search (~instant)
+  kb view <path>          # read a full document
+
+## 2. Taking Notes
+  kb memory add "title" --body "markdown content" --tags t1,t2 --pin
+  kb memory add "Quick note"                     # one-liner, no body
+  kb memory add "fact" --entity "Name"           # fact appended to entity file
+  kb memory add "title" --body "..." --entity "Name"  # note linked to entity
+  kb memory delete-fact <id>                         # delete a fact by ID
+  kb memory edit-fact <id> --text "new text"         # update fact text
+  kb memory edit-fact <id> --date 2026-03-01         # update fact date
+
+## 3. When to Pin
+  kb pin <path|title|#hash|glob>     # pin any doc to context
+  kb unpin <path|title|glob>         # remove from context
+  kb memory add "title" --pin        # create + pin in one step
+  kb person pin "Name"               # pin a person to context
+
+## 4. Browsing & Editing Notes
+  kb note list --json                   # all notes
+  kb note list --tag decision --json    # filter by tag (AND: --tag a,b)
+  kb note list --pinned --json          # pinned notes only
+  kb note list --tag ops --pinned       # combine filters
+  kb note edit "title" --body "new content"  # replace body
+  kb note edit "title" --append "extra"      # append to body
+  kb note edit "title" --tags "a,b,c"        # replace tags
+  kb note edit "title" --pin                 # pin note
+  kb note edit "title" --unpin               # unpin note
+  kb note edit "#hash" --tags "x" --pin      # combine edits
+  kb note delete "title"                     # delete note (file + index)
+  kb note delete "#hash" --force             # skip confirmation
+
+## 5. Finding Things
+  kb search "query" --fast --json             # keyword (FTS, instant)
+  kb search "query" --json --limit 10         # hybrid (semantic + FTS, ~2s)
+  kb search "query" --tag infra --fast --json # filter by tag
+  kb search "query" --from 2026-01-01 --to 2026-01-31  # date range
+  kb search "query" --sort date --json        # newest first
+  kb search "query" --dedupe --json           # one result per document
+  kb search "query" --full-chunks --json      # include full chunk text in results
+  kb search "query" --dedupe --full-chunks --merge-chunks --json  # merge all chunks per doc
+  kb search "query" --snippet-chars 500 --json  # longer snippets (default 200)
+  kb search "query" --fts-weight 2.0 --json   # boost FTS (keywords)
+  kb search "query" --vector-weight 2.0 --json  # boost vector (semantic)
+  kb view <path|#hash|glob> --json            # full document
+  kb view <path|#hash|glob> --plain           # raw content only (no metadata)
+  kb list --type notes --from 2026-02-01      # browse by type/date
+
+  Score Interpretation: 0.8+ strong | 0.5-0.8 worth reading | <0.5 noise
+  JSON output: snippets are plain text (no HTML). Table output adds <mark> highlighting.
+  --full-chunks adds a "content" field with the complete chunk text for agent triage.
+  --merge-chunks (with --dedupe --full-chunks) concatenates all matching chunks per document.
+
+## 6. People & Projects
+  kb me --json                       # your own profile (shortcut for person find me)
+  kb person find "Name" --json       # compact profile (facts, metadata, breadcrumbs)
+  kb person timeline "Name" --json   # chronological doc list
+  kb person create "Name" --role "Role" --team "Team"
+  kb person edit "Name" --role "New Role"
+  kb person edit "Name" --meta "preferred_lang=French" --meta "timezone=CET"
+  kb person edit "Name" --meta "timezone="   # remove a custom field
+  kb person list --json              # all people
+  kb project find "Name" --json      # compact profile (facts, metadata, breadcrumbs)
+  kb project create "Name" --status "Active" --lead "Name"
+  kb project edit "Name" --meta "priority=High"
+  kb project list --json             # all projects
+  kb glossary add "TERM" "expansion"
+  kb glossary edit "TERM" "new expansion"  # update existing term
+  kb glossary list --json
+  kb entity stale --json               # entities not updated/mentioned in 30+ days
+  kb entity stale --days 60 --json     # custom threshold
+  kb entity stale --type person --json # filter by type
+
+## 7. Context & Indexing
+  kb context                         # compact entity index (for agents)
+  kb context --human                 # markdown format (for humans)
+  kb context --for "topic"           # filtered to a topic
+  kb index status --json             # database health
+  kb index run --no-embed            # text-only index (fast, no GPU)
+  kb index run --cpu                 # full index with embeddings on CPU
+
+## 8. Sync
+  kb sync                              # run all sync plugins
+  kb sync granola --since 2026-01-01   # sync Granola meetings since date
+  kb sync notion --since 2026-01-01    # sync Notion AI Meeting Notes since date
+  Options: --dry-run | --force | --no-index
+
+  Granola sync produces three files per meeting:
+    .granola.notes.md        — human-written notes
+    .granola.transcript.md   — full transcript
+    .granola.ai-summary.md   — AI-generated summary (from Granola's summary panel)
+
+## 9. Granola
+  kb granola view <calendar-uid>                                  # view notes (YAML header + markdown)
+  kb granola view <calendar-uid> --summary                        # view AI summary
+  kb granola view <calendar-uid> --transcript                     # view transcript (live from API)
+  kb granola view <calendar-uid> --all                            # view notes + summary + transcript
+  kb granola view <calendar-uid> --plain                          # raw markdown only (no header)
+  kb granola edit <calendar-uid> --body "new content"             # replace notes
+  kb granola edit <calendar-uid> --body-file updated.md           # replace from file
+  kb granola edit <calendar-uid> --append "extra content"         # append to notes
+  kb granola push <calendar-uid> --notes "# Prep\\n- Topic A"    # prepend notes (auto-creates doc)
+  kb granola push <calendar-uid> --notes-file prep.md             # prepend from file
+  kb granola push <calendar-uid> --notes "..." --title "1:1"     # set title on auto-created doc
+
+## 10. Corrections (find-and-replace across memory)
+  kb correct "Quartz Indexer" --json                          # scan: list all occurrences (structured)
+  kb correct "Quartz Indexer"                                 # scan: human-readable summary
+  kb correct "Bram" --word-boundary --json               # scan: whole-word matches only
+  kb correct "Quartz Indexer" --type transcript --json        # scan: filter by file type
+  kb correct "Quartz Indexer" --scope "**/people/*" --json    # scan: filter by path glob
+  kb correct "Quartz Indexer" "Coralogix"                     # dry-run: preview replacements
+  kb correct "Quartz Indexer" "Coralogix" --apply             # apply: execute replacements
+  kb correct "Quartz Indexer" "Coralogix" --apply --json      # apply: structured result
+  kb correct "Bram" "Bram" --word-boundary --scope "meetings/2026/02/17/*" --apply
+  kb correct "corelogix" "Coralogix" --ignore-case --apply  # case-insensitive replace
+
+  JSON scan output includes title, date, attendees, category per match — agent-ready
+  for disambiguation decisions (e.g. which "Bram" is in this meeting).
+  Replacements are atomic (temp file → rename). Only .md files are modified.
+
+## 11. Python API
+
+    from kb import KnowledgeBase
+
+    kb = KnowledgeBase()                          # auto-discover config
+    kb = KnowledgeBase(thread_safe=True)           # for multi-threaded apps (FastAPI etc.)
+    kb.search("query")                             # -> SearchResponse
+    kb.list_entities(entity_type="person")         # -> list[EntitySummary]
+    kb.get_entity("name")                          # -> EntityDetail | None
+    kb.find_entities("name")                       # -> list[EntitySummary]
+    kb.get_entity_timeline("name")                 # -> list[TimelineEntry]
+    kb.get_stale_entities(days=30)                 # -> list[dict]
+    kb.context()                                   # -> ContextOutput
+    kb.index()                                     # -> IndexResult
+    kb.toggle_entity_pin("name")                   # -> EntityPinResult
+    kb.toggle_document_pin("path")                 # -> DocumentPinResult
+    kb.read_memory_file("notes/foo.md")            # -> str | None
+    kb.list_memory_tree()                          # -> list[MemoryTreeNode]
+    kb.delete_note("notes/2026-02-28-test.md")     # -> dict (removes file + index)
+    kb.list_glossary_terms()                       # -> list[GlossaryEntry]
+    kb.edit_glossary_term("TERM", "new expansion") # -> dict
+    kb.delete_fact(fact_id)                        # -> dict (removes from DB + file)
+    kb.edit_fact(fact_id, text="new text")          # -> dict (updates DB + file)
+    kb.close()                                     # release resources
+
+## Global Options
+  --json | --format table|json|jsonl|csv | --fields f1,f2 | --jq expr
+"""
+
+
+class KbxGroup(click.Group):
+    """Custom Group that adds init status and agent playbook to --help."""
+
+    def format_help(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+        """Override to inject init status before and agent playbook after help."""
+        formatter.write(_get_init_status())
+        formatter.write("\n\n")
+        super().format_help(ctx, formatter)
+        formatter.write(_AGENT_PLAYBOOK)
+
+
+# ---------------------------------------------------------------------------
 # Top-level group
 # ---------------------------------------------------------------------------
 
 
-@click.group()
+@click.group(cls=KbxGroup)
 def cli() -> None:
     """kbx — local knowledge base with hybrid search over markdown files."""
     pass
@@ -1646,197 +1859,6 @@ def correct(
         )
         for p in result.changed_paths:
             click.echo(f"  {p}")
-
-
-# ---------------------------------------------------------------------------
-# usage
-# ---------------------------------------------------------------------------
-
-
-@cli.command()
-def usage() -> None:
-    """Self-documentation for AI agents."""
-    import contextlib
-
-    # Dynamic index stats
-    stats_line = ""
-    with contextlib.suppress(Exception):
-        db = _get_db()
-        conn = db.get_sqlite_conn()
-        total_docs = conn.execute("SELECT COUNT(*) as c FROM documents").fetchone()["c"]
-        total_entities = conn.execute("SELECT COUNT(*) as c FROM entities").fetchone()["c"]
-        total_facts = conn.execute("SELECT COUNT(*) as c FROM facts").fetchone()["c"]
-        pinned_docs = conn.execute(
-            "SELECT COUNT(*) as c FROM documents WHERE pinned = 1"
-        ).fetchone()["c"]
-        date_range = conn.execute(
-            "SELECT MIN(doc_date) as earliest, MAX(doc_date) as latest "
-            "FROM documents WHERE doc_date IS NOT NULL"
-        ).fetchone()
-        earliest = date_range["earliest"] or "N/A"
-        latest = date_range["latest"] or "N/A"
-        stats_line = (
-            f"  {total_docs} docs | {total_entities} entities | {total_facts} facts | "
-            f"{pinned_docs} pinned | dates {earliest} to {latest}"
-        )
-
-    text = f"""# kb — Agent Playbook
-
-## 1. Quick Start
-  kb context              # orient: pinned docs + entity index
-  kb search "topic" --fast --json --limit 5   # keyword search (~instant)
-  kb view <path>          # read a full document
-
-## 2. Index Status
-{stats_line}
-
-## 3. Taking Notes
-  kb memory add "title" --body "markdown content" --tags t1,t2 --pin
-  kb memory add "Quick note"                     # one-liner, no body
-  kb memory add "fact" --entity "Name"           # fact appended to entity file
-  kb memory add "title" --body "..." --entity "Name"  # note linked to entity
-  kb memory delete-fact <id>                         # delete a fact by ID
-  kb memory edit-fact <id> --text "new text"         # update fact text
-  kb memory edit-fact <id> --date 2026-03-01         # update fact date
-
-## 4. When to Pin
-  kb pin <path|title|#hash|glob>     # pin any doc to context
-  kb unpin <path|title|glob>         # remove from context
-  kb memory add "title" --pin        # create + pin in one step
-  kb person pin "Name"               # pin a person to context
-
-## 5. Browsing & Editing Notes
-  kb note list --json                   # all notes
-  kb note list --tag decision --json    # filter by tag (AND: --tag a,b)
-  kb note list --pinned --json          # pinned notes only
-  kb note list --tag ops --pinned       # combine filters
-  kb note edit "title" --body "new content"  # replace body
-  kb note edit "title" --append "extra"      # append to body
-  kb note edit "title" --tags "a,b,c"        # replace tags
-  kb note edit "title" --pin                 # pin note
-  kb note edit "title" --unpin               # unpin note
-  kb note edit "#hash" --tags "x" --pin      # combine edits
-  kb note delete "title"                     # delete note (file + index)
-  kb note delete "#hash" --force             # skip confirmation
-
-## 6. Finding Things
-  kb search "query" --fast --json             # keyword (FTS, instant)
-  kb search "query" --json --limit 10         # hybrid (semantic + FTS, ~2s)
-  kb search "query" --tag infra --fast --json # filter by tag
-  kb search "query" --from 2026-01-01 --to 2026-01-31  # date range
-  kb search "query" --sort date --json        # newest first
-  kb search "query" --dedupe --json           # one result per document
-  kb search "query" --full-chunks --json      # include full chunk text in results
-  kb search "query" --dedupe --full-chunks --merge-chunks --json  # merge all chunks per doc
-  kb search "query" --snippet-chars 500 --json  # longer snippets (default 200)
-  kb search "query" --fts-weight 2.0 --json   # boost FTS (keywords)
-  kb search "query" --vector-weight 2.0 --json  # boost vector (semantic)
-  kb view <path|#hash|glob> --json            # full document
-  kb view <path|#hash|glob> --plain           # raw content only (no metadata)
-  kb list --type notes --from 2026-02-01      # browse by type/date
-
-  Score Interpretation: 0.8+ strong | 0.5-0.8 worth reading | <0.5 noise
-  JSON output: snippets are plain text (no HTML). Table output adds <mark> highlighting.
-  --full-chunks adds a "content" field with the complete chunk text for agent triage.
-  --merge-chunks (with --dedupe --full-chunks) concatenates all matching chunks per document.
-
-## 7. People & Projects
-  kb me --json                       # your own profile (shortcut for person find me)
-  kb person find "Name" --json       # compact profile (facts, metadata, breadcrumbs)
-  kb person timeline "Name" --json   # chronological doc list
-  kb person create "Name" --role "Role" --team "Team"
-  kb person edit "Name" --role "New Role"
-  kb person edit "Name" --meta "preferred_lang=French" --meta "timezone=CET"
-  kb person edit "Name" --meta "timezone="   # remove a custom field
-  kb person list --json              # all people
-  kb project find "Name" --json      # compact profile (facts, metadata, breadcrumbs)
-  kb project create "Name" --status "Active" --lead "Name"
-  kb project edit "Name" --meta "priority=High"
-  kb project list --json             # all projects
-  kb glossary add "TERM" "expansion"
-  kb glossary edit "TERM" "new expansion"  # update existing term
-  kb glossary list --json
-  kb entity stale --json               # entities not updated/mentioned in 30+ days
-  kb entity stale --days 60 --json     # custom threshold
-  kb entity stale --type person --json # filter by type
-
-## 8. Context & Indexing
-  kb context                         # compact entity index (for agents)
-  kb context --human                 # markdown format (for humans)
-  kb context --for "topic"           # filtered to a topic
-  kb index status --json             # database health
-  kb index run --no-embed            # text-only index (fast, no GPU)
-  kb index run --cpu                 # full index with embeddings on CPU
-
-## 9. Sync
-  kb sync                              # run all sync plugins
-  kb sync granola --since 2026-01-01   # sync Granola meetings since date
-  kb sync notion --since 2026-01-01    # sync Notion AI Meeting Notes since date
-  Options: --dry-run | --force | --no-index
-
-  Granola sync produces three files per meeting:
-    .granola.notes.md        — human-written notes
-    .granola.transcript.md   — full transcript
-    .granola.ai-summary.md   — AI-generated summary (from Granola's summary panel)
-
-## 10. Granola
-  kb granola view <calendar-uid>                                  # view notes (YAML header + markdown)
-  kb granola view <calendar-uid> --summary                        # view AI summary
-  kb granola view <calendar-uid> --transcript                     # view transcript (live from API)
-  kb granola view <calendar-uid> --all                            # view notes + summary + transcript
-  kb granola view <calendar-uid> --plain                          # raw markdown only (no header)
-  kb granola edit <calendar-uid> --body "new content"             # replace notes
-  kb granola edit <calendar-uid> --body-file updated.md           # replace from file
-  kb granola edit <calendar-uid> --append "extra content"         # append to notes
-  kb granola push <calendar-uid> --notes "# Prep\\n- Topic A"    # prepend notes (auto-creates doc)
-  kb granola push <calendar-uid> --notes-file prep.md             # prepend from file
-  kb granola push <calendar-uid> --notes "..." --title "1:1"     # set title on auto-created doc
-
-## 11. Corrections (find-and-replace across memory)
-  kb correct "Quartz Indexer" --json                          # scan: list all occurrences (structured)
-  kb correct "Quartz Indexer"                                 # scan: human-readable summary
-  kb correct "Bram" --word-boundary --json               # scan: whole-word matches only
-  kb correct "Quartz Indexer" --type transcript --json        # scan: filter by file type
-  kb correct "Quartz Indexer" --scope "**/people/*" --json    # scan: filter by path glob
-  kb correct "Quartz Indexer" "Coralogix"                     # dry-run: preview replacements
-  kb correct "Quartz Indexer" "Coralogix" --apply             # apply: execute replacements
-  kb correct "Quartz Indexer" "Coralogix" --apply --json      # apply: structured result
-  kb correct "Bram" "Bram" --word-boundary --scope "meetings/2026/02/17/*" --apply
-  kb correct "corelogix" "Coralogix" --ignore-case --apply  # case-insensitive replace
-
-  JSON scan output includes title, date, attendees, category per match — agent-ready
-  for disambiguation decisions (e.g. which "Bram" is in this meeting).
-  Replacements are atomic (temp file → rename). Only .md files are modified.
-
-## 12. Python API
-
-    from kb import KnowledgeBase
-
-    kb = KnowledgeBase()                          # auto-discover config
-    kb = KnowledgeBase(thread_safe=True)           # for multi-threaded apps (FastAPI etc.)
-    kb.search("query")                             # -> SearchResponse
-    kb.list_entities(entity_type="person")         # -> list[EntitySummary]
-    kb.get_entity("name")                          # -> EntityDetail | None
-    kb.find_entities("name")                       # -> list[EntitySummary]
-    kb.get_entity_timeline("name")                 # -> list[TimelineEntry]
-    kb.get_stale_entities(days=30)                 # -> list[dict]
-    kb.context()                                   # -> ContextOutput
-    kb.index()                                     # -> IndexResult
-    kb.toggle_entity_pin("name")                   # -> EntityPinResult
-    kb.toggle_document_pin("path")                 # -> DocumentPinResult
-    kb.read_memory_file("notes/foo.md")            # -> str | None
-    kb.list_memory_tree()                          # -> list[MemoryTreeNode]
-    kb.delete_note("notes/2026-02-28-test.md")     # -> dict (removes file + index)
-    kb.list_glossary_terms()                       # -> list[GlossaryEntry]
-    kb.edit_glossary_term("TERM", "new expansion") # -> dict
-    kb.delete_fact(fact_id)                        # -> dict (removes from DB + file)
-    kb.edit_fact(fact_id, text="new text")          # -> dict (updates DB + file)
-    kb.close()                                     # release resources
-
-## Global Options
-  --json | --format table|json|jsonl|csv | --fields f1,f2 | --jq expr
-"""
-    click.echo(text.strip())
 
 
 # ---------------------------------------------------------------------------
