@@ -174,6 +174,11 @@ def cli() -> None:
 @click.option(
     "--full-chunks", is_flag=True, help="Include full chunk text as 'content' in JSON results."
 )
+@click.option(
+    "--merge-chunks",
+    is_flag=True,
+    help="With --dedupe --full-chunks, concatenate all matching chunks per document.",
+)
 @output_options
 def search(
     query: str,
@@ -191,6 +196,7 @@ def search(
     dedupe: bool,
     snippet_chars: int,
     full_chunks: bool,
+    merge_chunks: bool,
     fmt: str,
     fields: list[str] | None,
     jq_expr: str | None,
@@ -236,6 +242,7 @@ def search(
         dedupe=dedupe,
         snippet_chars=snippet_chars,
         full_chunks=full_chunks,
+        merge_chunks=merge_chunks,
         highlight=(fmt == "table"),
     )
 
@@ -1552,6 +1559,7 @@ def usage() -> None:
   kb search "query" --sort date --json        # newest first
   kb search "query" --dedupe --json           # one result per document
   kb search "query" --full-chunks --json      # include full chunk text in results
+  kb search "query" --dedupe --full-chunks --merge-chunks --json  # merge all chunks per doc
   kb search "query" --snippet-chars 500 --json  # longer snippets (default 200)
   kb search "query" --fts-weight 2.0 --json   # boost FTS (keywords)
   kb search "query" --vector-weight 2.0 --json  # boost vector (semantic)
@@ -1560,8 +1568,9 @@ def usage() -> None:
   kb list --type notes --from 2026-02-01      # browse by type/date
 
   Score Interpretation: 0.8+ strong | 0.5-0.8 worth reading | <0.5 noise
-  JSON output: snippets are plain text (no HTML). Table output adds <b> highlighting.
+  JSON output: snippets are plain text (no HTML). Table output adds <mark> highlighting.
   --full-chunks adds a "content" field with the complete chunk text for agent triage.
+  --merge-chunks (with --dedupe --full-chunks) concatenates all matching chunks per document.
 
 ## 7. People & Projects
   kb me --json                       # your own profile (shortcut for person find me)

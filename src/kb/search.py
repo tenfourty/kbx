@@ -452,6 +452,7 @@ def _enrich_results(
         f"""
         SELECT
             c.id as chunk_id,
+            c.chunk_index,
             c.heading,
             c.content,
             d.id as document_id,
@@ -487,6 +488,7 @@ def _enrich_results(
         doc_id = row["document_id"]
         result[cid] = {
             "document_id": doc_id,
+            "chunk_index": row["chunk_index"],
             "title": row["title"],
             "path": row["path"],
             "date": row["doc_date"],
@@ -523,6 +525,7 @@ def search(
     dedupe: bool = False,
     snippet_chars: int = 200,
     full_chunks: bool = False,
+    merge_chunks: bool = False,
     highlight: bool = False,
     hook: SearchProgressHook | None = None,
 ) -> SearchResponse:
@@ -643,11 +646,13 @@ def search(
 
     # Deduplicate: keep only the best chunk per document, count matching chunks
     doc_chunk_counts: dict[int, int] = {}
+    doc_chunk_ids: dict[int, list[int]] = {}  # doc_id -> all matching chunk_ids
     if dedupe:
         for chunk_id, _score in scored:
             info = enriched[chunk_id]
             doc_id = info["document_id"]
             doc_chunk_counts[doc_id] = doc_chunk_counts.get(doc_id, 0) + 1
+            doc_chunk_ids.setdefault(doc_id, []).append(chunk_id)
 
         seen_docs: set[int] = set()
         deduped: list[tuple[int, float]] = []
@@ -669,7 +674,18 @@ def search(
         if highlight:
             snippet = _highlight_snippet(snippet, query)
         doc_id = info["document_id"]
-        chunk_content = info["content"] if full_chunks else None
+        chunk_content: str | None = None
+        if full_chunks:
+            if merge_chunks and dedupe and doc_id in doc_chunk_ids:
+                # Concatenate all matching chunks sorted by document position
+                cids = doc_chunk_ids[doc_id]
+                chunks_sorted = sorted(
+                    (enriched[cid] for cid in cids),
+                    key=lambda c: c["chunk_index"],
+                )
+                chunk_content = "\n\n".join(c["content"] for c in chunks_sorted)
+            else:
+                chunk_content = info["content"]
         results.append(
             SearchResult(
                 chunk_id=chunk_id,

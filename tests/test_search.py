@@ -1262,6 +1262,98 @@ class TestFullChunks:
 
 
 # ---------------------------------------------------------------------------
+# merge_chunks parameter
+# ---------------------------------------------------------------------------
+
+
+class TestMergeChunks:
+    def test_merge_chunks_concatenates_all_matching(self, search_db):
+        """merge_chunks=True should concatenate all matching chunks from same doc."""
+        # doc1 has 2 chunks both containing "MFA" — without merge, only top chunk
+        results = search(
+            search_db,
+            None,
+            "MFA",
+            fast=True,
+            dedupe=True,
+            full_chunks=True,
+            merge_chunks=True,
+        )
+        assert results.results
+        doc1_results = [r for r in results.results if r.title == "MFA Implementation Review"]
+        assert len(doc1_results) == 1  # deduped to 1
+        content = doc1_results[0].content
+        assert content is not None
+        # Both chunks' content should be present
+        assert "TOTP with Okta" in content  # chunk 0
+        assert "Rollout to all employees" in content  # chunk 1
+
+    def test_merge_chunks_preserves_document_order(self, search_db):
+        """Merged chunks should be in document order (by chunk_index), not score order."""
+        results = search(
+            search_db,
+            None,
+            "MFA",
+            fast=True,
+            dedupe=True,
+            full_chunks=True,
+            merge_chunks=True,
+        )
+        doc1_results = [r for r in results.results if r.title == "MFA Implementation Review"]
+        assert doc1_results
+        content = doc1_results[0].content
+        assert content is not None
+        # chunk 0 (Overview/TOTP) should come before chunk 1 (Next Steps/Rollout)
+        assert content.index("TOTP with Okta") < content.index("Rollout to all employees")
+
+    def test_merge_chunks_requires_dedupe(self, search_db):
+        """merge_chunks without dedupe should have no effect (each chunk is its own result)."""
+        results = search(
+            search_db,
+            None,
+            "MFA",
+            fast=True,
+            dedupe=False,
+            full_chunks=True,
+            merge_chunks=True,
+        )
+        # Without dedupe, each chunk is separate — merge_chunks has no effect
+        mfa_results = [r for r in results.results if r.title == "MFA Implementation Review"]
+        assert len(mfa_results) == 2  # both chunks returned separately
+
+    def test_merge_chunks_without_full_chunks_is_noop(self, search_db):
+        """merge_chunks without full_chunks should leave content as None."""
+        results = search(
+            search_db,
+            None,
+            "MFA",
+            fast=True,
+            dedupe=True,
+            full_chunks=False,
+            merge_chunks=True,
+        )
+        for r in results.results:
+            assert r.content is None
+
+    def test_merge_chunks_separator(self, search_db):
+        """Merged chunks should be separated by double newlines."""
+        results = search(
+            search_db,
+            None,
+            "MFA",
+            fast=True,
+            dedupe=True,
+            full_chunks=True,
+            merge_chunks=True,
+        )
+        doc1_results = [r for r in results.results if r.title == "MFA Implementation Review"]
+        assert doc1_results
+        content = doc1_results[0].content
+        assert content is not None
+        assert "\n\n" in content
+
+
+# ---------------------------------------------------------------------------
 # JSON snippet stripping
 # ---------------------------------------------------------------------------
 

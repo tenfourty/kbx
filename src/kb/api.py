@@ -834,6 +834,7 @@ class KnowledgeBase:
         dedupe: bool = False,
         snippet_chars: int = 200,
         full_chunks: bool = False,
+        merge_chunks: bool = False,
         highlight: bool = False,
     ) -> SearchResponse:
         """Run a hybrid search (FTS5 + vector + RRF fusion).
@@ -864,6 +865,7 @@ class KnowledgeBase:
             dedupe=dedupe,
             snippet_chars=snippet_chars,
             full_chunks=full_chunks,
+            merge_chunks=merge_chunks,
             highlight=highlight,
         )
 
