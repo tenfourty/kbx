@@ -520,6 +520,8 @@ def search(
     fts_weight: float = 1.0,
     vector_weight: float = 1.0,
     dedupe: bool = False,
+    snippet_chars: int = 200,
+    full_chunks: bool = False,
     hook: SearchProgressHook | None = None,
 ) -> SearchResponse:
     """Hybrid search: FTS5 + vector + weighted RRF + recency.
@@ -661,9 +663,11 @@ def search(
     results: list[SearchResult] = []
     for chunk_id, score in scored:
         info = enriched[chunk_id]
-        snippet = _make_snippet(info["content"], query=query)
-        snippet = _highlight_snippet(snippet, query)
+        snippet = _make_snippet(info["content"], max_chars=snippet_chars, query=query)
+        # Store plain snippet (no HTML) — consumers that need HTML highlighting
+        # (e.g. table rendering) apply _highlight_snippet themselves.
         doc_id = info["document_id"]
+        chunk_content = info["content"] if full_chunks else None
         results.append(
             SearchResult(
                 chunk_id=chunk_id,
@@ -675,6 +679,7 @@ def search(
                 score=round(score, 4),
                 section=None if info["section"] == "__document__" else info["section"],
                 snippet=snippet,
+                content=chunk_content,
                 entities=info["entities"],
                 tags=info.get("tags", []),
                 chunk_count=doc_chunk_counts.get(doc_id, 1),

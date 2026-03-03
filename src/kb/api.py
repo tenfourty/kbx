@@ -832,6 +832,8 @@ class KnowledgeBase:
         fts_weight: float = 1.0,
         vector_weight: float = 1.0,
         dedupe: bool = False,
+        snippet_chars: int = 200,
+        full_chunks: bool = False,
     ) -> SearchResponse:
         """Run a hybrid search (FTS5 + vector + RRF fusion).
 
@@ -859,6 +861,8 @@ class KnowledgeBase:
             fts_weight=fts_weight,
             vector_weight=vector_weight,
             dedupe=dedupe,
+            snippet_chars=snippet_chars,
+            full_chunks=full_chunks,
         )
 
     # ------------------------------------------------------------------

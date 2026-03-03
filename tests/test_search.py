@@ -1210,6 +1210,82 @@ class TestSnippetHighlighting:
 
 
 # ---------------------------------------------------------------------------
+# snippet_chars parameter
+# ---------------------------------------------------------------------------
+
+
+class TestSnippetChars:
+    def test_snippet_chars_controls_length(self, search_db):
+        """search(snippet_chars=N) produces snippets up to N chars."""
+        results = search(search_db, None, "MFA", fast=True, snippet_chars=50)
+        for r in results.results:
+            # Plain text (no HTML) should be <= snippet_chars + ellipsis overhead
+            assert len(r.snippet) <= 70  # 50 + ... + ... + word boundary
+
+    def test_snippet_chars_default_200(self, search_db):
+        """Default snippet_chars is 200 — unchanged from before."""
+        results = search(search_db, None, "MFA", fast=True)
+        for r in results.results:
+            assert len(r.snippet) <= 250  # 200 + overhead
+
+
+# ---------------------------------------------------------------------------
+# full_chunks parameter
+# ---------------------------------------------------------------------------
+
+
+class TestFullChunks:
+    def test_full_chunks_includes_content(self, search_db):
+        """search(full_chunks=True) populates content field on results."""
+        results = search(search_db, None, "MFA", fast=True, full_chunks=True)
+        assert results.results
+        for r in results.results:
+            assert r.content is not None
+            assert len(r.content) > 0
+
+    def test_full_chunks_false_omits_content(self, search_db):
+        """By default, content is None."""
+        results = search(search_db, None, "MFA", fast=True)
+        assert results.results
+        for r in results.results:
+            assert r.content is None
+
+    def test_full_chunks_content_is_full_text(self, search_db):
+        """content should be the complete chunk text, not truncated."""
+        results_full = search(search_db, None, "MFA", fast=True, full_chunks=True)
+        results_snip = search(search_db, None, "MFA", fast=True)
+        assert results_full.results
+        for full, snip in zip(results_full.results, results_snip.results, strict=True):
+            # Full content should be >= snippet length (snippet is truncated)
+            assert full.content is not None
+            assert len(full.content) >= len(snip.snippet) or len(full.content) < 200
+
+
+# ---------------------------------------------------------------------------
+# JSON snippet stripping
+# ---------------------------------------------------------------------------
+
+
+class TestJsonSnippetStripping:
+    def test_json_strips_html_from_snippets(self, search_db):
+        """When serialised for JSON, snippets should not contain <b> tags."""
+        results = search(search_db, None, "MFA", fast=True)
+        assert results.results
+        dumped = results.model_dump()
+        for r in dumped["results"]:
+            assert "<b>" not in r["snippet"]
+            assert "</b>" not in r["snippet"]
+
+    def test_table_keeps_html_in_snippets(self, search_db):
+        """For table display, snippets should retain <b> highlighting."""
+        from kb.search import _highlight_snippet, _make_snippet
+
+        snippet = _make_snippet("MFA rollout is planned for Q1.", query="MFA")
+        highlighted = _highlight_snippet(snippet, "MFA")
+        assert "<b>" in highlighted
+
+
+# ---------------------------------------------------------------------------
 # Metadata separation from chunk content (item 12)
 # ---------------------------------------------------------------------------
 

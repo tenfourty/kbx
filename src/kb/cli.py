@@ -168,6 +168,12 @@ def cli() -> None:
     "--vector-weight", default=1.0, type=float, help="Vector weight for RRF fusion (default 1.0)."
 )
 @click.option("--dedupe", is_flag=True, help="Keep only the best chunk per document.")
+@click.option(
+    "--snippet-chars", default=200, type=int, help="Max snippet length in characters (default 200)."
+)
+@click.option(
+    "--full-chunks", is_flag=True, help="Include full chunk text as 'content' in JSON results."
+)
 @output_options
 def search(
     query: str,
@@ -183,6 +189,8 @@ def search(
     fts_weight: float,
     vector_weight: float,
     dedupe: bool,
+    snippet_chars: int,
+    full_chunks: bool,
     fmt: str,
     fields: list[str] | None,
     jq_expr: str | None,
@@ -225,9 +233,20 @@ def search(
         fts_weight=fts_weight,
         vector_weight=vector_weight,
         dedupe=dedupe,
+        snippet_chars=snippet_chars,
+        full_chunks=full_chunks,
     )
+
+    # Apply HTML highlighting for table output only — JSON/JSONL/CSV get plain text
+    data = results.model_dump()
+    if fmt == "table":
+        from kb.search import _highlight_snippet
+
+        for r in data["results"]:
+            r["snippet"] = _highlight_snippet(r["snippet"], query)
+
     kb_output(
-        results.model_dump(),
+        data,
         fmt=fmt,
         fields=fields,
         jq_expr=jq_expr,
@@ -1538,6 +1557,8 @@ def usage() -> None:
   kb search "query" --from 2026-01-01 --to 2026-01-31  # date range
   kb search "query" --sort date --json        # newest first
   kb search "query" --dedupe --json           # one result per document
+  kb search "query" --full-chunks --json      # include full chunk text in results
+  kb search "query" --snippet-chars 500 --json  # longer snippets (default 200)
   kb search "query" --fts-weight 2.0 --json   # boost FTS (keywords)
   kb search "query" --vector-weight 2.0 --json  # boost vector (semantic)
   kb view <path|#hash|glob> --json            # full document
@@ -1545,6 +1566,8 @@ def usage() -> None:
   kb list --type notes --from 2026-02-01      # browse by type/date
 
   Score Interpretation: 0.8+ strong | 0.5-0.8 worth reading | <0.5 noise
+  JSON output: snippets are plain text (no HTML). Table output adds <b> highlighting.
+  --full-chunks adds a "content" field with the complete chunk text for agent triage.
 
 ## 7. People & Projects
   kb me --json                       # your own profile (shortcut for person find me)

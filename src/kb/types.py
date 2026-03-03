@@ -126,6 +126,7 @@ class SearchResult(StrictFrozen):
     score: float
     section: str | None
     snippet: str
+    content: str | None = None  # full chunk text (populated when full_chunks=True)
     entities: list[str] = []
     tags: list[str] = []
     chunk_count: int = 1  # matching chunks from this doc (populated when dedupe=True)
