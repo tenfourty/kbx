@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.23](https://github.com/tenfourty/kbx/compare/kbx-v0.1.22...kbx-v0.1.23) (2026-03-03)
+
+
+### Features
+
+* add CLI tests and audit log for kbx correct ([c5346e5](https://github.com/tenfourty/kbx/commit/c5346e5e1076aecf8bbf76baf3c9b419cdedf417))
+
 ## [0.1.22](https://github.com/tenfourty/kbx/compare/kbx-v0.1.21...kbx-v0.1.22) (2026-03-03)
 
 
