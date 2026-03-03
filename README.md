@@ -25,6 +25,7 @@ kbx search "quarterly planning" --fast   # keyword-only (no model needed)
 
 ## Features
 
+- **File-first architecture** -- markdown files are the source of truth; the DB (SQLite + LanceDB) is a derived search index rebuilt from those files
 - **Full-text search** -- SQLite FTS5 with BM25 ranking and natural date filters
 - **Vector search** -- Qwen3-Embedding-0.6B via sentence-transformers, fused with FTS5 using reciprocal rank fusion (RRF)
 - **Entity linking** -- auto-links people, projects, and glossary terms to documents via regex matching

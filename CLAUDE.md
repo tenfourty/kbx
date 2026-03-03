@@ -34,6 +34,8 @@ Pre-commit hooks enforce everything (ruff, mypy, bandit, pytest+cov). Trust the 
 
 `sources/` (walk_*) → `chunker.py` (parse + chunk) → `indexer.py` (store + embed + link) → `search.py` (FTS5 + vector + RRF)
 
+**Write-through principle:** Markdown files are the source of truth. All data writes go to flat files first; the DB is a derived index rebuilt from those files. Never write to the DB without a corresponding file.
+
 **The boundary rule:** Sources yield `ParsedDocument`, indexer stores to SQLite + LanceDB, search returns `SearchResponse`. Types in `types.py` (Pydantic strict).
 
 ## Index

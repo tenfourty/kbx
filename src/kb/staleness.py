@@ -28,8 +28,13 @@ def find_stale_sources(db: Database, project_root: Path) -> list[str]:
 
     stale: list[str] = []
 
-    # Check all memory source files — only files already in the index
-    # (new files need full `kb index run` for proper entity/mention setup)
+    # Check memory source files — only files already in the index
+    # (new files need full `kb index run` for proper entity/mention setup).
+    # NOTE: meeting files (memory/meetings/) are NOT checked here — they are
+    # managed by the sync pipeline (kbx sync + kbx index run), not by ad-hoc
+    # edits. Prep/debrief files (.prep.md, .debrief.md) also require explicit
+    # `kbx index run` after creation. If auto-reindex for meetings is needed
+    # later, add a walk of memory/meetings/ here with rglob.
     for subdir in ["memory/people", "memory/projects", "memory/context", "memory/notes"]:
         dir_path = project_root / subdir
         if not dir_path.exists():
