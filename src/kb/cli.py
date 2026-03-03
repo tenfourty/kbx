@@ -235,18 +235,11 @@ def search(
         dedupe=dedupe,
         snippet_chars=snippet_chars,
         full_chunks=full_chunks,
+        highlight=(fmt == "table"),
     )
 
-    # Apply HTML highlighting for table output only — JSON/JSONL/CSV get plain text
-    data = results.model_dump()
-    if fmt == "table":
-        from kb.search import _highlight_snippet
-
-        for r in data["results"]:
-            r["snippet"] = _highlight_snippet(r["snippet"], query)
-
     kb_output(
-        data,
+        results.model_dump(),
         fmt=fmt,
         fields=fields,
         jq_expr=jq_expr,

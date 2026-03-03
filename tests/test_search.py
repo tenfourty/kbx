@@ -1285,6 +1285,36 @@ class TestJsonSnippetStripping:
         assert "<b>" in highlighted
 
 
+class TestHighlightParam:
+    """Tests for the highlight=True search parameter (HTML snippets for web UIs)."""
+
+    def test_highlight_false_returns_plain_snippets(self, search_db):
+        """Default (highlight=False) returns plain text snippets with no HTML."""
+        results = search(search_db, None, "MFA", fast=True, highlight=False)
+        assert results.results
+        for r in results.results:
+            assert "<b>" not in r.snippet
+            assert "</b>" not in r.snippet
+
+    def test_highlight_true_returns_html_snippets(self, search_db):
+        """highlight=True wraps query terms in <b> tags for web UIs."""
+        results = search(search_db, None, "MFA", fast=True, highlight=True)
+        assert results.results
+        found_highlight = False
+        for r in results.results:
+            if "<b>" in r.snippet:
+                found_highlight = True
+                break
+        assert found_highlight, "Expected at least one snippet with <b> highlighting"
+
+    def test_highlight_default_is_false(self, search_db):
+        """The default value for highlight should be False (plain text)."""
+        results = search(search_db, None, "MFA", fast=True)
+        assert results.results
+        for r in results.results:
+            assert "<b>" not in r.snippet
+
+
 # ---------------------------------------------------------------------------
 # Metadata separation from chunk content (item 12)
 # ---------------------------------------------------------------------------
