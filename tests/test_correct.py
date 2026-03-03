@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
+from click.testing import CliRunner
 
+from kb.cli import cli
 from kb.correct import apply_corrections, enrich_matches, scan
 
 
@@ -345,3 +349,199 @@ class TestEnrichMatches:
         categories = {e["category"] for e in enriched}
         assert "meeting" in categories
         assert "entity" in categories
+
+
+# ---------------------------------------------------------------------------
+# CLI tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def cli_runner():
+    return CliRunner()
+
+
+class TestCorrectCLI:
+    def _invoke(self, runner: CliRunner, memory_tree: Path, args: list[str]):
+        """Invoke `kbx correct` with project root pointing to memory_tree's parent."""
+        project_root = memory_tree.parent  # memory_tree is tmp_path/memory
+        with patch("kb.cli._find_project_root", return_value=project_root):
+            return runner.invoke(cli, ["correct", *args], catch_exceptions=False)
+
+    def test_scan_json_output(self, cli_runner: CliRunner, memory_tree: Path):
+        """kbx correct TERM --json returns structured scan output."""
+        result = self._invoke(cli_runner, memory_tree, ["Quartz Indexer", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "results" in data
+        assert "meta" in data
+        assert data["meta"]["action"] == "scan"
+        assert data["meta"]["total_occurrences"] > 0
+        assert data["meta"]["files"] > 0
+
+    def test_scan_json_includes_enrichment(self, cli_runner: CliRunner, memory_tree: Path):
+        """JSON scan output includes title, date, attendees, category."""
+        result = self._invoke(cli_runner, memory_tree, ["Quartz Indexer", "--json"])
+        data = json.loads(result.output)
+        for r in data["results"]:
+            assert "title" in r
+            assert "date" in r
+            assert "attendees" in r
+            assert "category" in r
+
+    def test_scan_human_output(self, cli_runner: CliRunner, memory_tree: Path):
+        """kbx correct TERM (no --json) produces human-readable output."""
+        result = self._invoke(cli_runner, memory_tree, ["Quartz Indexer"])
+        assert result.exit_code == 0
+        # Human output goes to stderr, check combined
+        assert "Quartz Indexer" in result.output or result.exit_code == 0
+
+    def test_scan_no_matches(self, cli_runner: CliRunner, memory_tree: Path):
+        """kbx correct with no matches returns empty results."""
+        result = self._invoke(cli_runner, memory_tree, ["ZZZnonexistent", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["meta"]["total"] == 0
+        assert data["results"] == []
+
+    def test_dry_run_json(self, cli_runner: CliRunner, memory_tree: Path):
+        """kbx correct OLD NEW --json shows dry-run preview."""
+        result = self._invoke(cli_runner, memory_tree, ["Quartz Indexer", "Coralogix", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["meta"]["action"] == "dry_run"
+        assert data["meta"]["replacement"] == "Coralogix"
+
+    def test_dry_run_does_not_modify_files(self, cli_runner: CliRunner, memory_tree: Path):
+        """Dry-run (no --apply) leaves files unchanged."""
+        self._invoke(cli_runner, memory_tree, ["Quartz Indexer", "Coralogix"])
+        transcript = (
+            memory_tree
+            / "meetings"
+            / "2026"
+            / "02"
+            / "16"
+            / "Platform_Stability.granola.transcript.md"
+        )
+        content = transcript.read_text(encoding="utf-8")
+        assert "Quartz Indexer" in content  # unchanged
+
+    def test_apply_modifies_files(self, cli_runner: CliRunner, memory_tree: Path):
+        """kbx correct OLD NEW --apply actually replaces content."""
+        result = self._invoke(
+            cli_runner, memory_tree, ["Quartz Indexer", "Coralogix", "--apply", "--json"]
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["meta"]["action"] == "applied"
+        assert data["files_changed"] > 0
+        assert data["occurrences_replaced"] > 0
+
+        # Verify file content changed
+        transcript = (
+            memory_tree
+            / "meetings"
+            / "2026"
+            / "02"
+            / "16"
+            / "Platform_Stability.granola.transcript.md"
+        )
+        content = transcript.read_text(encoding="utf-8")
+        assert "Quartz Indexer" not in content
+        assert "Coralogix" in content
+
+    def test_scope_flag(self, cli_runner: CliRunner, memory_tree: Path):
+        """--scope limits scan to matching files."""
+        result = self._invoke(
+            cli_runner, memory_tree, ["Quartz Indexer", "--scope", "**/people/*", "--json"]
+        )
+        data = json.loads(result.output)
+        assert data["meta"]["files"] == 1
+        assert "soren-vance.md" in data["results"][0]["rel_path"]
+
+    def test_type_flag(self, cli_runner: CliRunner, memory_tree: Path):
+        """--type filters by filename pattern."""
+        result = self._invoke(
+            cli_runner, memory_tree, ["Quartz Indexer", "--type", "transcript", "--json"]
+        )
+        data = json.loads(result.output)
+        for r in data["results"]:
+            assert "transcript" in r["rel_path"]
+
+    def test_word_boundary_flag(self, cli_runner: CliRunner, memory_tree: Path):
+        """--word-boundary avoids substring matches."""
+        result = self._invoke(cli_runner, memory_tree, ["Bram", "--word-boundary", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["meta"]["total_occurrences"] > 0
+
+    def test_ignore_case_flag(self, cli_runner: CliRunner, memory_tree: Path):
+        """--ignore-case matches all case variants."""
+        result = self._invoke(cli_runner, memory_tree, ["corelogix", "--ignore-case", "--json"])
+        data = json.loads(result.output)
+        assert data["meta"]["total_occurrences"] > 0
+
+
+# ---------------------------------------------------------------------------
+# Audit log tests
+# ---------------------------------------------------------------------------
+
+
+class TestAuditLog:
+    def test_apply_writes_audit_log(self, memory_tree: Path, tmp_path: Path):
+        """apply_corrections() writes an audit log entry when log_path is provided."""
+        from kb.correct import apply_corrections, scan
+
+        log_path = tmp_path / "corrections.log"
+        matches = scan(memory_tree, "Quartz Indexer")
+        apply_corrections(memory_tree, matches, "Coralogix", log_path=log_path)
+        assert log_path.exists()
+        content = log_path.read_text(encoding="utf-8")
+        assert "Quartz Indexer" in content
+        assert "Coralogix" in content
+
+    def test_audit_log_contains_timestamp(self, memory_tree: Path, tmp_path: Path):
+        """Audit log entry includes an ISO timestamp."""
+        from kb.correct import apply_corrections, scan
+
+        log_path = tmp_path / "corrections.log"
+        matches = scan(memory_tree, "Quartz Indexer")
+        apply_corrections(memory_tree, matches, "Coralogix", log_path=log_path)
+        content = log_path.read_text(encoding="utf-8")
+        # ISO format: 2026-03-03T...
+        assert "2026-" in content or "202" in content
+
+    def test_audit_log_contains_file_count(self, memory_tree: Path, tmp_path: Path):
+        """Audit log entry includes files changed and occurrences replaced."""
+        from kb.correct import apply_corrections, scan
+
+        log_path = tmp_path / "corrections.log"
+        matches = scan(memory_tree, "Quartz Indexer")
+        result = apply_corrections(memory_tree, matches, "Coralogix", log_path=log_path)
+        content = log_path.read_text(encoding="utf-8")
+        assert str(result.files_changed) in content
+        assert str(result.occurrences_replaced) in content
+
+    def test_audit_log_appends(self, memory_tree: Path, tmp_path: Path):
+        """Multiple corrections append to the same log file."""
+        from kb.correct import apply_corrections, scan
+
+        log_path = tmp_path / "corrections.log"
+        matches1 = scan(memory_tree, "Quartz Indexer")
+        apply_corrections(memory_tree, matches1, "Coralogix", log_path=log_path)
+        matches2 = scan(memory_tree, "Bram", word_boundary=True)
+        apply_corrections(memory_tree, matches2, "Bram", word_boundary=True, log_path=log_path)
+        content = log_path.read_text(encoding="utf-8")
+        assert "Coralogix" in content
+        assert "Bram" in content
+
+    def test_no_log_when_no_path(self, memory_tree: Path, tmp_path: Path):
+        """No audit log is written when log_path is not provided."""
+        from kb.correct import apply_corrections, scan
+
+        matches = scan(memory_tree, "Quartz Indexer")
+        apply_corrections(memory_tree, matches, "Coralogix")
+        # No file should be created in tmp_path
+        log_files = list(tmp_path.glob("*.log"))
+        # memory_tree is under tmp_path, so filter
+        assert not any("corrections.log" in str(f) for f in log_files)

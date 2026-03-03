@@ -1615,13 +1615,15 @@ def correct(
             click.echo("\nAdd --apply to execute.", err=True)
         return
 
-    # Apply corrections
+    # Apply corrections (with audit log)
+    log_path = _get_data_dir() / "corrections.log"
     result = apply_corrections(
         memory_root,
         matches,
         replacement,
         ignore_case=ignore_case,
         word_boundary=word_boundary,
+        log_path=log_path,
     )
 
     apply_output: dict[str, Any] = {

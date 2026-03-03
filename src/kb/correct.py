@@ -258,6 +258,7 @@ def apply_corrections(
     *,
     ignore_case: bool = False,
     word_boundary: bool = False,
+    log_path: Path | None = None,
 ) -> CorrectionResult:
     """Apply find-and-replace corrections to matched files.
 
@@ -269,6 +270,7 @@ def apply_corrections(
         new_term: Replacement string.
         ignore_case: Replace case-insensitively.
         word_boundary: Only replace whole-word matches.
+        log_path: Optional path to append audit log entries.
 
     Returns:
         CorrectionResult with counts of changes made.
@@ -304,8 +306,32 @@ def apply_corrections(
             total_replaced += count
             changed_paths.append(match.rel_path)
 
-    return CorrectionResult(
+    result = CorrectionResult(
         files_changed=files_changed,
         occurrences_replaced=total_replaced,
         changed_paths=changed_paths,
     )
+
+    if log_path is not None and files_changed > 0:
+        _write_audit_log(log_path, matches[0].search_term, new_term, result)
+
+    return result
+
+
+def _write_audit_log(
+    log_path: Path,
+    old_term: str,
+    new_term: str,
+    result: CorrectionResult,
+) -> None:
+    """Append an audit log entry for a correction run."""
+    from datetime import datetime, timezone
+
+    ts = datetime.now(timezone.utc).isoformat()
+    entry = (
+        f"[{ts}] '{old_term}' → '{new_term}' | "
+        f"{result.files_changed} files, {result.occurrences_replaced} replacements | "
+        f"paths: {', '.join(result.changed_paths)}\n"
+    )
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(entry)
