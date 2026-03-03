@@ -1481,6 +1481,172 @@ def ingest(paths: tuple[str, ...], dry_run: bool, skip_organise: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
+# correct
+# ---------------------------------------------------------------------------
+
+
+@cli.command()
+@click.argument("term")
+@click.argument("replacement", required=False, default=None)
+@click.option("--apply", "apply_flag", is_flag=True, help="Apply corrections (default is dry-run).")
+@click.option("--scope", default=None, help="Glob or path to limit scope (e.g. **/meetings/*).")
+@click.option(
+    "--type", "file_type", default=None, help="Filter by filename pattern (e.g. transcript)."
+)
+@click.option("--word-boundary", is_flag=True, help="Only match whole words.")
+@click.option("--ignore-case", is_flag=True, help="Case-insensitive matching.")
+@output_options
+def correct(
+    term: str,
+    replacement: str | None,
+    apply_flag: bool,
+    scope: str | None,
+    file_type: str | None,
+    word_boundary: bool,
+    ignore_case: bool,
+    fmt: str,
+    fields: list[str] | None,
+    jq_expr: str | None,
+) -> None:
+    """Find and replace a term across all memory files.
+
+    \b
+    Scan mode (no REPLACEMENT):
+      kb correct "Quartz Indexer"                         # list all occurrences
+      kb correct "Quartz Indexer" --json                  # structured for agents
+      kb correct "Bram" --word-boundary --json       # whole-word, agent-friendly
+
+    \b
+    Replace mode (with REPLACEMENT):
+      kb correct "Quartz Indexer" "Coralogix"             # dry-run preview
+      kb correct "Quartz Indexer" "Coralogix" --apply     # apply changes
+      kb correct "Bram" "Bram" --word-boundary --scope "meetings/2026/02/17/*" --apply
+    """
+    from kb.correct import apply_corrections, enrich_matches, scan
+
+    project_root = _find_project_root()
+    memory_root = project_root / "memory"
+
+    if not memory_root.is_dir():
+        click.echo(f"Error: memory directory not found at {memory_root}", err=True)
+        raise SystemExit(1)
+
+    matches = scan(
+        memory_root,
+        term,
+        ignore_case=ignore_case,
+        word_boundary=word_boundary,
+        scope=scope,
+        file_type=file_type,
+    )
+
+    if not matches:
+        if fmt in ("json", "jsonl"):
+            kb_output(
+                {"results": [], "meta": {"term": term, "total": 0, "action": "scan"}},
+                fmt=fmt,
+                fields=fields,
+                jq_expr=jq_expr,
+            )
+        else:
+            click.echo(f"No occurrences of '{term}' found.", err=True)
+        return
+
+    # Scan-only mode (no replacement)
+    if replacement is None:
+        enriched = enrich_matches(memory_root, matches)
+        total = sum(m.count for m in matches)
+        output: dict[str, Any] = {
+            "results": enriched,
+            "meta": {
+                "term": term,
+                "total_occurrences": total,
+                "files": len(matches),
+                "action": "scan",
+            },
+        }
+        if fmt in ("json", "jsonl"):
+            kb_output(output, fmt=fmt, fields=fields, jq_expr=jq_expr)
+        else:
+            click.echo(
+                f"Found {total} occurrences of '{term}' in {len(matches)} files:\n",
+                err=True,
+            )
+            for e in enriched:
+                header = e["rel_path"]
+                if e["title"]:
+                    header += f"  ({e['title']}"
+                    if e["date"]:
+                        header += f", {e['date']}"
+                    header += ")"
+                click.echo(f"  {e['count']}x  {header}")
+                if e["attendees"]:
+                    names = ", ".join(a["name"] for a in e["attendees"])
+                    click.echo(f"       attendees: {names}")
+                for line in e["sample_lines"][:3]:
+                    click.echo(f"       | {line.strip()}")
+        return
+
+    # Replace mode
+    if not apply_flag:
+        # Dry-run preview
+        enriched = enrich_matches(memory_root, matches)
+        total = sum(m.count for m in matches)
+        dry_run_output: dict[str, Any] = {
+            "results": enriched,
+            "meta": {
+                "term": term,
+                "replacement": replacement,
+                "total_occurrences": total,
+                "files": len(matches),
+                "action": "dry_run",
+            },
+        }
+        if fmt in ("json", "jsonl"):
+            kb_output(dry_run_output, fmt=fmt, fields=fields, jq_expr=jq_expr)
+        else:
+            click.echo(
+                f"DRY RUN: Would replace {total} occurrences of "
+                f"'{term}' → '{replacement}' in {len(matches)} files:\n",
+                err=True,
+            )
+            for e in enriched:
+                click.echo(f"  {e['count']}x  {e['rel_path']}")
+            click.echo("\nAdd --apply to execute.", err=True)
+        return
+
+    # Apply corrections
+    result = apply_corrections(
+        memory_root,
+        matches,
+        replacement,
+        ignore_case=ignore_case,
+        word_boundary=word_boundary,
+    )
+
+    apply_output: dict[str, Any] = {
+        "files_changed": result.files_changed,
+        "occurrences_replaced": result.occurrences_replaced,
+        "changed_paths": result.changed_paths,
+        "meta": {
+            "term": term,
+            "replacement": replacement,
+            "action": "applied",
+        },
+    }
+    if fmt in ("json", "jsonl"):
+        kb_output(apply_output, fmt=fmt, fields=fields, jq_expr=jq_expr)
+    else:
+        click.echo(
+            f"Replaced {result.occurrences_replaced} occurrences of "
+            f"'{term}' → '{replacement}' in {result.files_changed} files.",
+            err=True,
+        )
+        for p in result.changed_paths:
+            click.echo(f"  {p}")
+
+
+# ---------------------------------------------------------------------------
 # usage
 # ---------------------------------------------------------------------------
 
@@ -1624,7 +1790,23 @@ def usage() -> None:
   kb granola push <calendar-uid> --notes-file prep.md             # prepend from file
   kb granola push <calendar-uid> --notes "..." --title "1:1"     # set title on auto-created doc
 
-## 11. Python API
+## 11. Corrections (find-and-replace across memory)
+  kb correct "Quartz Indexer" --json                          # scan: list all occurrences (structured)
+  kb correct "Quartz Indexer"                                 # scan: human-readable summary
+  kb correct "Bram" --word-boundary --json               # scan: whole-word matches only
+  kb correct "Quartz Indexer" --type transcript --json        # scan: filter by file type
+  kb correct "Quartz Indexer" --scope "**/people/*" --json    # scan: filter by path glob
+  kb correct "Quartz Indexer" "Coralogix"                     # dry-run: preview replacements
+  kb correct "Quartz Indexer" "Coralogix" --apply             # apply: execute replacements
+  kb correct "Quartz Indexer" "Coralogix" --apply --json      # apply: structured result
+  kb correct "Bram" "Bram" --word-boundary --scope "meetings/2026/02/17/*" --apply
+  kb correct "corelogix" "Coralogix" --ignore-case --apply  # case-insensitive replace
+
+  JSON scan output includes title, date, attendees, category per match — agent-ready
+  for disambiguation decisions (e.g. which "Bram" is in this meeting).
+  Replacements are atomic (temp file → rename). Only .md files are modified.
+
+## 12. Python API
 
     from kb import KnowledgeBase
 
