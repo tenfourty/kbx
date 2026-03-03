@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.25](https://github.com/tenfourty/kbx/compare/kbx-v0.1.24...kbx-v0.1.25) (2026-03-03)
+
+
+### Features
+
+* migrate usage command into enhanced --help output ([74fe22b](https://github.com/tenfourty/kbx/commit/74fe22bb437bf4e712cd0f79e1b05e2f1471da6b))
+
 ## [0.1.24](https://github.com/tenfourty/kbx/compare/kbx-v0.1.23...kbx-v0.1.24) (2026-03-03)
 
 
