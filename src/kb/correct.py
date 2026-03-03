@@ -8,9 +8,11 @@ Coralogix) and entity name corrections (e.g. Bram → Bram).
 from __future__ import annotations
 
 import contextlib
+import fnmatch
 import os
 import re
 import tempfile
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -63,15 +65,21 @@ def _match_scope(rel_path: str, scope: str | None) -> bool:
         return True
     if rel_path == scope:
         return True
-    # full_match added in Python 3.13 — supports ** glob patterns
-    return bool(Path(rel_path).full_match(scope))  # type: ignore[attr-defined]
+    # fnmatch treats * as matching any chars including /
+    if fnmatch.fnmatch(rel_path, scope):
+        return True
+    # Handle **/ prefix: strip it for root-level matches
+    # (e.g. **/people/* should match people/eric.md)
+    if scope.startswith("**/"):
+        return fnmatch.fnmatch(rel_path, scope[3:])
+    return False
 
 
 def _match_file_type(rel_path: str, file_type: str | None) -> bool:
     """Check whether a relative path matches the file_type filter."""
     if file_type is None:
         return True
-    return file_type in rel_path
+    return file_type in Path(rel_path).name
 
 
 def _extract_frontmatter(content: str) -> dict[str, Any]:
@@ -155,7 +163,7 @@ def scan(
             if not fname.endswith(".md"):
                 continue
             full_path = Path(dirpath) / fname
-            rel_path = str(full_path.relative_to(memory_root))
+            rel_path = unicodedata.normalize("NFC", str(full_path.relative_to(memory_root)))
 
             if not _match_scope(rel_path, scope):
                 continue
@@ -299,7 +307,7 @@ def apply_corrections(
             word_boundary=word_boundary,
         )
 
-        new_content, count = pattern.subn(new_term, content)
+        new_content, count = pattern.subn(lambda _: new_term, content)
         if count > 0:
             _atomic_write(full_path, new_content)
             files_changed += 1

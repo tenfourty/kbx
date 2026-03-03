@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import unicodedata
 from pathlib import Path
 from unittest.mock import patch
 
@@ -10,7 +11,7 @@ import pytest
 from click.testing import CliRunner
 
 from kb.cli import cli
-from kb.correct import apply_corrections, enrich_matches, scan
+from kb.correct import _match_file_type, _match_scope, apply_corrections, enrich_matches, scan
 
 
 @pytest.fixture
@@ -434,8 +435,8 @@ class TestCorrectCLI:
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["meta"]["action"] == "applied"
-        assert data["files_changed"] > 0
-        assert data["occurrences_replaced"] > 0
+        assert data["meta"]["files_changed"] > 0
+        assert data["meta"]["occurrences_replaced"] > 0
 
         # Verify file content changed
         transcript = (
@@ -545,3 +546,143 @@ class TestAuditLog:
         log_files = list(tmp_path.glob("*.log"))
         # memory_tree is under tmp_path, so filter
         assert not any("corrections.log" in str(f) for f in log_files)
+
+
+# ---------------------------------------------------------------------------
+# Bug fix tests (code review round 1)
+# ---------------------------------------------------------------------------
+
+
+class TestScopeCompat:
+    """Bug #1: _match_scope must work without Path.full_match (Python <3.13)."""
+
+    def test_scope_glob_double_star(self):
+        """_match_scope handles ** glob without Path.full_match."""
+        assert _match_scope("people/soren-vance.md", "**/people/*")
+
+    def test_scope_glob_double_star_nested(self):
+        """** matches deeply nested paths."""
+        assert _match_scope(
+            "meetings/2026/02/17/Monthly.md",
+            "**/meetings/**",
+        )
+
+    def test_scope_simple_glob(self):
+        """Simple glob without ** still works."""
+        assert _match_scope("people/soren-vance.md", "people/*")
+
+    def test_scope_no_match(self):
+        """Non-matching scope returns False."""
+        assert not _match_scope("notes/init.md", "**/people/*")
+
+    def test_scope_exact_match(self):
+        """Exact path match still works."""
+        assert _match_scope("projects/obs.md", "projects/obs.md")
+
+    def test_scope_none_matches_all(self):
+        """scope=None matches everything."""
+        assert _match_scope("any/path.md", None)
+
+
+class TestReplacementEscaping:
+    """Bug #2: Replacement strings with backslashes must be treated literally."""
+
+    def test_apply_replacement_with_backslash_digit(self, memory_tree: Path):
+        r"""Replacement containing \1 should not be treated as regex group ref."""
+        matches = scan(memory_tree, "Quartz Indexer")
+        # Should not raise re.error — \1 must be treated as literal text
+        result = apply_corrections(memory_tree, matches, r"replaced\1text")
+        assert result.files_changed > 0
+        content = (memory_tree / result.changed_paths[0]).read_text()
+        assert "replaced\\1text" in content
+
+    def test_apply_replacement_with_backslash_g(self, memory_tree: Path):
+        r"""Replacement containing \g<0> should not expand to matched text."""
+        matches = scan(memory_tree, "Quartz Indexer")
+        result = apply_corrections(memory_tree, matches, r"new\g<0>value")
+        assert result.files_changed > 0
+        content = (memory_tree / result.changed_paths[0]).read_text()
+        assert "new\\g<0>value" in content
+
+
+class TestFileTypeFilename:
+    """Bug #3: _match_file_type should check filename only, not full path."""
+
+    def test_file_type_matches_filename_not_directory(self, memory_tree: Path):
+        """file_type in a directory name should NOT cause false matches."""
+        # Create a file in a directory named 'transcript' — file itself is not a transcript
+        transcript_dir = memory_tree / "notes" / "transcript"
+        transcript_dir.mkdir(parents=True)
+        (transcript_dir / "summary.md").write_text(
+            "Quartz Indexer stuff here\n",
+            encoding="utf-8",
+        )
+
+        matches = scan(memory_tree, "Quartz Indexer", file_type="transcript")
+        paths = [m.rel_path for m in matches]
+        # summary.md should NOT match — only files with 'transcript' in their NAME
+        assert not any(p.endswith("summary.md") for p in paths)
+        # But actual transcript files should still match
+        assert any("transcript.md" in p for p in paths)
+
+    def test_match_file_type_checks_filename(self):
+        """_match_file_type should only check the filename component."""
+        # Directory contains 'transcript' but filename doesn't
+        assert not _match_file_type("notes/transcript/summary.md", "transcript")
+        # Filename contains 'transcript'
+        assert _match_file_type(
+            "meetings/2026/02/16/Platform_Stability.granola.transcript.md",
+            "transcript",
+        )
+
+
+class TestApplyJsonSchema:
+    """Bug #4: Apply-mode JSON should use {results, meta} wrapper."""
+
+    def test_apply_json_has_results_and_meta(self, cli_runner: CliRunner, memory_tree: Path):
+        """Apply-mode JSON output uses standard {results, meta} wrapper."""
+        project_root = memory_tree.parent
+        with patch("kb.cli._find_project_root", return_value=project_root):
+            result = cli_runner.invoke(
+                cli,
+                ["correct", "Quartz Indexer", "Coralogix", "--apply", "--json"],
+                catch_exceptions=False,
+            )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "results" in data
+        assert "meta" in data
+        assert isinstance(data["results"], list)
+        assert data["meta"]["action"] == "applied"
+        assert data["meta"]["files_changed"] > 0
+        assert data["meta"]["occurrences_replaced"] > 0
+
+    def test_apply_json_results_are_changed_paths(self, cli_runner: CliRunner, memory_tree: Path):
+        """Apply-mode results list contains the changed file paths."""
+        project_root = memory_tree.parent
+        with patch("kb.cli._find_project_root", return_value=project_root):
+            result = cli_runner.invoke(
+                cli,
+                ["correct", "Quartz Indexer", "Coralogix", "--apply", "--json"],
+                catch_exceptions=False,
+            )
+        data = json.loads(result.output)
+        assert len(data["results"]) > 0
+        assert all("path" in r for r in data["results"])
+
+
+class TestNfcNormalization:
+    """Bug #5: rel_path in CorrectionMatch should be NFC-normalized."""
+
+    def test_scan_nfc_normalizes_rel_paths(self, memory_tree: Path):
+        """scan() returns NFC-normalized rel_path values."""
+        # Create a file with NFD-encoded name (macOS default encoding)
+        nfd_name = unicodedata.normalize("NFD", "réunion.md")
+        nfd_file = memory_tree / "notes" / nfd_name
+        nfd_file.write_text("Quartz Indexer mentioned here\n", encoding="utf-8")
+
+        matches = scan(memory_tree, "Quartz Indexer")
+        for m in matches:
+            assert m.rel_path == unicodedata.normalize("NFC", m.rel_path), (
+                f"rel_path not NFC-normalized: {m.rel_path!r}"
+            )

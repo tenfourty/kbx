@@ -1627,13 +1627,13 @@ def correct(
     )
 
     apply_output: dict[str, Any] = {
-        "files_changed": result.files_changed,
-        "occurrences_replaced": result.occurrences_replaced,
-        "changed_paths": result.changed_paths,
+        "results": [{"path": p} for p in result.changed_paths],
         "meta": {
             "term": term,
             "replacement": replacement,
             "action": "applied",
+            "files_changed": result.files_changed,
+            "occurrences_replaced": result.occurrences_replaced,
         },
     }
     if fmt in ("json", "jsonl"):
