@@ -151,10 +151,11 @@ def _make_snippet(content: str, max_chars: int = 200, query: str = "") -> str:
 
 
 def _highlight_snippet(snippet: str, query: str) -> str:
-    """HTML-escape snippet then wrap query terms in <b> tags.
+    """HTML-escape snippet then wrap query terms in <mark> tags.
 
     HTML-escapes first (so content is safe), then applies word-boundary
     highlighting. Case-insensitive. Consumers render with ``{{ snippet | safe }}``.
+    Uses ``<mark>`` (semantically correct for search highlighting, CSS-stylable).
     """
     escaped = html.escape(snippet)
 
@@ -167,7 +168,7 @@ def _highlight_snippet(snippet: str, query: str) -> str:
         if not clean_term:
             continue
         pattern = rf"\b({re.escape(clean_term)})\b"
-        escaped = re.sub(pattern, r"<b>\1</b>", escaped, flags=re.IGNORECASE)
+        escaped = re.sub(pattern, r"<mark>\1</mark>", escaped, flags=re.IGNORECASE)
 
     return escaped
 

@@ -1166,13 +1166,13 @@ class TestEntityBoosting:
 
 class TestSnippetHighlighting:
     def test_highlight_marks_query_terms(self):
-        """Query terms in snippets should be wrapped in <b> HTML tags."""
+        """Query terms in snippets should be wrapped in <mark> HTML tags."""
         from kb.search import _highlight_snippet
 
         snippet = "We reviewed the MFA implementation progress"
         result = _highlight_snippet(snippet, "MFA implementation")
-        assert "<b>MFA</b>" in result
-        assert "<b>implementation</b>" in result
+        assert "<mark>MFA</mark>" in result
+        assert "<mark>implementation</mark>" in result
 
     def test_highlight_case_insensitive(self):
         """Highlighting should be case-insensitive."""
@@ -1180,7 +1180,7 @@ class TestSnippetHighlighting:
 
         snippet = "The mfa rollout is complete"
         result = _highlight_snippet(snippet, "MFA")
-        assert "<b>mfa</b>" in result
+        assert "<mark>mfa</mark>" in result
 
     def test_highlight_no_match(self):
         """If no query terms match, snippet should be unchanged (but HTML-escaped)."""
@@ -1196,17 +1196,17 @@ class TestSnippetHighlighting:
 
         snippet = "The information about MFA was shared"
         result = _highlight_snippet(snippet, "info")
-        assert "<b>info</b>" not in result
+        assert "<mark>info</mark>" not in result
 
     def test_highlight_escapes_html_first(self):
-        """HTML in content should be escaped BEFORE applying <b> tags."""
+        """HTML in content should be escaped BEFORE applying <mark> tags."""
         from kb.search import _highlight_snippet
 
         snippet = "Use <script>alert('MFA')</script> for MFA"
         result = _highlight_snippet(snippet, "MFA")
         assert "<script>" not in result
         assert "&lt;script&gt;" in result
-        assert "<b>MFA</b>" in result
+        assert "<mark>MFA</mark>" in result
 
 
 # ---------------------------------------------------------------------------
@@ -1268,21 +1268,32 @@ class TestFullChunks:
 
 class TestJsonSnippetStripping:
     def test_json_strips_html_from_snippets(self, search_db):
-        """When serialised for JSON, snippets should not contain <b> tags."""
+        """When serialised for JSON, snippets should not contain HTML tags."""
         results = search(search_db, None, "MFA", fast=True)
         assert results.results
         dumped = results.model_dump()
         for r in dumped["results"]:
-            assert "<b>" not in r["snippet"]
-            assert "</b>" not in r["snippet"]
+            assert "<mark>" not in r["snippet"]
+            assert "</mark>" not in r["snippet"]
 
     def test_table_keeps_html_in_snippets(self, search_db):
-        """For table display, snippets should retain <b> highlighting."""
+        """For table display, snippets should retain <mark> highlighting."""
         from kb.search import _highlight_snippet, _make_snippet
 
         snippet = _make_snippet("MFA rollout is planned for Q1.", query="MFA")
         highlighted = _highlight_snippet(snippet, "MFA")
-        assert "<b>" in highlighted
+        assert "<mark>" in highlighted
+        assert "</mark>" in highlighted
+
+    def test_highlight_uses_mark_not_bold(self):
+        """_highlight_snippet uses <mark> tags (semantically correct for search)."""
+        from kb.search import _highlight_snippet
+
+        result = _highlight_snippet("deploy MFA for all users", "MFA")
+        assert "<mark>" in result
+        assert "</mark>" in result
+        assert "<b>" not in result
+        assert "</b>" not in result
 
 
 class TestHighlightParam:
@@ -1293,26 +1304,26 @@ class TestHighlightParam:
         results = search(search_db, None, "MFA", fast=True, highlight=False)
         assert results.results
         for r in results.results:
-            assert "<b>" not in r.snippet
-            assert "</b>" not in r.snippet
+            assert "<mark>" not in r.snippet
+            assert "</mark>" not in r.snippet
 
     def test_highlight_true_returns_html_snippets(self, search_db):
-        """highlight=True wraps query terms in <b> tags for web UIs."""
+        """highlight=True wraps query terms in <mark> tags for web UIs."""
         results = search(search_db, None, "MFA", fast=True, highlight=True)
         assert results.results
         found_highlight = False
         for r in results.results:
-            if "<b>" in r.snippet:
+            if "<mark>" in r.snippet:
                 found_highlight = True
                 break
-        assert found_highlight, "Expected at least one snippet with <b> highlighting"
+        assert found_highlight, "Expected at least one snippet with <mark> highlighting"
 
     def test_highlight_default_is_false(self, search_db):
         """The default value for highlight should be False (plain text)."""
         results = search(search_db, None, "MFA", fast=True)
         assert results.results
         for r in results.results:
-            assert "<b>" not in r.snippet
+            assert "<mark>" not in r.snippet
 
 
 # ---------------------------------------------------------------------------

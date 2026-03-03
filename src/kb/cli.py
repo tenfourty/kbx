@@ -212,7 +212,8 @@ def search(
             from kb.embeddings import Embedder
 
             embedder = Embedder()
-            print(f"Embedding backend: {embedder.backend_name}", file=sys.stderr)
+            if fmt == "table":
+                print(f"Embedding backend: {embedder.backend_name}", file=sys.stderr)
         except Exception:
             click.echo("Warning: Could not load embedding model. Using FTS-only search.", err=True)
             fast = True
