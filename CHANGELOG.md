@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.17](https://github.com/tenfourty/kbx/compare/kbx-v0.1.16...kbx-v0.1.17) (2026-03-03)
+
+
+### Performance Improvements
+
+* eliminate redundant API calls in granola edit flow ([1b36d18](https://github.com/tenfourty/kbx/commit/1b36d186cc754fc46b727fd0985a9dadd30fe2d5))
+
 ## [0.1.16](https://github.com/tenfourty/kbx/compare/kbx-v0.1.15...kbx-v0.1.16) (2026-03-02)
 
 
