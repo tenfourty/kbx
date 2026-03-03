@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.26](https://github.com/tenfourty/kbx/compare/kbx-v0.1.25...kbx-v0.1.26) (2026-03-03)
+
+
+### Features
+
+* index prep and debrief meeting files ([d22fd38](https://github.com/tenfourty/kbx/commit/d22fd38530f57a9f0d6304e6aaa6afb0b8a37eee))
+
 ## [0.1.25](https://github.com/tenfourty/kbx/compare/kbx-v0.1.24...kbx-v0.1.25) (2026-03-03)
 
 
