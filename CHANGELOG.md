@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.19](https://github.com/tenfourty/kbx/compare/kbx-v0.1.18...kbx-v0.1.19) (2026-03-03)
+
+
+### Features
+
+* add highlight param to search for HTML snippet opt-in ([7b77329](https://github.com/tenfourty/kbx/commit/7b77329ac64e12c3fb0cd7d04e32e557023dc1c5))
+
 ## [0.1.18](https://github.com/tenfourty/kbx/compare/kbx-v0.1.17...kbx-v0.1.18) (2026-03-03)
 
 
