@@ -2587,7 +2587,7 @@ def granola_push(
     doc_title = doc.get("title", calendar_uid)
     click.echo(f"Writing to '{doc_title}' ({doc_id})...", err=True)
 
-    client.update_document_notes(doc_id, notes, prepend=True)
+    client.update_document_notes(doc_id, notes, prepend=True, doc=doc)
     click.echo("Done.", err=True)
 
 
@@ -2731,20 +2731,16 @@ def granola_edit(
     doc_title = doc.get("title", calendar_uid)
     click.echo(f"Writing to '{doc_title}' ({doc_id})...", err=True)
 
-    client.update_document_notes(doc_id, markdown, prepend=False)
+    client.update_document_notes(doc_id, markdown, prepend=False, doc=doc)
 
     # Write-through: update local .granola.notes.md
+    # Reuse the original doc (metadata hasn't changed) with the new notes spliced in.
     project_root = find_project_root()
     if project_root:
-        # Re-fetch the doc to get updated state
-        updated_doc = client.find_document(calendar_uid=calendar_uid)
-        if updated_doc:
-            fm = build_frontmatter(updated_doc, {})
-            notes_md = updated_doc.get("notes_markdown") or markdown
-            panel_md = extract_panel_markdown(updated_doc)
-            write_meeting(
-                updated_doc, fm, notes_md, "", project_root, force=True, summary_md=panel_md
-            )
-            click.echo("Local files updated.", err=True)
+        doc["notes_markdown"] = markdown
+        fm = build_frontmatter(doc, {})
+        panel_md = extract_panel_markdown(doc)
+        write_meeting(doc, fm, markdown, "", project_root, force=True, summary_md=panel_md)
+        click.echo("Local files updated.", err=True)
 
     click.echo("Done.", err=True)

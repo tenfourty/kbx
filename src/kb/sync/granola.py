@@ -292,7 +292,7 @@ class GranolaClient:
     ) -> dict[str, Any] | None:
         """Find a Granola document by title substring or calendar event UID.
 
-        Searches the last 30 days of docs by default (or since ``since``).
+        Searches the last 14 days of docs by default (or since ``since``).
         Returns the first matching doc dict, or None.
         """
         effective_since = since
@@ -361,6 +361,7 @@ class GranolaClient:
         doc_id: str,
         markdown: str,
         prepend: bool = False,
+        doc: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Write markdown notes to a Granola document.
 
@@ -369,21 +370,33 @@ class GranolaClient:
             markdown: Markdown content to write.
             prepend: If True and the doc has existing notes, prepend above them
                 separated by a horizontal rule.
+            doc: Optional pre-fetched document dict. When provided, skips the
+                ``list_documents`` call used to read ``updated_at`` and existing
+                notes. Pass the doc returned by ``find_document()`` to avoid a
+                redundant API round-trip.
 
         Returns the API response.
         """
-        # Fetch the document to preserve its updated_at (avoids shifting future
-        # meetings into Granola's "Today" view) and to get existing notes for prepend.
+        # Use pre-fetched doc if available, otherwise fetch to preserve
+        # updated_at (avoids shifting future meetings into Granola's "Today"
+        # view) and to get existing notes for prepend.
         existing_updated_at: str = ""
-        docs = self.list_documents()
-        for doc in docs:
-            if doc.get("id") == doc_id:
-                existing_updated_at = doc.get("updated_at", "")
-                if prepend:
-                    existing_md = doc.get("notes_markdown") or ""
-                    if existing_md.strip():
-                        markdown = markdown.rstrip() + "\n\n---\n\n" + existing_md
-                break
+        if doc is not None:
+            existing_updated_at = doc.get("updated_at", "")
+            if prepend:
+                existing_md = doc.get("notes_markdown") or ""
+                if existing_md.strip():
+                    markdown = markdown.rstrip() + "\n\n---\n\n" + existing_md
+        else:
+            docs = self.list_documents()
+            for d in docs:
+                if d.get("id") == doc_id:
+                    existing_updated_at = d.get("updated_at", "")
+                    if prepend:
+                        existing_md = d.get("notes_markdown") or ""
+                        if existing_md.strip():
+                            markdown = markdown.rstrip() + "\n\n---\n\n" + existing_md
+                    break
 
         # Convert markdown to ProseMirror
         pm_doc = markdown_to_prosemirror(markdown)

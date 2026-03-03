@@ -1908,6 +1908,58 @@ class TestUpdateDocumentNotes:
         assert payload["notes_markdown"] == "Just new notes"
         assert "---" not in payload["notes_markdown"]
 
+    def test_skips_list_documents_when_doc_provided(self, client):
+        """update_document_notes does not call list_documents when doc is passed."""
+        doc = {
+            "id": "doc-123",
+            "updated_at": "2026-03-03T10:00:00.000Z",
+            "notes_markdown": "Old notes",
+        }
+        payloads = []
+
+        def capture_request(method, path, **kwargs):
+            payloads.append(kwargs.get("json_data"))
+            resp = MagicMock()
+            resp.json.return_value = {}
+            return resp
+
+        with (
+            patch.object(client, "list_documents") as mock_list,
+            patch.object(client, "_request", side_effect=capture_request),
+        ):
+            client.update_document_notes("doc-123", "New notes", doc=doc)
+
+        mock_list.assert_not_called()
+        assert len(payloads) == 1
+        assert payloads[0]["updated_at"] == "2026-03-03T10:00:00.000Z"
+
+    def test_prepend_uses_doc_notes_when_provided(self, client):
+        """update_document_notes with prepend=True uses notes_markdown from doc param."""
+        doc = {
+            "id": "doc-123",
+            "updated_at": "2026-03-01T09:00:00.000Z",
+            "notes_markdown": "Existing notes here.",
+        }
+        payloads = []
+
+        def capture_request(method, path, **kwargs):
+            payloads.append(kwargs.get("json_data"))
+            resp = MagicMock()
+            resp.json.return_value = {}
+            return resp
+
+        with (
+            patch.object(client, "list_documents") as mock_list,
+            patch.object(client, "_request", side_effect=capture_request),
+        ):
+            client.update_document_notes("doc-123", "New prep", prepend=True, doc=doc)
+
+        mock_list.assert_not_called()
+        md = payloads[0]["notes_markdown"]
+        assert md.startswith("New prep")
+        assert "---" in md
+        assert "Existing notes here." in md
+
 
 # ---------------------------------------------------------------------------
 # CLI: granola push
@@ -1935,7 +1987,9 @@ class TestGranolaPushCLI:
 
         assert result.exit_code == 0
         mock_client.find_document.assert_called_once_with(calendar_uid="abc123@google.com")
-        mock_client.update_document_notes.assert_called_once_with("doc-1", "# Prep", prepend=True)
+        call_args = mock_client.update_document_notes.call_args
+        assert call_args[0] == ("doc-1", "# Prep")
+        assert call_args[1]["prepend"] is True
 
     def test_push_requires_calendar_uid(self):
         """granola push fails without positional calendar UID."""
@@ -2006,7 +2060,9 @@ class TestGranolaPushCLI:
         mock_client.create_document.assert_called_once_with(
             "Meeting", calendar_event={"id": "missing-uid"}
         )
-        mock_client.update_document_notes.assert_called_once_with("new-doc", "# Prep", prepend=True)
+        call_args = mock_client.update_document_notes.call_args
+        assert call_args[0] == ("new-doc", "# Prep")
+        assert call_args[1]["prepend"] is True
 
     def test_push_auto_create_uses_title_option(self):
         """granola push --title is used as the doc title when auto-creating."""
@@ -2046,7 +2102,9 @@ class TestGranolaPushCLI:
 
         assert result.exit_code == 0
         mock_client.create_document.assert_not_called()
-        mock_client.update_document_notes.assert_called_once_with("doc-1", "prep", prepend=True)
+        call_args = mock_client.update_document_notes.call_args
+        assert call_args[0] == ("doc-1", "prep")
+        assert call_args[1]["prepend"] is True
 
     def test_push_always_prepends(self):
         """granola push always passes prepend=True to update_document_notes."""
@@ -2061,7 +2119,9 @@ class TestGranolaPushCLI:
             result = runner.invoke(cli, ["granola", "push", "uid-abc", "--notes", "# Prep"])
 
         assert result.exit_code == 0
-        mock_client.update_document_notes.assert_called_once_with("doc-1", "# Prep", prepend=True)
+        call_args = mock_client.update_document_notes.call_args
+        assert call_args[0] == ("doc-1", "# Prep")
+        assert call_args[1]["prepend"] is True
 
     def test_push_interprets_escape_sequences(self):
         """granola push --notes interprets \\n as newlines."""
@@ -2325,9 +2385,9 @@ class TestGranolaEditCLI:
             result = runner.invoke(cli, ["granola", "edit", "uid-abc", "--body", "# New Content"])
 
         assert result.exit_code == 0
-        mock_client.update_document_notes.assert_called_once_with(
-            "doc-1", "# New Content", prepend=False
-        )
+        call_args = mock_client.update_document_notes.call_args
+        assert call_args[0] == ("doc-1", "# New Content")
+        assert call_args[1]["prepend"] is False
 
     def test_edit_body_file(self, tmp_dir):
         """granola edit --body-file reads content from a file."""
@@ -2469,3 +2529,59 @@ class TestGranolaEditCLI:
         assert result.exit_code == 0
         mock_write.assert_called_once()
         assert mock_write.call_args[1]["force"] is True
+
+    def test_edit_calls_find_document_only_once(self, tmp_dir):
+        """granola edit should call find_document exactly once (not again for write-through)."""
+        from kb.cli import cli
+
+        runner = CliRunner()
+        mock_client = MagicMock()
+        mock_client.find_document.return_value = {
+            "id": "doc-1",
+            "title": "Standup",
+            "created_at": "2026-03-03T10:00:00.000Z",
+            "notes_markdown": "# Old",
+            "google_calendar_event": {"id": "uid-abc"},
+            "last_viewed_panel": None,
+        }
+        mock_client.update_document_notes.return_value = {}
+
+        with (
+            patch("kb.sync.granola.GranolaClient", return_value=mock_client),
+            patch("kb.config.find_project_root", return_value=tmp_dir),
+            patch("kb.sync.granola.write_meeting"),
+            patch("kb.sync.granola.build_frontmatter", return_value={"title": "Standup"}),
+            patch("kb.sync.granola.extract_panel_markdown", return_value=""),
+        ):
+            result = runner.invoke(cli, ["granola", "edit", "uid-abc", "--body", "# New"])
+
+        assert result.exit_code == 0
+        # find_document should be called exactly once — NOT again for write-through
+        assert mock_client.find_document.call_count == 1
+
+    def test_edit_passes_doc_to_update(self):
+        """granola edit passes the original doc to update_document_notes to avoid re-fetch."""
+        from kb.cli import cli
+
+        runner = CliRunner()
+        mock_client = MagicMock()
+        original_doc = {
+            "id": "doc-1",
+            "title": "Standup",
+            "created_at": "2026-03-03T10:00:00.000Z",
+            "notes_markdown": "# Old",
+            "google_calendar_event": {"id": "uid-abc"},
+        }
+        mock_client.find_document.return_value = original_doc
+        mock_client.update_document_notes.return_value = {}
+
+        with (
+            patch("kb.sync.granola.GranolaClient", return_value=mock_client),
+            patch("kb.config.find_project_root", return_value=None),
+        ):
+            result = runner.invoke(cli, ["granola", "edit", "uid-abc", "--body", "# New"])
+
+        assert result.exit_code == 0
+        # update_document_notes should receive doc= kwarg
+        call_kwargs = mock_client.update_document_notes.call_args
+        assert call_kwargs[1].get("doc") is original_doc
