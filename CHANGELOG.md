@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.27](https://github.com/tenfourty/kbx/compare/kbx-v0.1.26...kbx-v0.1.27) (2026-03-03)
+
+
+### Documentation
+
+* document write-through principle and staleness gap ([3874066](https://github.com/tenfourty/kbx/commit/38740669b1b05d726efb4e9722d2ce12fbf97f92))
+
 ## [0.1.26](https://github.com/tenfourty/kbx/compare/kbx-v0.1.25...kbx-v0.1.26) (2026-03-03)
 
 
