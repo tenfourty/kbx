@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.24](https://github.com/tenfourty/kbx/compare/kbx-v0.1.23...kbx-v0.1.24) (2026-03-03)
+
+
+### Bug Fixes
+
+* correct module — 5 code review bugs ([60ec3de](https://github.com/tenfourty/kbx/commit/60ec3de52c31a7b35bc1852b7f5caca85dfdd79f))
+
 ## [0.1.23](https://github.com/tenfourty/kbx/compare/kbx-v0.1.22...kbx-v0.1.23) (2026-03-03)
 
 
