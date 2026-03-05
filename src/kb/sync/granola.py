@@ -377,26 +377,21 @@ class GranolaClient:
 
         Returns the API response.
         """
-        # Use pre-fetched doc if available, otherwise fetch to preserve
-        # updated_at (avoids shifting future meetings into Granola's "Today"
-        # view) and to get existing notes for prepend.
-        existing_updated_at: str = ""
+        # Get existing notes for prepend if needed.
         if doc is not None:
-            existing_updated_at = doc.get("updated_at", "")
             if prepend:
                 existing_md = doc.get("notes_markdown") or ""
                 if existing_md.strip():
                     markdown = markdown.rstrip() + "\n\n---\n\n" + existing_md
         else:
-            docs = self.list_documents()
-            for d in docs:
-                if d.get("id") == doc_id:
-                    existing_updated_at = d.get("updated_at", "")
-                    if prepend:
+            if prepend:
+                docs = self.list_documents()
+                for d in docs:
+                    if d.get("id") == doc_id:
                         existing_md = d.get("notes_markdown") or ""
                         if existing_md.strip():
                             markdown = markdown.rstrip() + "\n\n---\n\n" + existing_md
-                    break
+                        break
 
         # Convert markdown to ProseMirror
         pm_doc = markdown_to_prosemirror(markdown)
@@ -405,12 +400,11 @@ class GranolaClient:
         plain = re.sub(r"[#*`\[\]()]", "", markdown)
         plain = re.sub(r"\n{3,}", "\n\n", plain)
 
-        # Use existing timestamp, fall back to now only for brand-new docs.
-        if existing_updated_at:
-            updated_at = existing_updated_at
-        else:
-            now = datetime.now(timezone.utc)
-            updated_at = now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
+        # Always use a fresh timestamp. Granola uses updated_at as an
+        # optimistic concurrency check — sending a stale value causes the
+        # update to be silently dropped (200 OK, notes not persisted).
+        now = datetime.now(timezone.utc)
+        updated_at = now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
 
         payload: dict[str, Any] = {
             "id": doc_id,
@@ -420,8 +414,107 @@ class GranolaClient:
             "notes_markdown": markdown,
         }
 
+        # Generate Yjs ydoc_state so Granola's CRDT layer picks up our content.
+        # Without this, the desktop app's empty ydoc overwrites our notes.
+        # If the doc already has ydoc_state, pass it so the script can clear
+        # existing content before writing (CRDT replace, not duplicate).
+        existing_ydoc_b64 = None
+        if doc is not None:
+            raw_ydoc = doc.get("ydoc_state")
+            if isinstance(raw_ydoc, dict) and raw_ydoc.get("type") == "Buffer":
+                # Granola returns ydoc as {type: 'Buffer', data: [bytes...]}
+                import base64
+
+                existing_ydoc_b64 = base64.b64encode(bytes(raw_ydoc["data"])).decode()
+            elif isinstance(raw_ydoc, str) and raw_ydoc:
+                existing_ydoc_b64 = raw_ydoc
+        ydoc_state = _prosemirror_to_ydoc_state(pm_doc, existing_ydoc_state=existing_ydoc_b64)
+        if ydoc_state:
+            payload["ydoc_state"] = ydoc_state
+            payload["ydoc_version"] = 1
+
         response = self._request("POST", "/v1/update-document", json_data=payload)
         return cast("dict[str, Any]", response.json()) if hasattr(response, "json") else {}
+
+
+# ---------------------------------------------------------------------------
+# ProseMirror → Yjs ydoc state
+# ---------------------------------------------------------------------------
+
+# Path to the Node.js helper script (sibling repo: Control Tower/scripts/)
+_YDOC_SCRIPT: str | None = None
+
+
+def _find_ydoc_script() -> str | None:
+    """Locate the prosemirror-to-ydoc.mjs helper script."""
+    global _YDOC_SCRIPT
+    if _YDOC_SCRIPT is not None:
+        return _YDOC_SCRIPT if _YDOC_SCRIPT != "" else None
+
+    import shutil
+    from pathlib import Path
+
+    if not shutil.which("node"):
+        _YDOC_SCRIPT = ""
+        return None
+
+    # Check relative to this file (kbx/src/kb/sync/ → ../../../../../scripts/)
+    # kbx lives inside Control Tower: Control Tower/kbx/src/kb/sync/granola.py
+    candidates = [
+        Path(__file__).resolve().parents[4] / "scripts" / "prosemirror-to-ydoc.mjs",
+    ]
+    for p in candidates:
+        if p.is_file():
+            _YDOC_SCRIPT = str(p)
+            return _YDOC_SCRIPT
+
+    _YDOC_SCRIPT = ""
+    return None
+
+
+def _prosemirror_to_ydoc_state(
+    pm_doc: dict[str, Any],
+    existing_ydoc_state: str | None = None,
+) -> str | None:
+    """Convert ProseMirror JSON to a base64-encoded Yjs state update.
+
+    Shells out to the Node.js helper script (requires node + yjs packages).
+
+    Args:
+        pm_doc: ProseMirror document JSON.
+        existing_ydoc_state: If provided, the existing ydoc state (base64) to
+            merge against. The script will load this state, clear the existing
+            prosemirror fragment, then write new content — producing a CRDT
+            update that replaces rather than duplicates content.
+
+    Returns None on failure (graceful degradation — push still works via
+    notes_markdown, just won't survive ydoc sync).
+    """
+    import json
+    import subprocess
+
+    script = _find_ydoc_script()
+    if not script:
+        return None
+
+    cmd = ["node", script]
+    if existing_ydoc_state:
+        cmd.extend(["--existing-state", existing_ydoc_state])
+
+    try:
+        result = subprocess.run(
+            cmd,
+            input=json.dumps(pm_doc),
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            return None
+        b64 = result.stdout.strip()
+        return b64 if b64 else None
+    except (subprocess.TimeoutExpired, OSError):
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -624,28 +717,72 @@ def markdown_to_prosemirror(markdown: str) -> dict[str, Any]:
             nodes.append({"type": "orderedList", "content": items})
             continue
 
+        # Table — detect rows starting with |
+        # Granola's ProseMirror schema doesn't support table nodes, so we
+        # convert markdown tables to bullet lists: "**col1:** val1 | **col2:** val2"
+        if line.strip().startswith("|") and "|" in line[1:]:
+            table_rows: list[str] = []
+            while i < len(lines) and lines[i].strip().startswith("|"):
+                table_rows.append(lines[i])
+                i += 1
+            # Parse table rows (skip separator rows like |---|---|)
+            data_rows = [r for r in table_rows if not re.match(r"^\|[\s\-:| ]+\|?\s*$", r)]
+            if len(data_rows) >= 2:
+                headers = [c.strip() for c in data_rows[0].strip().strip("|").split("|")]
+                tbl_items: list[dict[str, Any]] = []
+                for row in data_rows[1:]:
+                    cells = [c.strip() for c in row.strip().strip("|").split("|")]
+                    # Build "**Header:** value | **Header:** value" text
+                    parts = []
+                    for hi, cell in enumerate(cells):
+                        hdr = headers[hi] if hi < len(headers) else ""
+                        if hdr and cell:
+                            parts.append(f"**{hdr}:** {cell}")
+                        elif cell:
+                            parts.append(cell)
+                    item_text = " | ".join(parts)
+                    tbl_items.append(
+                        {
+                            "type": "listItem",
+                            "content": [
+                                {
+                                    "type": "paragraph",
+                                    "attrs": {"id": str(uuid.uuid4())},
+                                    "content": _md_inline_to_pm(item_text),
+                                }
+                            ],
+                        }
+                    )
+                nodes.append({"type": "bulletList", "content": tbl_items})
+            elif data_rows:
+                # Single-row table or header-only: render as paragraphs
+                for row in data_rows:
+                    cells = [c.strip() for c in row.strip().strip("|").split("|")]
+                    text = " | ".join(c for c in cells if c)
+                    node = {
+                        "type": "paragraph",
+                        "attrs": {"id": str(uuid.uuid4())},
+                    }
+                    if text:
+                        node["content"] = _md_inline_to_pm(text)
+                    nodes.append(node)
+            continue
+
         # Empty line — skip (paragraph boundaries)
         if not line.strip():
             i += 1
             continue
 
-        # Paragraph — collect consecutive non-empty, non-special lines
-        para_lines: list[str] = []
-        while (
-            i < len(lines)
-            and lines[i].strip()
-            and not re.match(r"^(#{1,6}\s|[-*]\s|\d+\.\s|---+\s*$)", lines[i])
-        ):
-            para_lines.append(lines[i])
-            i += 1
-        text = " ".join(para_lines)
+        # Paragraph — each line becomes its own paragraph (preserves line breaks)
+        text = line
         node = {
             "type": "paragraph",
             "attrs": {"id": str(uuid.uuid4())},
         }
-        if text:
+        if text.strip():
             node["content"] = _md_inline_to_pm(text)
         nodes.append(node)
+        i += 1
 
     return {"type": "doc", "content": nodes}
 

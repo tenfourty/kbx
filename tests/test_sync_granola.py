@@ -1812,8 +1812,12 @@ class TestUpdateDocumentNotes:
         assert payload["notes"]["type"] == "doc"
         assert payload["notes_markdown"] == "## Hello\n\nWorld"
 
-    def test_preserves_existing_updated_at(self, client):
-        """update_document_notes fetches and preserves the doc's existing timestamp."""
+    def test_uses_fresh_timestamp(self, client):
+        """update_document_notes always uses a fresh timestamp (not stale doc timestamp).
+
+        Granola uses updated_at as an optimistic concurrency check — sending
+        a stale value causes the update to be silently dropped.
+        """
         existing_docs = [
             {"id": "doc-123", "updated_at": "2026-03-03T10:00:00.000Z"},
         ]
@@ -1832,25 +1836,8 @@ class TestUpdateDocumentNotes:
             client.update_document_notes("doc-123", "Notes")
 
         payload = payloads[0]
-        assert payload["updated_at"] == "2026-03-03T10:00:00.000Z"
-
-    def test_falls_back_to_now_when_doc_not_found(self, client):
-        """update_document_notes falls back to now when doc not in list."""
-        payloads = []
-
-        def capture_request(method, path, **kwargs):
-            payloads.append(kwargs.get("json_data"))
-            resp = MagicMock()
-            resp.json.return_value = {}
-            return resp
-
-        with (
-            patch.object(client, "list_documents", return_value=[]),
-            patch.object(client, "_request", side_effect=capture_request),
-        ):
-            client.update_document_notes("doc-123", "Notes")
-
-        payload = payloads[0]
+        # Must NOT reuse the stale doc timestamp
+        assert payload["updated_at"] != "2026-03-03T10:00:00.000Z"
         assert payload["updated_at"].endswith("Z")
 
     def test_prepend_combines_notes(self, client):
@@ -1882,7 +1869,9 @@ class TestUpdateDocumentNotes:
         assert md.startswith("New prep notes")
         assert "---" in md
         assert "Existing notes here." in md
-        assert payload["updated_at"] == "2026-03-01T09:00:00.000Z"
+        # Fresh timestamp, not the stale doc timestamp
+        assert payload["updated_at"] != "2026-03-01T09:00:00.000Z"
+        assert payload["updated_at"].endswith("Z")
 
     def test_prepend_with_empty_existing(self, client):
         """Prepend with no existing notes just writes new notes."""
@@ -1931,7 +1920,9 @@ class TestUpdateDocumentNotes:
 
         mock_list.assert_not_called()
         assert len(payloads) == 1
-        assert payloads[0]["updated_at"] == "2026-03-03T10:00:00.000Z"
+        # Fresh timestamp, not the stale doc timestamp
+        assert payloads[0]["updated_at"] != "2026-03-03T10:00:00.000Z"
+        assert payloads[0]["updated_at"].endswith("Z")
 
     def test_prepend_uses_doc_notes_when_provided(self, client):
         """update_document_notes with prepend=True uses notes_markdown from doc param."""
@@ -2043,47 +2034,38 @@ class TestGranolaPushCLI:
         )
         assert result.exit_code != 0
 
-    def test_push_auto_creates_when_not_found(self):
-        """granola push auto-creates a doc when find_document returns None."""
+    def test_push_skips_when_no_doc_found(self):
+        """granola push exits cleanly when no Granola document exists."""
         from kb.cli import cli
 
         runner = CliRunner()
         mock_client = MagicMock()
         mock_client.find_document.return_value = None
-        mock_client.create_document.return_value = {"id": "new-doc", "title": "Meeting"}
-        mock_client.update_document_notes.return_value = {}
 
         with patch("kb.sync.granola.GranolaClient", return_value=mock_client):
             result = runner.invoke(cli, ["granola", "push", "missing-uid", "--notes", "# Prep"])
 
         assert result.exit_code == 0
-        mock_client.create_document.assert_called_once_with(
-            "Meeting", calendar_event={"id": "missing-uid"}
-        )
-        call_args = mock_client.update_document_notes.call_args
-        assert call_args[0] == ("new-doc", "# Prep")
-        assert call_args[1]["prepend"] is True
+        mock_client.create_document.assert_not_called()
+        mock_client.update_document_notes.assert_not_called()
 
-    def test_push_auto_create_uses_title_option(self):
-        """granola push --title is used as the doc title when auto-creating."""
+    def test_push_strips_quotes_from_calendar_uid(self):
+        """granola push strips YAML quotes from calendar_uid."""
         from kb.cli import cli
 
         runner = CliRunner()
         mock_client = MagicMock()
-        mock_client.find_document.return_value = None
-        mock_client.create_document.return_value = {"id": "new-doc", "title": "Standup"}
+        mock_client.find_document.return_value = {"id": "doc-1", "title": "Test"}
         mock_client.update_document_notes.return_value = {}
 
         with patch("kb.sync.granola.GranolaClient", return_value=mock_client):
             result = runner.invoke(
                 cli,
-                ["granola", "push", "uid-abc", "--notes", "prep", "--title", "Standup"],
+                ["granola", "push", "'quoted-uid'", "--notes", "prep"],
             )
 
         assert result.exit_code == 0
-        mock_client.create_document.assert_called_once_with(
-            "Standup", calendar_event={"id": "uid-abc"}
-        )
+        mock_client.find_document.assert_called_once_with(calendar_uid="quoted-uid")
 
     def test_push_title_ignored_when_doc_exists(self):
         """--title is ignored when the doc already exists (no create needed)."""

@@ -2785,7 +2785,9 @@ def granola_push(
 
     CALENDAR_UID is the Google Calendar event ID or iCalUID.
     Notes are prepended above any existing content.
-    If no document exists for the UID, one is created automatically.
+    If no Granola document exists for the UID, the push is skipped with a
+    warning. Creating standalone documents creates orphans that aren't linked
+    to calendar events in Granola's UI.
     """
     from pathlib import Path as P
 
@@ -2796,8 +2798,16 @@ def granola_push(
     if notes and notes_file:
         raise click.UsageError("Provide --notes or --notes-file, not both.")
 
+    # Strip surrounding quotes from calendar_uid (YAML frontmatter may quote values)
+    calendar_uid = calendar_uid.strip("'\"")
+
     if notes_file:
         notes = P(notes_file).read_text(encoding="utf-8")
+        # Strip YAML frontmatter (--- ... ---) so it doesn't appear in Granola
+        if notes.startswith("---\n"):
+            end = notes.find("\n---\n", 4)
+            if end != -1:
+                notes = notes[end + 5 :].lstrip("\n")
 
     assert notes is not None  # mypy
 
@@ -2811,12 +2821,24 @@ def granola_push(
     doc = client.find_document(calendar_uid=calendar_uid)
 
     if not doc:
-        doc_title = title or "Meeting"
-        click.echo(f"No document found — creating '{doc_title}'...", err=True)
-        doc = client.create_document(doc_title, calendar_event={"id": calendar_uid})
+        click.echo(
+            "No Granola document found for this event. "
+            "Granola creates docs automatically — push will work once the doc exists.",
+            err=True,
+        )
+        raise SystemExit(0)
 
     doc_id = doc["id"]
     doc_title = doc.get("title", calendar_uid)
+
+    # Idempotency: skip if first line of our content is already in the doc's notes.
+    # Prevents duplicate prepends when the script runs multiple times.
+    existing_md = doc.get("notes_markdown") or ""
+    first_line = notes.strip().split("\n", 1)[0].strip()
+    if first_line and first_line in existing_md:
+        click.echo(f"Already pushed to '{doc_title}' — skipping.", err=True)
+        raise SystemExit(0)
+
     click.echo(f"Writing to '{doc_title}' ({doc_id})...", err=True)
 
     client.update_document_notes(doc_id, notes, prepend=True, doc=doc)
