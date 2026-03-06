@@ -39,12 +39,32 @@ class UserConfig(BaseModel):
     name: str | None = None  # e.g. "Idris Kalmar" — resolved when name == "me"
 
 
+class NotionSyncConfig(BaseModel):
+    """Notion sync configuration."""
+
+    space_id: str | None = None  # Notion workspace ID (overrides auto-detection)
+
+
+class GranolaSyncConfig(BaseModel):
+    """Granola sync configuration."""
+
+    token_path: str | None = None  # Path to supabase.json (overrides default)
+
+
+class SyncConfig(BaseModel):
+    """Sync plugin configuration."""
+
+    notion: NotionSyncConfig = NotionSyncConfig()
+    granola: GranolaSyncConfig = GranolaSyncConfig()
+
+
 class KbxConfig(BaseModel):
     """Top-level kbx configuration."""
 
     sources: SourcesConfig = SourcesConfig()
     data: DataConfig = DataConfig()
     user: UserConfig = UserConfig()
+    sync: SyncConfig = SyncConfig()
 
 
 def find_config(cwd: Path | None = None) -> Path | None:

@@ -269,16 +269,41 @@ class NotionClient:
         return self._spaces_cache
 
     def get_space_id(self) -> str:
-        """Get the current user's primary space ID."""
+        """Get the current user's primary space ID.
+
+        Priority: NOTION_SPACE_ID env var > space with a name record > first found.
+        Spaces with name records are "owned" workspaces (vs guest access).
+        """
+        env_space = os.environ.get("NOTION_SPACE_ID")
+        if env_space:
+            return env_space
+
         data = self._get_spaces_data()
-        # Response is keyed by user ID, each containing space data
+        all_space_ids: list[str] = []
+        named_spaces: dict[str, str] = {}  # space_id → name
+
         for user_data in data.values():
-            space_views = user_data.get("space_view", {})
-            for sv in space_views.values():
+            # Collect named spaces from the space table
+            for sid, sdata in user_data.get("space", {}).items():
+                name = sdata.get("value", {}).get("name")
+                if name:
+                    named_spaces[sid] = name
+
+            # Collect all space IDs from space_view
+            for sv in user_data.get("space_view", {}).values():
                 space_id = sv.get("value", {}).get("space_id")
-                if space_id:
-                    return cast("str", space_id)
-        raise ValueError("No workspace found for current user")
+                if space_id and space_id not in all_space_ids:
+                    all_space_ids.append(space_id)
+
+        if not all_space_ids:
+            raise ValueError("No workspace found for current user")
+
+        # Prefer spaces that have a name record (owned workspaces)
+        for sid in all_space_ids:
+            if sid in named_spaces:
+                return sid
+
+        return all_space_ids[0]
 
     def get_current_user_id(self) -> str:
         """Get the current authenticated user's ID."""
@@ -585,9 +610,13 @@ def sync_notion(
     since: str | None = None,
     dry_run: bool = False,
     force: bool = False,
+    space_id: str | None = None,
     on_progress: Any = None,
 ) -> dict[str, Any]:
     """Run the full Notion sync pipeline.
+
+    Args:
+        space_id: Explicit Notion workspace ID. Falls back to env var / auto-detection.
 
     Returns dict with keys: total, created, updated, skipped, dry_run (if applicable).
     """
@@ -603,7 +632,7 @@ def sync_notion(
 
     # Get workspace and user info
     user_id = client.get_current_user_id()
-    space_id = client.get_space_id()
+    space_id = space_id or client.get_space_id()
     _log(f"User: {user_id}, Space: {space_id}")
 
     # Load sync state

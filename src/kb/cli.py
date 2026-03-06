@@ -2789,9 +2789,17 @@ def sync_notion_cmd(since: str | None, dry_run: bool, force: bool, no_index: boo
     """Sync meetings from Notion AI Meeting Notes."""
     from kb.dateparse import resolve_since
     from kb.sync.notion import sync_notion as do_sync
+    from kb.user_config import find_config, load_config
 
     project_root = _find_project_root()
     data_dir = _get_data_dir()
+
+    # Load space_id from config if available
+    space_id: str | None = None
+    config_path = find_config()
+    if config_path is not None:
+        cfg = load_config(config_path)
+        space_id = cfg.sync.notion.space_id
 
     result = do_sync(
         project_root=project_root,
@@ -2799,6 +2807,7 @@ def sync_notion_cmd(since: str | None, dry_run: bool, force: bool, no_index: boo
         since=resolve_since(since),
         dry_run=dry_run,
         force=force,
+        space_id=space_id,
         on_progress=lambda msg: click.echo(msg, err=True),
     )
 
