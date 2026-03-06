@@ -63,7 +63,8 @@ src/kb/|root: ./src/kb
 |indexer.py — orchestrates: walk → chunk → embed → store → link entities
 |search.py — hybrid search: FTS5 + vector + RRF fusion + recency weighting
 |embeddings.py — Qwen3-Embedding-0.6B (MLX on Apple Silicon, PyTorch fallback)
-|entities.py — entity seeding from memory/ + regex-based mention linking
+|entities.py — entity seeding from memory/ + regex-based mention linking + source-ID linking
+|matching.py — task-to-project matching (TypedDicts: TaskInput, ProjectInput) + sources extraction/formatting
 |chunker.py — markdown-aware chunking (notes by ##, transcripts by ¶)
 |context.py — compressed entity index for AI agents
 |output.py — render pipeline (table/json/jsonl/csv + fields + jq)

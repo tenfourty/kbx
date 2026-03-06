@@ -100,6 +100,20 @@ kb entity list --type person         # filter
 kb entity list --json
 ```
 
+### project create / edit
+
+```bash
+kb project create "My Project" --status Active --lead "Wren Smith"
+kb project create "My Project" --source "slack:channel=C123,name=#my-channel"
+kb project create "My Project" --source "linear:https://linear.app/project/123"
+
+kb project edit "My Project" --source "jira:key=GG-1234"   # append source
+kb project edit "My Project" --remove-source slack          # remove all slack sources
+kb project edit "My Project" --remove-source "linear:PRJ-123"  # remove specific source
+```
+
+**Sources schema:** Projects support a `sources:` list in YAML frontmatter for linking to external systems. Each entry requires a `type` key; all other keys are free-form. Source IDs (`id`, `key`, `channel`) are automatically used for entity linking via `src:`-prefixed aliases.
+
 ### index run
 
 ```bash
