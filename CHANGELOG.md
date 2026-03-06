@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.31](https://github.com/tenfourty/kbx/compare/kbx-v0.1.30...kbx-v0.1.31) (2026-03-06)
+
+
+### Features
+
+* add sources: schema, CLI, and display for project entities ([92e64aa](https://github.com/tenfourty/kbx/commit/92e64aa6f2929b492d263292dc98e13ac08d999b))
+* entity linking via source IDs (Phase 4) ([25addde](https://github.com/tenfourty/kbx/commit/25addde3000477962c79ebbdc531d6e7cdf3cf54))
+
+
+### Documentation
+
+* update CLAUDE.md and docs for source linking and matching.py ([2420a08](https://github.com/tenfourty/kbx/commit/2420a08b891a7dc3b5268f6f4c3587d6e6da1432))
+
 ## [0.1.30](https://github.com/tenfourty/kbx/compare/kbx-v0.1.29...kbx-v0.1.30) (2026-03-06)
 
 
