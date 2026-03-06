@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.30](https://github.com/tenfourty/kbx/compare/kbx-v0.1.29...kbx-v0.1.30) (2026-03-06)
+
+
+### Features
+
+* extract task-matching into matching.py with word-boundary fix ([8ecd25a](https://github.com/tenfourty/kbx/commit/8ecd25a963fbf9ecc4e4b8201cffec9d6fd1c8a2))
+
 ## [0.1.29](https://github.com/tenfourty/kbx/compare/kbx-v0.1.28...kbx-v0.1.29) (2026-03-06)
 
 
