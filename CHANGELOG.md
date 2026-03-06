@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.29](https://github.com/tenfourty/kbx/compare/kbx-v0.1.28...kbx-v0.1.29) (2026-03-06)
+
+
+### Features
+
+* improve Granola push — ydoc CRDT support, idempotency, formatting ([e1870d5](https://github.com/tenfourty/kbx/commit/e1870d52f99c8b5e4ab47852732f7be5bbd7ddf3))
+
 ## [0.1.28](https://github.com/tenfourty/kbx/compare/kbx-v0.1.27...kbx-v0.1.28) (2026-03-03)
 
 
