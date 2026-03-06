@@ -898,8 +898,14 @@ def build_frontmatter(
 
     Also handles the simpler mock format from tests (metadata with 'people' list).
     """
-    created = doc.get("created_at", "")
-    date = created[:10] if created else ""
+    # Prefer calendar event start time for date (consistent across devices),
+    # fall back to created_at if no calendar event is attached.
+    gcal_start = (doc.get("google_calendar_event") or {}).get("start", {}).get("dateTime", "")
+    if gcal_start:
+        date = gcal_start[:10]
+    else:
+        created = doc.get("created_at", "")
+        date = created[:10] if created else ""
 
     # Extract attendees — try doc.people.attendees first (real API),
     # then metadata.people (test mocks), then metadata.attendees
@@ -1052,18 +1058,21 @@ def _find_existing_by_id(out_dir: Path, id_prefix: str) -> str | None:
 
     Scans .notes.md files for matching id_prefix in both old and new patterns:
     - Old: {Title}_{id_prefix}.notes.md
-    - New: {id_prefix}_{Title}.granola.notes.md
+    - New: {id_prefix}_{Title}.granola.notes.md (or .granola-mic.notes.md)
 
-    Returns the base name (without .notes.md or .granola.notes.md) if found,
-    else None.
+    Returns the base name (without .notes.md / .granola.notes.md / .granola-mic.notes.md)
+    if found, else None.
     """
     if not out_dir.exists():
         return None
-    # New pattern: {id_prefix}_{Title}.granola.notes.md
+    # New patterns: {id_prefix}_{Title}.granola.notes.md or .granola-mic.notes.md
     new_prefix = f"{id_prefix}_"
     for f in out_dir.iterdir():
-        if f.name.startswith(new_prefix) and f.name.endswith(".granola.notes.md"):
-            return f.name[: -len(".granola.notes.md")]
+        if f.name.startswith(new_prefix):
+            if f.name.endswith(".granola.notes.md"):
+                return f.name[: -len(".granola.notes.md")]
+            if f.name.endswith(".granola-mic.notes.md"):
+                return f.name[: -len(".granola-mic.notes.md")]
     # Old pattern: {Title}_{id_prefix}.notes.md
     old_suffix = f"_{id_prefix}.notes.md"
     for f in out_dir.iterdir():
@@ -1119,8 +1128,16 @@ def write_meeting(
     project_root: Path,
     force: bool = False,
     summary_md: str = "",
+    variant: str | None = None,
 ) -> dict[str, Any]:
     """Write meeting files to the organised directory.
+
+    Args:
+        variant: Optional recording variant suffix. When multiple Granola
+            recordings exist for the same meeting (e.g. Mac mic + phone
+            AssemblyAI), the secondary recording uses ``variant="mic"``
+            to produce ``.granola-mic.notes.md`` etc.  The primary
+            (best-quality) recording uses ``variant=None``.
 
     Returns dict with:
         notes_path: Path to written notes file
@@ -1130,8 +1147,13 @@ def write_meeting(
     """
     date = frontmatter.get("date", "")
     if not date:
-        created = doc.get("created_at", "")
-        date = created[:10] if created else "unknown"
+        # Prefer calendar event start, fall back to created_at
+        gcal_start = (doc.get("google_calendar_event") or {}).get("start", {}).get("dateTime", "")
+        if gcal_start:
+            date = gcal_start[:10]
+        else:
+            created = doc.get("created_at", "")
+            date = created[:10] if created else "unknown"
 
     # Build output directory: memory/meetings/YYYY/MM/DD/
     parts = date.split("-")
@@ -1171,9 +1193,10 @@ def write_meeting(
     else:
         base_name = new_base
 
-    notes_path = out_dir / f"{base_name}.granola.notes.md"
-    transcript_path = out_dir / f"{base_name}.granola.transcript.md"
-    summary_path = out_dir / f"{base_name}.granola.ai-summary.md"
+    source_tag = f"granola-{variant}" if variant else "granola"
+    notes_path = out_dir / f"{base_name}.{source_tag}.notes.md"
+    transcript_path = out_dir / f"{base_name}.{source_tag}.transcript.md"
+    summary_path = out_dir / f"{base_name}.{source_tag}.ai-summary.md"
 
     # Build full file content
     fm_yaml = _frontmatter_to_yaml(frontmatter)
@@ -1247,8 +1270,13 @@ def _should_skip_early(doc: dict[str, Any], project_root: Path) -> bool:
     Compares doc['updated_at'] against the stored granola_updated_at
     in the existing notes file. Returns True if we can safely skip.
     """
-    created = doc.get("created_at", "")
-    date = created[:10] if created else ""
+    # Use calendar event start for date (matches build_frontmatter logic)
+    gcal_start = (doc.get("google_calendar_event") or {}).get("start", {}).get("dateTime", "")
+    if gcal_start:
+        date = gcal_start[:10]
+    else:
+        created = doc.get("created_at", "")
+        date = created[:10] if created else ""
     if not date:
         return False
 
@@ -1258,15 +1286,26 @@ def _should_skip_early(doc: dict[str, Any], project_root: Path) -> bool:
     year, month, day = parts
 
     out_dir = project_root / "memory" / "meetings" / year / month / day
+
+    # Prefer calendar_uid[:8] for lookup (matches _make_filename), fall back to granola_id
+    gcal = doc.get("google_calendar_event") or {}
+    cal_uid = gcal.get("iCalUID") or gcal.get("id") or ""
     granola_id = doc.get("id", "unknown")
-    id_prefix = granola_id[:8] if len(granola_id) >= 8 else granola_id
+    uid = cal_uid if cal_uid else granola_id
+    id_prefix = uid[:8] if len(uid) >= 8 else uid
 
     existing_base = _find_existing_by_id(out_dir, id_prefix)
+    if not existing_base and cal_uid:
+        # Also try granola_id prefix as fallback (pre-migration files)
+        gid_prefix = granola_id[:8] if len(granola_id) >= 8 else granola_id
+        existing_base = _find_existing_by_id(out_dir, gid_prefix)
     if not existing_base:
         return False
 
-    # Check both new and old extension patterns
+    # Check new patterns (including -mic variant), then old pattern
     notes_path = out_dir / f"{existing_base}.granola.notes.md"
+    if not notes_path.exists():
+        notes_path = out_dir / f"{existing_base}.granola-mic.notes.md"
     if not notes_path.exists():
         notes_path = out_dir / f"{existing_base}.notes.md"
     if not notes_path.exists():
@@ -1282,6 +1321,60 @@ def _write_file(path: Path, content: str) -> None:
     """Write content to file, creating parent directories."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Calendar UID normalisation
+# ---------------------------------------------------------------------------
+
+_RECURRING_SUFFIX = re.compile(r"_R?\d{8}T\d{6}Z?$")
+
+
+def _normalise_calendar_uid(uid: str) -> str:
+    """Normalise a Google Calendar iCalUID for duplicate grouping.
+
+    Google Calendar returns different UID formats for the same event:
+    - Single:    ``abc123@google.com``
+    - Bare:      ``abc123``
+    - Recurring: ``abc123_20260305T083000Z``
+    - Recurring: ``abc123_R20260108T083000@google.com``
+
+    This strips the ``@google.com`` suffix and recurring-instance timestamp
+    suffix so that all variants of the same base event match.
+    """
+    # Strip @google.com (or any @domain)
+    at_idx = uid.find("@")
+    if at_idx >= 0:
+        uid = uid[:at_idx]
+    # Strip recurring-event instance suffix (_YYYYMMDDTHHMMSSZ or _RYYYYMMDDTHHMMSS)
+    uid = _RECURRING_SUFFIX.sub("", uid)
+    return uid
+
+
+# ---------------------------------------------------------------------------
+# Transcript classification
+# ---------------------------------------------------------------------------
+
+
+def classify_transcript(segments: list[dict[str, Any]]) -> str | None:
+    """Classify transcript segments by recording source.
+
+    Returns:
+        None — primary transcript (AssemblyAI with speaker diarisation).
+        "mic" — local microphone recording (Me/System labels, no speaker
+                 diarisation) or empty recording.  Used as a variant suffix
+                 when a better transcript also exists for the same meeting.
+
+    Detection: if ANY segment has a ``speaker`` field, it's AssemblyAI (primary).
+    Empty segments or segments with only ``source`` (microphone/system) → mic.
+    """
+    if not segments:
+        return "mic"  # Empty recording — always secondary
+    for seg in segments:
+        if seg.get("speaker"):
+            return None  # AssemblyAI — primary quality
+    # Only source-based labels (microphone/system) → mic recording
+    return "mic"
 
 
 # ---------------------------------------------------------------------------
@@ -1561,6 +1654,43 @@ def sync_granola(
     docs = client.list_documents(since=effective_since)
     _log(f"Found {len(docs)} documents.")
 
+    # Build calendar_uid duplication index — when multiple docs share a
+    # normalised calendar_uid (Mac mic + phone AssemblyAI), the mic
+    # recording gets written as a "-mic" variant alongside the primary.
+    # UIDs are normalised to handle Google Calendar format variations
+    # (bare vs @google.com, recurring instance suffixes).
+    from collections import Counter
+
+    _cal_uid_counts: Counter[str] = Counter()
+    _cal_uid_start: dict[str, str] = {}  # normalised_uid → best start dateTime
+    for doc in docs:
+        gcal = doc.get("google_calendar_event") or {}
+        cal_uid = gcal.get("iCalUID") or gcal.get("id") or ""
+        if cal_uid:
+            norm = _normalise_calendar_uid(cal_uid)
+            _cal_uid_counts[norm] += 1
+            start = gcal.get("start", {}).get("dateTime", "")
+            if start and norm not in _cal_uid_start:
+                _cal_uid_start[norm] = start
+    _duplicate_uids = {uid for uid, count in _cal_uid_counts.items() if count > 1}
+    if _duplicate_uids:
+        _log(f"  {len(_duplicate_uids)} meetings with multiple recordings.")
+
+    # Propagate calendar event start time to docs missing it.
+    # Some Granola recordings (Mac app) have calendar_uid but no start/end
+    # times — use the start time from a sibling doc in the same group.
+    for doc in docs:
+        gcal = doc.get("google_calendar_event") or {}
+        cal_uid = gcal.get("iCalUID") or gcal.get("id") or ""
+        if not cal_uid:
+            continue
+        start = gcal.get("start", {}).get("dateTime", "")
+        if not start:
+            norm = _normalise_calendar_uid(cal_uid)
+            sibling_start = _cal_uid_start.get(norm)
+            if sibling_start:
+                gcal.setdefault("start", {})["dateTime"] = sibling_start
+
     if dry_run:
         _log("Dry run — not writing files.")
         return {"total": len(docs), "created": 0, "updated": 0, "skipped": 0, "dry_run": True}
@@ -1568,6 +1698,10 @@ def sync_granola(
     created = 0
     updated = 0
     skipped = 0
+    # Track which normalised UIDs already have their primary slot written.
+    # AssemblyAI always claims primary; first mic recording claims primary
+    # if no AssemblyAI exists; subsequent mic recordings get "-mic" variant.
+    _primary_claimed: set[str] = set()
 
     for i, doc in enumerate(docs):
         doc_id = doc["id"]
@@ -1582,6 +1716,29 @@ def sync_granola(
 
         # Fetch transcript (separate API call needed)
         transcript_segments = client.get_transcript(doc_id)
+
+        # Determine variant for multi-recording meetings:
+        # - AssemblyAI transcript → always primary (.granola.), overwrites mic
+        # - First mic/empty recording → primary if no AssemblyAI seen yet
+        # - Subsequent mic/empty recording → variant (.granola-mic.)
+        # For single-recording meetings, variant is always None (primary).
+        gcal = doc.get("google_calendar_event") or {}
+        cal_uid = gcal.get("iCalUID") or gcal.get("id") or ""
+        variant: str | None = None
+        if cal_uid and _normalise_calendar_uid(cal_uid) in _duplicate_uids:
+            norm = _normalise_calendar_uid(cal_uid)
+            classification = classify_transcript(transcript_segments)
+            if classification is None:
+                # AssemblyAI — always primary
+                variant = None
+                _primary_claimed.add(norm)
+            elif norm not in _primary_claimed:
+                # First mic recording and no AssemblyAI seen yet — claim primary
+                variant = None
+                _primary_claimed.add(norm)
+            else:
+                # Primary already taken — this is the secondary recording
+                variant = "mic"
 
         # Extract notes content — prefer notes_markdown, fall back to ProseMirror
         notes_md = doc.get("notes_markdown") or ""
@@ -1599,7 +1756,14 @@ def sync_granola(
 
         # Write files
         result = write_meeting(
-            doc, fm, notes_md, transcript_md, project_root, force=force, summary_md=panel_md
+            doc,
+            fm,
+            notes_md,
+            transcript_md,
+            project_root,
+            force=force,
+            summary_md=panel_md,
+            variant=variant,
         )
 
         if result["status"] == "created":

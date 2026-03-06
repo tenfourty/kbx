@@ -488,6 +488,121 @@ class TestBuildFrontmatter:
         fm = build_frontmatter(doc, {})
         assert "calendar_uid" not in fm
 
+    def test_date_from_calendar_event_start(self):
+        """Date is derived from calendar event start, not created_at."""
+        from kb.sync.granola import build_frontmatter
+
+        doc = {
+            "id": "doc-1",
+            "title": "Test",
+            "created_at": "2026-03-04T22:00:00Z",
+            "updated_at": "2026-03-05T10:30:00Z",
+            "google_calendar_event": {
+                "summary": "Test",
+                "iCalUID": "abc123@google.com",
+                "organizer": {"email": "a@example.com"},
+                "start": {"dateTime": "2026-03-05T10:00:00+01:00"},
+                "end": {"dateTime": "2026-03-05T10:30:00+01:00"},
+            },
+        }
+        fm = build_frontmatter(doc, {})
+        # Should use calendar start (Mar 5), NOT created_at (Mar 4)
+        assert fm["date"] == "2026-03-05"
+
+    def test_date_falls_back_to_created_at(self):
+        """Date falls back to created_at when no calendar event."""
+        from kb.sync.granola import build_frontmatter
+
+        doc = {
+            "id": "doc-1",
+            "title": "Test",
+            "created_at": "2026-03-04T22:00:00Z",
+            "updated_at": "2026-03-05T10:30:00Z",
+        }
+        fm = build_frontmatter(doc, {})
+        assert fm["date"] == "2026-03-04"
+
+
+class TestNormaliseCalendarUid:
+    def test_strips_google_com(self):
+        from kb.sync.granola import _normalise_calendar_uid
+
+        assert _normalise_calendar_uid("abc123@google.com") == "abc123"
+
+    def test_bare_uid_unchanged(self):
+        from kb.sync.granola import _normalise_calendar_uid
+
+        assert _normalise_calendar_uid("abc123") == "abc123"
+
+    def test_strips_recurring_timestamp(self):
+        from kb.sync.granola import _normalise_calendar_uid
+
+        assert (
+            _normalise_calendar_uid("cg3f4m6mmiq5ebpbaetrlbj0v1_20260305T083000Z")
+            == "cg3f4m6mmiq5ebpbaetrlbj0v1"
+        )
+
+    def test_strips_recurring_r_prefix_and_google_com(self):
+        from kb.sync.granola import _normalise_calendar_uid
+
+        assert (
+            _normalise_calendar_uid("cg3f4m6mmiq5ebpbaetrlbj0v1_R20260108T083000@google.com")
+            == "cg3f4m6mmiq5ebpbaetrlbj0v1"
+        )
+
+    def test_both_variants_match(self):
+        """Two UIDs for the same recurring event normalise to the same value."""
+        from kb.sync.granola import _normalise_calendar_uid
+
+        a = _normalise_calendar_uid("mfvcv93lenon8i0ckjtokt4o88_20260305T123000Z")
+        b = _normalise_calendar_uid("mfvcv93lenon8i0ckjtokt4o88_R20260108T083000@google.com")
+        assert a == b == "mfvcv93lenon8i0ckjtokt4o88"
+
+    def test_simple_with_and_without_google_com(self):
+        from kb.sync.granola import _normalise_calendar_uid
+
+        a = _normalise_calendar_uid("7jap9887fcnj5ru93b6ulntsa5")
+        b = _normalise_calendar_uid("7jap9887fcnj5ru93b6ulntsa5@google.com")
+        assert a == b
+
+
+class TestClassifyTranscript:
+    def test_assemblyai_returns_none(self):
+        """AssemblyAI transcript (has speaker field) → primary (None)."""
+        from kb.sync.granola import classify_transcript
+
+        segments = [
+            {"speaker": "Speaker A", "text": "Hello"},
+            {"speaker": "Speaker B", "text": "Hi there"},
+        ]
+        assert classify_transcript(segments) is None
+
+    def test_mic_returns_mic(self):
+        """Microphone recording (source field, no speaker) → 'mic'."""
+        from kb.sync.granola import classify_transcript
+
+        segments = [
+            {"source": "microphone", "text": "Hello"},
+            {"source": "system", "text": "Hi there"},
+        ]
+        assert classify_transcript(segments) == "mic"
+
+    def test_empty_returns_mic(self):
+        """Empty segments → secondary (mic) — never primary."""
+        from kb.sync.granola import classify_transcript
+
+        assert classify_transcript([]) == "mic"
+
+    def test_mixed_prefers_assemblyai(self):
+        """If any segment has speaker field, treat as AssemblyAI."""
+        from kb.sync.granola import classify_transcript
+
+        segments = [
+            {"source": "microphone", "text": "Hello"},
+            {"speaker": "Speaker A", "text": "Hi there"},
+        ]
+        assert classify_transcript(segments) is None
+
 
 class TestFindExistingById:
     def test_find_old_pattern(self, tmp_dir):
@@ -763,6 +878,61 @@ class TestWriteMeeting:
         assert result["notes_path"].name.endswith(".granola.notes.md")
         assert result["transcript_path"].name.endswith(".granola.transcript.md")
         assert result["status"] == "updated"
+
+    def test_write_meeting_mic_variant(self, tmp_dir):
+        """variant='mic' produces .granola-mic. suffixed files."""
+        from kb.sync.granola import write_meeting
+
+        doc = {
+            "id": "aabb1122",
+            "title": "Weekly 1:1",
+            "created_at": "2026-01-27T15:00:00Z",
+            "updated_at": "2026-01-27T16:30:00Z",
+        }
+        frontmatter = {
+            "title": "Weekly 1:1",
+            "date": "2026-01-27",
+            "type": "notes",
+            "granola_id": "aabb1122",
+            "granola_updated_at": "2026-01-27T16:30:00Z",
+            "tags": [],
+            "attendees": [],
+        }
+        result = write_meeting(doc, frontmatter, "# Notes", "transcript", tmp_dir, variant="mic")
+        assert result["notes_path"].name.endswith(".granola-mic.notes.md")
+        assert result["transcript_path"].name.endswith(".granola-mic.transcript.md")
+        assert result["notes_path"].exists()
+        assert result["transcript_path"].exists()
+
+    def test_write_meeting_both_variants(self, tmp_dir):
+        """Primary and mic variant coexist in the same directory."""
+        from kb.sync.granola import write_meeting
+
+        doc = {
+            "id": "aabb1122",
+            "title": "Weekly 1:1",
+            "created_at": "2026-01-27T15:00:00Z",
+            "updated_at": "2026-01-27T16:30:00Z",
+        }
+        fm = {
+            "title": "Weekly 1:1",
+            "date": "2026-01-27",
+            "type": "notes",
+            "granola_id": "aabb1122",
+            "granola_updated_at": "2026-01-27T16:30:00Z",
+            "tags": [],
+            "attendees": [],
+        }
+        # Write primary (assemblyai)
+        primary = write_meeting(doc, fm, "# AssemblyAI notes", "Speaker A: Hi", tmp_dir)
+        # Write mic variant
+        mic = write_meeting(doc, fm, "# Mic notes", "Me: Hi", tmp_dir, variant="mic")
+
+        assert primary["notes_path"].exists()
+        assert mic["notes_path"].exists()
+        assert primary["notes_path"] != mic["notes_path"]
+        assert ".granola.notes.md" in primary["notes_path"].name
+        assert ".granola-mic.notes.md" in mic["notes_path"].name
 
 
 class TestExtractNotesContent:

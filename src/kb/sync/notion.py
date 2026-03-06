@@ -410,7 +410,14 @@ def build_frontmatter(
 ) -> dict[str, Any]:
     """Build YAML frontmatter dict from Notion meeting data."""
     dt = datetime.fromtimestamp(last_edited_time / 1000, tz=timezone.utc)
-    date = dt.strftime("%Y-%m-%d")
+
+    # Prefer calendar event start time for date (consistent with Granola sync),
+    # fall back to last_edited_time if no calendar event is attached.
+    cal_start = (calendar_event or {}).get("startTime", "")
+    if cal_start:
+        date = cal_start[:10]
+    else:
+        date = dt.strftime("%Y-%m-%d")
 
     tags: list[str] = []
     for a in attendees or []:

@@ -406,6 +406,36 @@ class TestFrontmatterAndWrite:
         assert fm["calendar_event"]["scheduled_start"] == "2026-02-23T10:00:00.000+01:00"
         assert "Wren" in fm["tags"]
 
+    def test_date_from_calendar_event_start(self) -> None:
+        """Date is derived from calendar event startTime, not last_edited_time."""
+        from kb.sync.notion import build_frontmatter
+
+        # last_edited_time → 2026-02-24 UTC, but calendar start → 2026-02-23
+        fm = build_frontmatter(
+            title="Test",
+            page_id="page-1",
+            last_edited_time=1771968000000,  # 2026-02-25 UTC
+            calendar_event={
+                "uid": "uid@google.com",
+                "startTime": "2026-02-23T10:00:00.000+01:00",
+                "endTime": "2026-02-23T10:30:00.000+01:00",
+            },
+        )
+        assert fm["date"] == "2026-02-23"
+
+    def test_date_falls_back_to_last_edited(self) -> None:
+        """Date falls back to last_edited_time when no calendar event."""
+        from kb.sync.notion import build_frontmatter
+
+        fm = build_frontmatter(
+            title="Test",
+            page_id="page-1",
+            last_edited_time=1771881551056,
+        )
+        # Should fall back to last_edited_time date
+        assert fm["date"] is not None
+        assert len(fm["date"]) == 10  # YYYY-MM-DD format
+
     def test_make_filename_with_calendar_uid(self) -> None:
         """Filename uses calendar UID prefix when available."""
         from kb.sync.notion import make_filename
