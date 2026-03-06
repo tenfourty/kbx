@@ -178,3 +178,48 @@ class TestDateparseEdgeCases:
         # Just verify it returns a valid date regardless
         result = _months_ago(1)
         date.fromisoformat(result)
+
+
+class TestResolveSince:
+    def test_none_returns_none(self):
+        from kb.dateparse import resolve_since
+
+        assert resolve_since(None) is None
+
+    def test_iso_date_passthrough(self):
+        from kb.dateparse import resolve_since
+
+        assert resolve_since("2026-03-01") == "2026-03-01"
+
+    def test_7d_resolves_to_iso(self):
+        from kb.dateparse import resolve_since
+
+        result = resolve_since("7d")
+        assert result == (date.today() - timedelta(days=7)).isoformat()
+
+    def test_2w_resolves_to_iso(self):
+        from kb.dateparse import resolve_since
+
+        result = resolve_since("2w")
+        assert result == (date.today() - timedelta(days=14)).isoformat()
+
+    def test_3m_resolves_to_iso(self):
+        from kb.dateparse import resolve_since
+
+        result = resolve_since("3m")
+        assert result is not None
+        date.fromisoformat(result)  # valid ISO date
+
+    def test_uppercase_7D(self):
+        from kb.dateparse import resolve_since
+
+        result = resolve_since("7D")
+        assert result == (date.today() - timedelta(days=7)).isoformat()
+
+    def test_invalid_raises(self):
+        import pytest
+
+        from kb.dateparse import resolve_since
+
+        with pytest.raises(Exception, match="Unrecognised --since format"):
+            resolve_since("banana")

@@ -2735,7 +2735,9 @@ def sync(ctx: click.Context) -> None:
 
 
 @sync.command("granola")
-@click.option("--since", default=None, help="Sync documents since date (YYYY-MM-DD).")
+@click.option(
+    "--since", default=None, help="Sync since date (YYYY-MM-DD or shorthand: 7d, 2w, 3m)."
+)
 @click.option("--dry-run", is_flag=True, help="Preview only, no file writes.")
 @click.option("--force", is_flag=True, help="Overwrite files even if timestamps match.")
 @click.option("--no-index", is_flag=True, help="Skip indexing after sync.")
@@ -2748,6 +2750,7 @@ def sync_granola(
     """Sync meetings from Granola API."""
     from pathlib import Path as P
 
+    from kb.dateparse import resolve_since
     from kb.sync.granola import sync_granola as do_sync
 
     project_root = _find_project_root()
@@ -2758,7 +2761,7 @@ def sync_granola(
     result = do_sync(
         project_root=project_root,
         data_dir=data_dir,
-        since=since,
+        since=resolve_since(since),
         dry_run=dry_run,
         force=force,
         token_path=tp,
@@ -2776,12 +2779,15 @@ def sync_granola(
 
 
 @sync.command("notion")
-@click.option("--since", default=None, help="Sync documents since date (YYYY-MM-DD).")
+@click.option(
+    "--since", default=None, help="Sync since date (YYYY-MM-DD or shorthand: 7d, 2w, 3m)."
+)
 @click.option("--dry-run", is_flag=True, help="Preview only, no file writes.")
 @click.option("--force", is_flag=True, help="Overwrite files even if timestamps match.")
 @click.option("--no-index", is_flag=True, help="Skip indexing after sync.")
 def sync_notion_cmd(since: str | None, dry_run: bool, force: bool, no_index: bool) -> None:
     """Sync meetings from Notion AI Meeting Notes."""
+    from kb.dateparse import resolve_since
     from kb.sync.notion import sync_notion as do_sync
 
     project_root = _find_project_root()
@@ -2790,7 +2796,7 @@ def sync_notion_cmd(since: str | None, dry_run: bool, force: bool, no_index: boo
     result = do_sync(
         project_root=project_root,
         data_dir=data_dir,
-        since=since,
+        since=resolve_since(since),
         dry_run=dry_run,
         force=force,
         on_progress=lambda msg: click.echo(msg, err=True),

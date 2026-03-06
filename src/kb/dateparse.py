@@ -154,3 +154,50 @@ def extract_date_filters(query: str) -> tuple[str, str | None, str | None]:
         return cleaned.strip(), from_d, None
 
     return query, None, None
+
+
+# ---------------------------------------------------------------------------
+# Compact relative-date resolver for CLI --since flags
+# ---------------------------------------------------------------------------
+
+# Matches shorthand like "7d", "2w", "3m" (days, weeks, months)
+_SHORTHAND_RE = re.compile(r"^(\d+)\s*([dwm])$", re.IGNORECASE)
+
+
+def resolve_since(value: str | None) -> str | None:
+    """Resolve a --since value to an ISO date string (YYYY-MM-DD).
+
+    Accepts:
+    - ISO dates: "2026-03-01" → returned as-is
+    - Shorthand: "7d" (days), "2w" (weeks), "3m" (months)
+
+    Returns None if value is None.
+    Raises click.BadParameter (if click is available) or ValueError for
+    unrecognised formats.
+    """
+    if value is None:
+        return None
+
+    # Already ISO date?
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        return value
+
+    m = _SHORTHAND_RE.match(value)
+    if m:
+        n = int(m.group(1))
+        unit = m.group(2).lower()
+        if unit == "d":
+            return _days_ago(n)
+        if unit == "w":
+            return _days_ago(n * 7)
+        if unit == "m":
+            return _months_ago(n)
+
+    # Not recognised — raise a helpful error
+    msg = f"Unrecognised --since format: {value!r}. Use YYYY-MM-DD or shorthand (7d, 2w, 3m)."
+    try:
+        import click
+
+        raise click.BadParameter(msg)
+    except ImportError:
+        raise ValueError(msg) from None
