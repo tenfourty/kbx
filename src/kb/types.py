@@ -231,6 +231,7 @@ class EntitySummary(StrictFrozen):
     id: int
     name: str
     entity_type: str
+    aliases: list[str] = []
     metadata: dict[str, Any]
     mention_count: int
     pinned: bool

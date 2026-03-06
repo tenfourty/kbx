@@ -17,7 +17,7 @@ import json
 import os
 import sqlite3
 import tempfile
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from kb.db import Database
 from kb.types import (
@@ -175,13 +175,14 @@ class KnowledgeBase:
         conn = self._get_conn()
         if entity_type:
             rows = conn.execute(
-                "SELECT id, name, entity_type, metadata, pinned"
+                "SELECT id, name, entity_type, aliases, metadata, pinned"
                 " FROM entities WHERE entity_type = ? ORDER BY name",
                 (entity_type,),
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT id, name, entity_type, metadata, pinned FROM entities ORDER BY name"
+                "SELECT id, name, entity_type, aliases, metadata, pinned"
+                " FROM entities ORDER BY name"
             ).fetchall()
 
         mention_map = self._mention_counts(conn, [r["id"] for r in rows])
@@ -191,6 +192,7 @@ class KnowledgeBase:
                 id=r["id"],
                 name=r["name"],
                 entity_type=r["entity_type"],
+                aliases=json.loads(r["aliases"]) if r["aliases"] else [],
                 metadata=json.loads(r["metadata"]) if r["metadata"] else {},
                 mention_count=mention_map.get(r["id"], 0),
                 pinned=bool(r["pinned"]),
@@ -199,6 +201,46 @@ class KnowledgeBase:
         ]
         results.sort(key=lambda e: (not e.pinned, e.name.lower()))
         return results
+
+    def match_tasks_to_projects(
+        self,
+        tasks: list[dict[str, Any]],
+        *,
+        min_keyword_len: int = 4,
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Match tasks to projects using the two-tier algorithm.
+
+        Loads project entities from the DB, converts to ``ProjectInput`` dicts,
+        delegates to ``matching.match_tasks_to_projects()``.
+
+        Parameters
+        ----------
+        tasks:
+            ``TaskInput``-shaped dicts with ``title`` and optional ``description``.
+        min_keyword_len:
+            Word-boundary threshold (see ``matching`` module docs).
+
+        Returns
+        -------
+        ``{project_name: [matched_tasks]}``
+        """
+        from typing import cast
+
+        from kb.matching import ProjectInput, TaskInput
+        from kb.matching import match_tasks_to_projects as _match
+
+        projects = self.list_entities(entity_type="project")
+        project_dicts = [
+            ProjectInput(
+                name=p.name,
+                aliases=p.aliases,
+                metadata=p.metadata,
+            )
+            for p in projects
+        ]
+        task_inputs = cast("list[TaskInput]", tasks)
+        result = _match(project_dicts, task_inputs, min_keyword_len=min_keyword_len)
+        return cast("dict[str, list[dict[str, Any]]]", result)
 
     def get_entity(self, name: str) -> EntityDetail | None:
         """Get full entity detail by name (case-insensitive, supports aliases).
@@ -260,6 +302,7 @@ class KnowledgeBase:
                 id=r["id"],
                 name=r["name"],
                 entity_type=r["entity_type"],
+                aliases=json.loads(r["aliases"]) if r["aliases"] else [],
                 metadata=json.loads(r["metadata"]) if r["metadata"] else {},
                 mention_count=mention_map.get(r["id"], 0),
                 pinned=bool(r["pinned"]),
