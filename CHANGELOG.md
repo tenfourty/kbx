@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.32](https://github.com/tenfourty/kbx/compare/kbx-v0.1.31...kbx-v0.1.32) (2026-03-06)
+
+
+### Features
+
+* make Notion space_id configurable via kbx.toml ([25e3af9](https://github.com/tenfourty/kbx/commit/25e3af98aeae8a0348c37f209aff5118f33899ac))
+
+
+### Bug Fixes
+
+* resolve relative date shorthand in sync commands ([9f95ba6](https://github.com/tenfourty/kbx/commit/9f95ba60f91656002c14a9e39fa47d78121c6755))
+
 ## [0.1.31](https://github.com/tenfourty/kbx/compare/kbx-v0.1.30...kbx-v0.1.31) (2026-03-06)
 
 
