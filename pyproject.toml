@@ -1,6 +1,6 @@
 [project]
 name = "kbx"
-version = "0.1.32"
+version = "0.1.33"
 description = "Local knowledge base CLI — hybrid search over markdown files with AI embeddings"
 readme = "README.md"
 license = {text = "Apache-2.0"}

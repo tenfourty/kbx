@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.33](https://github.com/tenfourty/kbx/compare/kbx-v0.1.32...kbx-v0.1.33) (2026-03-06)
+
+
+### Bug Fixes
+
+* use calendar event date for sync directory placement + multi-recording variant naming ([f4357df](https://github.com/tenfourty/kbx/commit/f4357dfce89698806b442f666afb5b3b93d74cb0))
+
 ## [0.1.32](https://github.com/tenfourty/kbx/compare/kbx-v0.1.31...kbx-v0.1.32) (2026-03-06)
 
 
