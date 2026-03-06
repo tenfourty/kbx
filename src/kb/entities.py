@@ -355,8 +355,18 @@ def seed_entities(db: Database, project_root: Path) -> int:
     # Source B: Projects from memory/projects/
     projects_dir = project_root / "memory" / "projects"
     if projects_dir.exists():
+        from kb.matching import extract_source_ids
+
         for f in sorted(projects_dir.glob("*.md")):
-            all_entities.append(_parse_project_file(f))
+            project_data = _parse_project_file(f)
+            # Add source IDs as src:-prefixed aliases for entity linking
+            source_ids = extract_source_ids(project_data.metadata)
+            if source_ids:
+                augmented_aliases = list(project_data.aliases) + [
+                    f"src:{sid}" for sid in source_ids
+                ]
+                project_data = project_data.model_copy(update={"aliases": augmented_aliases})
+            all_entities.append(project_data)
 
     # Source C: Company entity
     all_entities.append(
@@ -676,6 +686,16 @@ def find_entity_mentions(
             if re.search(rf"\b{re.escape(name)}\b", title_lower, re.IGNORECASE):
                 _add(entity.id, "title")
                 break  # one match per entity is enough
+
+    # 3.5. Source ID matching — unambiguous, case-sensitive substring check
+    for entity in entities:
+        for alias in entity.aliases:
+            if not alias.startswith("src:"):
+                continue
+            source_id = alias[4:]  # strip "src:" prefix
+            if source_id in content:
+                _add(entity.id, "source_ref")
+                break  # one source_ref match per entity is enough
 
     # 4. Content name matching with disambiguation
     if cached_patterns is None:

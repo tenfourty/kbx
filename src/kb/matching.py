@@ -290,6 +290,24 @@ def format_source(source: dict[str, Any]) -> str:
     return f"  {stype}: (no details)"
 
 
+def extract_source_ids(metadata: dict[str, Any]) -> list[str]:
+    """Extract matchable identifiers from sources metadata.
+
+    Extracts ``id``, ``key``, and ``channel`` values from source entries.
+    These are used as ``src:``-prefixed aliases for entity linking.
+
+    Returns deduplicated list of identifiers (>= 3 chars).
+    """
+    sources = extract_sources(metadata)
+    ids: list[str] = []
+    for source in sources:
+        for key in ("id", "key", "channel"):
+            val = source.get(key)
+            if val and isinstance(val, str) and len(val) >= 3:
+                ids.append(val)
+    return list(dict.fromkeys(ids))  # deduplicate, preserve order
+
+
 def parse_source_arg(raw: str) -> dict[str, str]:
     """Parse ``--source TYPE:SPEC`` into a source dict.
 

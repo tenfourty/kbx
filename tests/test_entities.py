@@ -961,3 +961,163 @@ class TestStripWikilinks:
 
         # Edge case: only strips [[...]], not single brackets
         assert strip_wikilinks("[not a link]") == "[not a link]"
+
+
+class TestSourceIdEntityLinking:
+    """Tests for source ID extraction, alias augmentation, and entity linking."""
+
+    def test_source_ids_added_as_aliases(self, tmp_path):
+        """Projects with sources should get src:-prefixed aliases after seeding."""
+        from kb.db import Database
+        from kb.entities import load_entities, seed_entities
+
+        projects = tmp_path / "memory" / "projects"
+        projects.mkdir(parents=True)
+        (projects / "ai-adoption.md").write_text(
+            "---\n"
+            "status: Active\n"
+            "sources:\n"
+            "- type: slack\n"
+            "  channel: C08HJC8MWQN\n"
+            '  name: "#proj-agentic"\n'
+            "- type: linear\n"
+            "  id: PRJ-123\n"
+            "---\n"
+            "# AI Adoption\n"
+        )
+        db = Database(tmp_path / "data")
+        seed_entities(db, tmp_path)
+        entities = load_entities(db)
+        project = next(e for e in entities if e.name == "AI Adoption")
+        assert "src:C08HJC8MWQN" in project.aliases
+        assert "src:PRJ-123" in project.aliases
+        db.close()
+
+    def test_short_source_ids_ignored(self, tmp_path):
+        """Source IDs shorter than 3 chars should not become aliases."""
+        from kb.db import Database
+        from kb.entities import load_entities, seed_entities
+
+        projects = tmp_path / "memory" / "projects"
+        projects.mkdir(parents=True)
+        (projects / "short-id.md").write_text(
+            "---\nstatus: Active\nsources:\n- type: custom\n  id: AB\n---\n# Short ID Project\n"
+        )
+        db = Database(tmp_path / "data")
+        seed_entities(db, tmp_path)
+        entities = load_entities(db)
+        project = next(e for e in entities if e.name == "Short ID Project")
+        assert not any(a.startswith("src:") for a in project.aliases)
+        db.close()
+
+    def test_source_id_entity_linking(self, tmp_path):
+        """Document mentioning a source ID should link to the project."""
+        from kb.db import Database
+        from kb.entities import find_entity_mentions, load_entities, seed_entities
+
+        projects = tmp_path / "memory" / "projects"
+        projects.mkdir(parents=True)
+        (projects / "my-project.md").write_text(
+            "---\n"
+            "status: Active\n"
+            "sources:\n"
+            "- type: slack\n"
+            "  channel: C08HJC8MWQN\n"
+            "---\n"
+            "# My Project\n"
+        )
+        db = Database(tmp_path / "data")
+        seed_entities(db, tmp_path)
+        entities = load_entities(db)
+
+        # Simulate a document that mentions the Slack channel ID
+        mentions = find_entity_mentions(
+            title="Weekly sync",
+            tags=[],
+            content="Discussion in C08HJC8MWQN about progress.",
+            entities=entities,
+        )
+        project = next(e for e in entities if e.name == "My Project")
+        project_mentions = [m for m in mentions if m.entity_id == project.id]
+        assert len(project_mentions) >= 1
+        db.close()
+
+    def test_source_ref_mention_type(self, tmp_path):
+        """Source ID match should produce mention_type='source_ref'."""
+        from kb.db import Database
+        from kb.entities import find_entity_mentions, load_entities, seed_entities
+
+        projects = tmp_path / "memory" / "projects"
+        projects.mkdir(parents=True)
+        (projects / "linked-proj.md").write_text(
+            "---\nstatus: Active\nsources:\n- type: linear\n  id: PRJ-456\n---\n# Linked Project\n"
+        )
+        db = Database(tmp_path / "data")
+        seed_entities(db, tmp_path)
+        entities = load_entities(db)
+
+        mentions = find_entity_mentions(
+            title="Some meeting",
+            tags=[],
+            content="Reviewing PRJ-456 status and updates.",
+            entities=entities,
+        )
+        project = next(e for e in entities if e.name == "Linked Project")
+        source_ref_mentions = [
+            m for m in mentions if m.entity_id == project.id and m.mention_type == "source_ref"
+        ]
+        assert len(source_ref_mentions) == 1
+
+    def test_source_ids_skipped_in_display(self, tmp_path):
+        """src:-prefixed aliases should be filtered from _derive_aliases()."""
+        from kb.entities import Entity
+        from kb.writeback import _derive_aliases
+
+        entity = Entity(
+            id=1,
+            name="My Project",
+            entity_type="project",
+            aliases=["MP", "src:C08HJC8MWQN", "src:PRJ-123", "my-project"],
+            metadata={},
+            source_path="memory/projects/my-project.md",
+        )
+        derived = _derive_aliases(entity)
+        assert "MP" in derived
+        assert "src:C08HJC8MWQN" not in derived
+        assert "src:PRJ-123" not in derived
+        # File stems also filtered
+        assert "my-project" not in derived
+
+    def test_source_id_no_false_positive_in_title(self, tmp_path):
+        """Source IDs in content should not accidentally match via title tier."""
+        from kb.db import Database
+        from kb.entities import find_entity_mentions, load_entities, seed_entities
+
+        projects = tmp_path / "memory" / "projects"
+        projects.mkdir(parents=True)
+        (projects / "proj-x.md").write_text(
+            "---\n"
+            "status: Active\n"
+            "sources:\n"
+            "- type: slack\n"
+            "  channel: CABCDEF1234\n"
+            "---\n"
+            "# Project X\n"
+        )
+        db = Database(tmp_path / "data")
+        seed_entities(db, tmp_path)
+        entities = load_entities(db)
+
+        # Content mentions channel but title is unrelated
+        mentions = find_entity_mentions(
+            title="Unrelated meeting",
+            tags=[],
+            content="Messages in CABCDEF1234 were reviewed.",
+            entities=entities,
+        )
+        project = next(e for e in entities if e.name == "Project X")
+        source_mentions = [
+            m for m in mentions if m.entity_id == project.id and m.mention_type == "source_ref"
+        ]
+        assert len(source_mentions) == 1
+        db.close()

@@ -439,3 +439,61 @@ class TestParseSourceArg:
     def test_strips_type(self):
         result = parse_source_arg(" linear :https://foo.com")
         assert result["type"] == "linear"
+
+
+# ---------------------------------------------------------------------------
+# extract_source_ids
+# ---------------------------------------------------------------------------
+
+
+class TestExtractSourceIds:
+    def test_extracts_channel_and_id(self):
+        from kb.matching import extract_source_ids
+
+        meta = {
+            "sources": [
+                {"type": "slack", "channel": "C08HJC8MWQN", "name": "#proj"},
+                {"type": "linear", "id": "PRJ-123"},
+            ]
+        }
+        ids = extract_source_ids(meta)
+        assert "C08HJC8MWQN" in ids
+        assert "PRJ-123" in ids
+
+    def test_extracts_key_field(self):
+        from kb.matching import extract_source_ids
+
+        meta = {"sources": [{"type": "jira", "key": "GG-1234"}]}
+        ids = extract_source_ids(meta)
+        assert "GG-1234" in ids
+
+    def test_short_ids_ignored(self):
+        from kb.matching import extract_source_ids
+
+        meta = {"sources": [{"type": "custom", "id": "AB"}]}
+        ids = extract_source_ids(meta)
+        assert ids == []
+
+    def test_deduplicates(self):
+        from kb.matching import extract_source_ids
+
+        meta = {
+            "sources": [
+                {"type": "slack", "channel": "C123ABC", "id": "C123ABC"},
+            ]
+        }
+        ids = extract_source_ids(meta)
+        assert ids == ["C123ABC"]
+
+    def test_no_sources(self):
+        from kb.matching import extract_source_ids
+
+        assert extract_source_ids({}) == []
+        assert extract_source_ids({"sources": "bad"}) == []
+
+    def test_skips_non_string_values(self):
+        from kb.matching import extract_source_ids
+
+        meta = {"sources": [{"type": "custom", "id": 12345}]}
+        ids = extract_source_ids(meta)
+        assert ids == []
