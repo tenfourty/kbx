@@ -10,7 +10,10 @@ from kb.matching import (
     _parse_keywords,
     _title_matches,
     extract_project_link,
+    extract_sources,
+    format_source,
     match_tasks_to_projects,
+    parse_source_arg,
 )
 
 # ---------------------------------------------------------------------------
@@ -321,3 +324,118 @@ class TestMatchTasksToProjects:
         assert len(matched) == 1
         assert matched[0]["id"] == "abc123"
         assert matched[0]["tags"] == ["Active"]
+
+
+# ---------------------------------------------------------------------------
+# extract_sources
+# ---------------------------------------------------------------------------
+
+
+class TestExtractSources:
+    def test_valid_sources(self):
+        meta = {
+            "sources": [
+                {"type": "linear", "id": "PRJ-123", "url": "https://linear.app/..."},
+                {"type": "slack", "channel": "C08HJC8MWQN", "name": "#proj"},
+            ]
+        }
+        result = extract_sources(meta)
+        assert len(result) == 2
+        assert result[0]["type"] == "linear"
+        assert result[1]["type"] == "slack"
+
+    def test_no_sources_key(self):
+        assert extract_sources({}) == []
+        assert extract_sources({"other": "value"}) == []
+
+    def test_sources_not_a_list(self):
+        assert extract_sources({"sources": "not a list"}) == []
+        assert extract_sources({"sources": 42}) == []
+
+    def test_skips_non_dict_items(self):
+        meta = {"sources": [{"type": "linear"}, "not a dict", 42]}
+        result = extract_sources(meta)
+        assert len(result) == 1
+
+    def test_skips_items_without_type(self):
+        meta = {"sources": [{"type": "linear"}, {"url": "https://..."}]}
+        result = extract_sources(meta)
+        assert len(result) == 1
+        assert result[0]["type"] == "linear"
+
+    def test_empty_list(self):
+        assert extract_sources({"sources": []}) == []
+
+
+# ---------------------------------------------------------------------------
+# format_source
+# ---------------------------------------------------------------------------
+
+
+class TestFormatSource:
+    def test_linear_with_id_and_url(self):
+        src = {"type": "linear", "id": "PRJ-123", "url": "https://linear.app/..."}
+        assert format_source(src) == "  linear: PRJ-123 — https://linear.app/..."
+
+    def test_slack_with_name_and_channel(self):
+        src = {"type": "slack", "channel": "C08HJC8MWQN", "name": "#proj-agentic"}
+        assert format_source(src) == "  slack: #proj-agentic (C08HJC8MWQN)"
+
+    def test_url_only(self):
+        src = {"type": "notion", "url": "https://notion.so/page"}
+        assert format_source(src) == "  notion: https://notion.so/page"
+
+    def test_label_only(self):
+        src = {"type": "custom", "label": "Internal wiki"}
+        assert format_source(src) == "  custom: Internal wiki"
+
+    def test_github_repo(self):
+        src = {"type": "github", "repo": "tenfourty/kbx", "url": "https://github.com/tenfourty/kbx"}
+        assert format_source(src) == "  github: tenfourty/kbx — https://github.com/tenfourty/kbx"
+
+    def test_no_details(self):
+        src = {"type": "unknown"}
+        assert format_source(src) == "  unknown: (no details)"
+
+    def test_channel_only(self):
+        src = {"type": "slack", "channel": "C08HJC8MWQN"}
+        assert format_source(src) == "  slack: C08HJC8MWQN"
+
+    def test_key_field(self):
+        src = {"type": "jira", "key": "GG-1234"}
+        assert format_source(src) == "  jira: GG-1234"
+
+
+# ---------------------------------------------------------------------------
+# parse_source_arg
+# ---------------------------------------------------------------------------
+
+
+class TestParseSourceArg:
+    def test_url_source(self):
+        result = parse_source_arg("linear:https://linear.app/project/123")
+        assert result == {"type": "linear", "url": "https://linear.app/project/123"}
+
+    def test_kv_source(self):
+        result = parse_source_arg("slack:channel=C123,name=#foo")
+        assert result == {"type": "slack", "channel": "C123", "name": "#foo"}
+
+    def test_single_kv(self):
+        result = parse_source_arg("jira:key=GG-1234")
+        assert result == {"type": "jira", "key": "GG-1234"}
+
+    def test_http_source(self):
+        result = parse_source_arg("custom:http://example.com")
+        assert result == {"type": "custom", "url": "http://example.com"}
+
+    def test_missing_spec(self):
+        with pytest.raises(ValueError, match="Missing spec"):
+            parse_source_arg("linear")
+
+    def test_missing_type(self):
+        with pytest.raises(ValueError, match="Missing source type"):
+            parse_source_arg(":https://foo.com")
+
+    def test_strips_type(self):
+        result = parse_source_arg(" linear :https://foo.com")
+        assert result["type"] == "linear"

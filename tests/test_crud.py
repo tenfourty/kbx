@@ -552,3 +552,142 @@ class TestEntityDelete:
         db, root = crud_env
         with pytest.raises(EntityNotFoundError):
             delete_entity(db, root, "Nobody")
+
+
+class TestSourcesManagement:
+    """Tests for sources: schema on project entities."""
+
+    def test_create_project_with_sources(self, crud_env):
+        from kb.crud import create_entity
+
+        db, root = crud_env
+        sources = [
+            {"type": "linear", "id": "PRJ-123", "url": "https://linear.app/project/123"},
+            {"type": "slack", "channel": "C08HJC8MWQN"},
+        ]
+        create_entity(
+            db,
+            root,
+            "project",
+            "AI Adoption",
+            metadata={"status": "Active", "sources": sources},
+        )
+        content = (root / "memory" / "projects" / "ai-adoption.md").read_text()
+        assert "sources:" in content
+        assert "type: linear" in content
+        assert "PRJ-123" in content
+        assert "C08HJC8MWQN" in content
+
+    def test_sources_roundtrip(self, crud_env):
+        """Sources survive create -> re-seed -> read cycle."""
+        import json
+
+        from kb.crud import create_entity
+        from kb.entities import seed_entities
+
+        db, root = crud_env
+        sources = [{"type": "linear", "id": "PRJ-123"}]
+        create_entity(
+            db,
+            root,
+            "project",
+            "AI Adoption",
+            metadata={"status": "Active", "sources": sources},
+        )
+        # Re-seed from disk
+        seed_entities(db, root)
+        conn = db.get_sqlite_conn()
+        row = conn.execute("SELECT metadata FROM entities WHERE name = 'AI Adoption'").fetchone()
+        meta = json.loads(row["metadata"])
+        assert isinstance(meta["sources"], list)
+        assert meta["sources"][0]["type"] == "linear"
+        assert meta["sources"][0]["id"] == "PRJ-123"
+
+    def test_edit_add_source(self, crud_env):
+        """--source appends to existing sources via __source_add."""
+        import json
+
+        from kb.crud import create_entity, edit_entity
+
+        db, root = crud_env
+        create_entity(
+            db,
+            root,
+            "project",
+            "AI Adoption",
+            metadata={"sources": [{"type": "linear", "id": "PRJ-123"}]},
+        )
+        edit_entity(
+            db,
+            root,
+            "AI Adoption",
+            metadata={
+                "__source_add": [{"type": "slack", "channel": "C123"}],
+                "__remove_sources": [],
+            },
+        )
+        conn = db.get_sqlite_conn()
+        row = conn.execute("SELECT metadata FROM entities WHERE name = 'AI Adoption'").fetchone()
+        meta = json.loads(row["metadata"])
+        assert len(meta["sources"]) == 2
+        assert meta["sources"][1]["type"] == "slack"
+
+    def test_edit_remove_source_by_type(self, crud_env):
+        """--remove-source TYPE removes all entries of that type."""
+        import json
+
+        from kb.crud import create_entity, edit_entity
+
+        db, root = crud_env
+        sources = [
+            {"type": "linear", "id": "PRJ-123"},
+            {"type": "slack", "channel": "C123"},
+        ]
+        create_entity(
+            db,
+            root,
+            "project",
+            "AI Adoption",
+            metadata={"sources": sources},
+        )
+        edit_entity(
+            db,
+            root,
+            "AI Adoption",
+            metadata={"__source_add": [], "__remove_sources": ["linear"]},
+        )
+        conn = db.get_sqlite_conn()
+        row = conn.execute("SELECT metadata FROM entities WHERE name = 'AI Adoption'").fetchone()
+        meta = json.loads(row["metadata"])
+        assert len(meta["sources"]) == 1
+        assert meta["sources"][0]["type"] == "slack"
+
+    def test_edit_remove_source_by_type_and_id(self, crud_env):
+        """--remove-source TYPE:ID removes only the matching entry."""
+        import json
+
+        from kb.crud import create_entity, edit_entity
+
+        db, root = crud_env
+        sources = [
+            {"type": "linear", "id": "PRJ-123"},
+            {"type": "linear", "id": "PRJ-456"},
+        ]
+        create_entity(
+            db,
+            root,
+            "project",
+            "AI Adoption",
+            metadata={"sources": sources},
+        )
+        edit_entity(
+            db,
+            root,
+            "AI Adoption",
+            metadata={"__source_add": [], "__remove_sources": ["linear:PRJ-123"]},
+        )
+        conn = db.get_sqlite_conn()
+        row = conn.execute("SELECT metadata FROM entities WHERE name = 'AI Adoption'").fetchone()
+        meta = json.loads(row["metadata"])
+        assert len(meta["sources"]) == 1
+        assert meta["sources"][0]["id"] == "PRJ-456"

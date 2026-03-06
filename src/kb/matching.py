@@ -241,3 +241,81 @@ def match_tasks_to_projects(
                 result[pname].append(task)
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Source extraction and formatting
+# ---------------------------------------------------------------------------
+
+
+def extract_sources(metadata: dict[str, Any]) -> list[dict[str, Any]]:
+    """Extract and validate source entries from entity metadata.
+
+    Returns only well-formed entries (dict with ``type`` key).
+    Malformed entries are silently skipped — no data loss in the blob.
+    """
+    raw = metadata.get("sources")
+    if not isinstance(raw, list):
+        return []
+    return [s for s in raw if isinstance(s, dict) and "type" in s]
+
+
+def format_source(source: dict[str, Any]) -> str:
+    """Format a single source entry for table display.
+
+    Prefers name/label for display, falls back to id, then url.
+    """
+    stype = source["type"]
+    label = (
+        source.get("name")
+        or source.get("label")
+        or source.get("key")
+        or source.get("repo")
+        or source.get("id")
+        or ""
+    )
+    url = source.get("url", "")
+    channel = source.get("channel", "")
+
+    if stype == "slack" and label and channel:
+        return f"  {stype}: {label} ({channel})"
+    if label and url:
+        return f"  {stype}: {label} — {url}"
+    if label:
+        return f"  {stype}: {label}"
+    if url:
+        return f"  {stype}: {url}"
+    if channel:
+        return f"  {stype}: {channel}"
+    return f"  {stype}: (no details)"
+
+
+def parse_source_arg(raw: str) -> dict[str, str]:
+    """Parse ``--source TYPE:SPEC`` into a source dict.
+
+    Formats::
+
+        "linear:https://..."
+            → {"type": "linear", "url": "https://..."}
+        "slack:channel=C123,name=#foo"
+            → {"type": "slack", "channel": "C123", "name": "#foo"}
+
+    Raises ``ValueError`` if the format is invalid.
+    """
+    type_str, _, spec = raw.partition(":")
+    type_str = type_str.strip()
+    if not type_str:
+        msg = f"Missing source type: {raw}"
+        raise ValueError(msg)
+    if not spec:
+        msg = f"Missing spec after type: {raw}"
+        raise ValueError(msg)
+    result: dict[str, str] = {"type": type_str}
+    if spec.startswith("http://") or spec.startswith("https://"):
+        result["url"] = spec.strip()
+    else:
+        for pair in spec.split(","):
+            key, _, val = pair.partition("=")
+            if key.strip() and val.strip():
+                result[key.strip()] = val.strip()
+    return result

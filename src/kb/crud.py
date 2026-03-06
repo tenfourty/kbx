@@ -195,11 +195,40 @@ def edit_entity(
 
     # Merge metadata updates (empty string = remove key)
     if metadata:
+        # Handle source management via sentinel keys
+        source_add = metadata.pop("__source_add", None)
+        remove_sources = metadata.pop("__remove_sources", None)
+
         for key, value in metadata.items():
             if value == "":
                 entity.metadata.pop(key, None)
             else:
                 entity.metadata[key] = value
+
+        # Source removal (by type or type:id)
+        if remove_sources:
+            existing_sources = entity.metadata.get("sources", [])
+            if isinstance(existing_sources, list):
+                filtered: list[dict[str, Any]] = []
+                for src in existing_sources:
+                    if not isinstance(src, dict):
+                        continue
+                    should_remove = False
+                    for rm in remove_sources:
+                        rm_type, _, rm_id = rm.partition(":")
+                        if src.get("type") == rm_type and (not rm_id or src.get("id") == rm_id):
+                            should_remove = True
+                            break
+                    if not should_remove:
+                        filtered.append(src)
+                entity.metadata["sources"] = filtered
+
+        # Source addition (append)
+        if source_add:
+            existing = entity.metadata.get("sources", [])
+            if not isinstance(existing, list):
+                existing = []
+            entity.metadata["sources"] = existing + source_add
 
     # Merge alias updates
     if aliases:

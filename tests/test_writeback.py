@@ -492,3 +492,46 @@ class TestDocumentAttendeesMigration:
             "SELECT * FROM document_attendees WHERE document_id = ?", (doc_id,)
         ).fetchall()
         assert len(rows) == 1
+
+
+class TestSourcesWriteback:
+    def test_sources_roundtrip(self):
+        """Sources list survives rebuild (list of dicts in YAML)."""
+        entity = Entity(
+            id=1,
+            name="AI Adoption",
+            entity_type="project",
+            aliases=["ai-adoption"],
+            metadata={
+                "status": "Active",
+                "sources": [
+                    {"type": "linear", "id": "PRJ-123", "url": "https://linear.app/project/123"},
+                    {"type": "slack", "channel": "C08HJC8MWQN", "name": "#proj-agentic"},
+                ],
+            },
+            source_path="memory/projects/ai-adoption.md",
+            pinned=False,
+        )
+        header = _rebuild_project_header(entity)
+        assert "sources:" in header
+        assert "type: linear" in header
+        assert "PRJ-123" in header
+        assert "C08HJC8MWQN" in header
+        assert "#proj-agentic" in header
+
+    def test_src_aliases_filtered_from_header(self):
+        """src: prefixed aliases should not appear in the written file."""
+        entity = Entity(
+            id=1,
+            name="AI Adoption",
+            entity_type="project",
+            aliases=["TF Agentic AI", "src:C08HJC8MWQN", "ai-adoption"],
+            metadata={"status": "Active"},
+            source_path="memory/projects/ai-adoption.md",
+            pinned=False,
+        )
+        header = _rebuild_project_header(entity)
+        assert "src:C08HJC8MWQN" not in header
+        assert "TF Agentic AI" in header
+        # file stem alias also filtered
+        assert "ai-adoption" not in header

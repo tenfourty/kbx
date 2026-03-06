@@ -81,6 +81,9 @@ def _derive_aliases(entity: Entity) -> list[str]:
         # Skip first-name auto-alias
         if first_name and alias == first_name:
             continue
+        # Skip source-ID aliases (src:C08HJC8MWQN)
+        if alias.startswith("src:"):
+            continue
         result.append(alias)
     return result
 

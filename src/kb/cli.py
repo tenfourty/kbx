@@ -893,16 +893,29 @@ def _format_entity_profile(entity: dict[str, Any]) -> str:
     etype = entity["entity_type"]
     aliases = entity.get("aliases", [])
 
-    # Header
-    alias_str = f"  aka {', '.join(aliases)}" if aliases else ""
+    # Header (filter src: prefixed aliases from display)
+    display_aliases = [a for a in aliases if not a.startswith("src:")]
+    alias_str = f"  aka {', '.join(display_aliases)}" if display_aliases else ""
     lines.append(f"{name} ({etype}){alias_str}")
     lines.append("")
 
-    # Metadata
+    # Metadata (excluding sources — shown separately)
     meta = entity.get("metadata", {})
     if meta:
         for key, val in meta.items():
+            if key == "sources":
+                continue
             lines.append(f"  {key}: {val}")
+        lines.append("")
+
+    # Sources (separate section for readability)
+    from kb.matching import extract_sources, format_source
+
+    sources = extract_sources(meta)
+    if sources:
+        lines.append("Sources:")
+        for src in sources:
+            lines.append(format_source(src))
         lines.append("")
 
     # Facts
@@ -1104,6 +1117,20 @@ def _merge_meta_pairs(metadata: dict[str, str], meta_pairs: tuple[str, ...]) -> 
         # Normalize to snake_case
         key = "_".join(key.lower().split())
         metadata[key] = value
+
+
+def _parse_source_args(source_args: tuple[str, ...]) -> list[dict[str, str]]:
+    """Parse multiple --source arguments into source dicts."""
+    from kb.matching import parse_source_arg
+
+    sources: list[dict[str, str]] = []
+    for raw in source_args:
+        try:
+            sources.append(parse_source_arg(raw))
+        except ValueError as e:
+            click.echo(str(e), err=True)
+            raise SystemExit(1) from None
+    return sources
 
 
 def _entity_edit_impl(
@@ -1312,6 +1339,9 @@ def project() -> None:
 @click.option("--lead", default=None)
 @click.option("--codename", default=None)
 @click.option("--started", default=None, help="Start date (YYYY-MM).")
+@click.option(
+    "--source", "source_args", multiple=True, help="External source (TYPE:URL or TYPE:key=val,...)."
+)
 @output_options
 def project_create(
     name: str,
@@ -1319,12 +1349,17 @@ def project_create(
     lead: str | None,
     codename: str | None,
     started: str | None,
+    source_args: tuple[str, ...],
     fmt: str,
     fields: list[str] | None,
     jq_expr: str | None,
 ) -> None:
     """Create a new project."""
-    metadata = {k: v for k, v in {"status": status, "lead": lead, "started": started}.items() if v}
+    metadata: dict[str, Any] = {
+        k: v for k, v in {"status": status, "lead": lead, "started": started}.items() if v
+    }
+    if source_args:
+        metadata["sources"] = _parse_source_args(source_args)
     aliases = [codename] if codename else []
     _entity_create_impl("project", name, metadata, aliases, fmt, fields, jq_expr)
 
@@ -1336,6 +1371,15 @@ def project_create(
 @click.option("--codename", default=None)
 @click.option("--started", default=None, help="Start date (YYYY-MM).")
 @click.option("--meta", "meta_pairs", multiple=True, help="Custom key=value metadata.")
+@click.option(
+    "--source",
+    "source_args",
+    multiple=True,
+    help="Add source (TYPE:URL or TYPE:key=val,...). Appends.",
+)
+@click.option(
+    "--remove-source", "remove_sources", multiple=True, help="Remove source by TYPE or TYPE:ID."
+)
 @output_options
 def project_edit(
     name: str,
@@ -1344,13 +1388,20 @@ def project_edit(
     codename: str | None,
     started: str | None,
     meta_pairs: tuple[str, ...],
+    source_args: tuple[str, ...],
+    remove_sources: tuple[str, ...],
     fmt: str,
     fields: list[str] | None,
     jq_expr: str | None,
 ) -> None:
     """Edit a project's metadata."""
-    metadata = {k: v for k, v in {"status": status, "lead": lead, "started": started}.items() if v}
+    metadata: dict[str, Any] = {
+        k: v for k, v in {"status": status, "lead": lead, "started": started}.items() if v
+    }
     _merge_meta_pairs(metadata, meta_pairs)
+    if source_args or remove_sources:
+        metadata["__source_add"] = _parse_source_args(source_args) if source_args else []
+        metadata["__remove_sources"] = list(remove_sources) if remove_sources else []
     aliases = [codename] if codename else []
     _entity_edit_impl(name, metadata, aliases, fmt, fields, jq_expr)
 

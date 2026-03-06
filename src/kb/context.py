@@ -192,12 +192,18 @@ def _format_person(entity: ContextEntity) -> str:
 
 def _format_project(entity: ContextEntity) -> str:
     """Format a project entity for the compressed display."""
+    from kb.matching import extract_sources
+
     meta = entity.metadata
     parts: list[str] = []
     if meta.get("lead"):
         parts.append(meta["lead"])
     if meta.get("status"):
         parts.append(meta["status"])
+    sources = extract_sources(meta)
+    if sources:
+        source_types = "+".join(dict.fromkeys(s["type"] for s in sources))
+        parts.append(source_types)
     name = entity.name
     if parts:
         return f"{name}({','.join(parts)})"

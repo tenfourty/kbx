@@ -834,6 +834,97 @@ class TestProjectCommands:
             data = json.loads(result.output)
             assert data["name"] == "New Project"
 
+    def test_project_create_with_source(self, runner):
+        """kb project create --source adds sources to metadata."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "memory" / "people").mkdir(parents=True)
+            (root / "memory" / "projects").mkdir(parents=True)
+            db_path = root / "data"
+            Database(db_path)
+
+            with patch("kb.cli._find_project_root", return_value=root):
+                result = invoke_cli(
+                    runner,
+                    [
+                        "project",
+                        "create",
+                        "My Project",
+                        "--source",
+                        "linear:https://linear.app/project/123",
+                        "--source",
+                        "slack:channel=C123,name=#proj",
+                        "--json",
+                    ],
+                    str(db_path),
+                )
+            assert result.exit_code == 0
+            content = (root / "memory" / "projects" / "my-project.md").read_text()
+            assert "sources:" in content
+            assert "type: linear" in content
+            assert "C123" in content
+
+    def test_project_find_shows_sources(self, runner):
+        """kb project find table output includes Sources: section."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "memory" / "people").mkdir(parents=True)
+            (root / "memory" / "projects").mkdir(parents=True)
+            db_path = root / "data"
+            db = Database(db_path)
+
+            from kb.crud import create_entity
+
+            create_entity(
+                db,
+                root,
+                "project",
+                "My Project",
+                metadata={
+                    "status": "Active",
+                    "sources": [
+                        {"type": "linear", "id": "PRJ-123", "url": "https://linear.app/..."}
+                    ],
+                },
+            )
+
+            with patch("kb.cli._find_project_root", return_value=root):
+                result = invoke_cli(runner, ["project", "find", "My Project"], str(db_path))
+            assert result.exit_code == 0
+            assert "Sources:" in result.output
+            assert "linear:" in result.output
+            assert "PRJ-123" in result.output
+
+    def test_project_find_json_has_sources(self, runner):
+        """kb project find --json has sources in metadata."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "memory" / "people").mkdir(parents=True)
+            (root / "memory" / "projects").mkdir(parents=True)
+            db_path = root / "data"
+            db = Database(db_path)
+
+            from kb.crud import create_entity
+
+            create_entity(
+                db,
+                root,
+                "project",
+                "My Project",
+                metadata={
+                    "sources": [{"type": "linear", "id": "PRJ-123"}],
+                },
+            )
+
+            with patch("kb.cli._find_project_root", return_value=root):
+                result = invoke_cli(
+                    runner, ["project", "find", "My Project", "--json"], str(db_path)
+                )
+            assert result.exit_code == 0
+            data = json.loads(result.output)
+            assert "sources" in data["metadata"]
+            assert data["metadata"]["sources"][0]["type"] == "linear"
+
 
 # ---------------------------------------------------------------------------
 # Step 5: index commands
