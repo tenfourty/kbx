@@ -443,13 +443,56 @@ class GranolaClient:
 
 # Path to the Node.js helper script (bundled in src/kb/sync/prosemirror/)
 _YDOC_SCRIPT: str | None = None
+_ydoc_logger: Any = None
+
+
+def _get_ydoc_logger() -> Any:
+    """Lazy-init logger for ydoc helpers."""
+    global _ydoc_logger
+    if _ydoc_logger is None:
+        import logging
+
+        _ydoc_logger = logging.getLogger("kb.sync.granola.ydoc")
+    return _ydoc_logger
+
+
+def _auto_install_prosemirror_deps(prosemirror_dir: Path) -> bool:
+    """Run ``npm install`` in the prosemirror directory. Returns True on success."""
+    import shutil
+    import subprocess
+
+    npm = shutil.which("npm")
+    if not npm:
+        return False
+
+    log = _get_ydoc_logger()
+    log.info("Installing prosemirror dependencies (one-time)...")
+
+    try:
+        result = subprocess.run(
+            [npm, "install", "--production", "--no-audit", "--no-fund"],
+            cwd=str(prosemirror_dir),
+            capture_output=True,
+            timeout=60,
+        )
+        if result.returncode != 0:
+            log.warning("npm install failed: %s", result.stderr.strip())
+            return False
+        return (prosemirror_dir / "node_modules").is_dir()
+    except subprocess.TimeoutExpired:
+        log.warning("npm install timed out")
+        return False
+    except OSError as exc:
+        log.warning("npm install error: %s", exc)
+        return False
 
 
 def _find_ydoc_script() -> str | None:
     """Locate the prosemirror-to-ydoc.mjs helper script.
 
     The script is bundled inside the kbx package as package data.
-    Requires ``node`` on PATH and ``npm install`` in the prosemirror/ directory.
+    Requires ``node`` on PATH. Node dependencies are installed automatically
+    via ``npm install`` on first use.
     """
     global _YDOC_SCRIPT
     if _YDOC_SCRIPT is not None:
@@ -464,6 +507,11 @@ def _find_ydoc_script() -> str | None:
 
     bundled = Path(__file__).resolve().parent / "prosemirror" / "prosemirror-to-ydoc.mjs"
     if bundled.is_file():
+        node_modules = bundled.parent / "node_modules"
+        if not node_modules.is_dir():
+            if not _auto_install_prosemirror_deps(bundled.parent):
+                _YDOC_SCRIPT = ""
+                return None
         _YDOC_SCRIPT = str(bundled)
         return _YDOC_SCRIPT
 
