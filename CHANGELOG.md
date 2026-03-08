@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.35](https://github.com/tenfourty/kbx/compare/kbx-v0.1.34...kbx-v0.1.35) (2026-03-08)
+
+
+### Features
+
+* auto-install prosemirror Node deps on first Granola push-back ([42a41cd](https://github.com/tenfourty/kbx/commit/42a41cd3c96b63207041073addbe112b3ed8a83a))
+
 ## [0.1.34](https://github.com/tenfourty/kbx/compare/kbx-v0.1.33...kbx-v0.1.34) (2026-03-08)
 
 
