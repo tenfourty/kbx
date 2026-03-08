@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.36](https://github.com/tenfourty/kbx/compare/kbx-v0.1.35...kbx-v0.1.36) (2026-03-08)
+
+
+### Features
+
+* replace Node.js prosemirror-to-ydoc with pure-Python pycrdt ([f8047bf](https://github.com/tenfourty/kbx/commit/f8047bf5b00a4268ae2e11055993a718127eebff))
+
+
+### Bug Fixes
+
+* add try/except for graceful degradation in ydoc conversion ([e02f706](https://github.com/tenfourty/kbx/commit/e02f706c7288e1ce7606e23a5e82d8065859ed0b))
+
 ## [0.1.35](https://github.com/tenfourty/kbx/compare/kbx-v0.1.34...kbx-v0.1.35) (2026-03-08)
 
 
