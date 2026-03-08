@@ -441,12 +441,16 @@ class GranolaClient:
 # ProseMirror → Yjs ydoc state
 # ---------------------------------------------------------------------------
 
-# Path to the Node.js helper script (sibling repo: Control Tower/scripts/)
+# Path to the Node.js helper script (bundled in src/kb/sync/prosemirror/)
 _YDOC_SCRIPT: str | None = None
 
 
 def _find_ydoc_script() -> str | None:
-    """Locate the prosemirror-to-ydoc.mjs helper script."""
+    """Locate the prosemirror-to-ydoc.mjs helper script.
+
+    The script is bundled inside the kbx package as package data.
+    Requires ``node`` on PATH and ``npm install`` in the prosemirror/ directory.
+    """
     global _YDOC_SCRIPT
     if _YDOC_SCRIPT is not None:
         return _YDOC_SCRIPT if _YDOC_SCRIPT != "" else None
@@ -458,15 +462,10 @@ def _find_ydoc_script() -> str | None:
         _YDOC_SCRIPT = ""
         return None
 
-    # Check relative to this file (kbx/src/kb/sync/ → ../../../../../scripts/)
-    # kbx lives inside Control Tower: Control Tower/kbx/src/kb/sync/granola.py
-    candidates = [
-        Path(__file__).resolve().parents[4] / "scripts" / "prosemirror-to-ydoc.mjs",
-    ]
-    for p in candidates:
-        if p.is_file():
-            _YDOC_SCRIPT = str(p)
-            return _YDOC_SCRIPT
+    bundled = Path(__file__).resolve().parent / "prosemirror" / "prosemirror-to-ydoc.mjs"
+    if bundled.is_file():
+        _YDOC_SCRIPT = str(bundled)
+        return _YDOC_SCRIPT
 
     _YDOC_SCRIPT = ""
     return None
