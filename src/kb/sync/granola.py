@@ -441,83 +441,6 @@ class GranolaClient:
 # ProseMirror → Yjs ydoc state
 # ---------------------------------------------------------------------------
 
-# Path to the Node.js helper script (bundled in src/kb/sync/prosemirror/)
-_YDOC_SCRIPT: str | None = None
-_ydoc_logger: Any = None
-
-
-def _get_ydoc_logger() -> Any:
-    """Lazy-init logger for ydoc helpers."""
-    global _ydoc_logger
-    if _ydoc_logger is None:
-        import logging
-
-        _ydoc_logger = logging.getLogger("kb.sync.granola.ydoc")
-    return _ydoc_logger
-
-
-def _auto_install_prosemirror_deps(prosemirror_dir: Path) -> bool:
-    """Run ``npm install`` in the prosemirror directory. Returns True on success."""
-    import shutil
-    import subprocess
-
-    npm = shutil.which("npm")
-    if not npm:
-        return False
-
-    log = _get_ydoc_logger()
-    log.info("Installing prosemirror dependencies (one-time)...")
-
-    try:
-        result = subprocess.run(
-            [npm, "install", "--production", "--no-audit", "--no-fund"],
-            cwd=str(prosemirror_dir),
-            capture_output=True,
-            timeout=60,
-        )
-        if result.returncode != 0:
-            log.warning("npm install failed: %s", result.stderr.strip())
-            return False
-        return (prosemirror_dir / "node_modules").is_dir()
-    except subprocess.TimeoutExpired:
-        log.warning("npm install timed out")
-        return False
-    except OSError as exc:
-        log.warning("npm install error: %s", exc)
-        return False
-
-
-def _find_ydoc_script() -> str | None:
-    """Locate the prosemirror-to-ydoc.mjs helper script.
-
-    The script is bundled inside the kbx package as package data.
-    Requires ``node`` on PATH. Node dependencies are installed automatically
-    via ``npm install`` on first use.
-    """
-    global _YDOC_SCRIPT
-    if _YDOC_SCRIPT is not None:
-        return _YDOC_SCRIPT if _YDOC_SCRIPT != "" else None
-
-    import shutil
-    from pathlib import Path
-
-    if not shutil.which("node"):
-        _YDOC_SCRIPT = ""
-        return None
-
-    bundled = Path(__file__).resolve().parent / "prosemirror" / "prosemirror-to-ydoc.mjs"
-    if bundled.is_file():
-        node_modules = bundled.parent / "node_modules"
-        if not node_modules.is_dir():
-            if not _auto_install_prosemirror_deps(bundled.parent):
-                _YDOC_SCRIPT = ""
-                return None
-        _YDOC_SCRIPT = str(bundled)
-        return _YDOC_SCRIPT
-
-    _YDOC_SCRIPT = ""
-    return None
-
 
 def _prosemirror_to_ydoc_state(
     pm_doc: dict[str, Any],
@@ -525,43 +448,21 @@ def _prosemirror_to_ydoc_state(
 ) -> str | None:
     """Convert ProseMirror JSON to a base64-encoded Yjs state update.
 
-    Shells out to the Node.js helper script (requires node + yjs packages).
+    Uses pycrdt (pure-Python Yjs bindings) — no Node.js required.
 
     Args:
         pm_doc: ProseMirror document JSON.
         existing_ydoc_state: If provided, the existing ydoc state (base64) to
-            merge against. The script will load this state, clear the existing
-            prosemirror fragment, then write new content — producing a CRDT
-            update that replaces rather than duplicates content.
+            merge against. Clears the existing prosemirror fragment, then writes
+            new content — producing a CRDT update that replaces rather than
+            duplicates content.
 
     Returns None on failure (graceful degradation — push still works via
     notes_markdown, just won't survive ydoc sync).
     """
-    import json
-    import subprocess
+    from kb.sync.ydoc import prosemirror_to_ydoc_state
 
-    script = _find_ydoc_script()
-    if not script:
-        return None
-
-    cmd = ["node", script]
-    if existing_ydoc_state:
-        cmd.extend(["--existing-state", existing_ydoc_state])
-
-    try:
-        result = subprocess.run(
-            cmd,
-            input=json.dumps(pm_doc),
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode != 0:
-            return None
-        b64 = result.stdout.strip()
-        return b64 if b64 else None
-    except (subprocess.TimeoutExpired, OSError):
-        return None
+    return prosemirror_to_ydoc_state(pm_doc, existing_ydoc_state)
 
 
 # ---------------------------------------------------------------------------
