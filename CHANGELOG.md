@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.34](https://github.com/tenfourty/kbx/compare/kbx-v0.1.33...kbx-v0.1.34) (2026-03-08)
+
+
+### Features
+
+* bundle prosemirror-to-ydoc.mjs inside kbx package ([797f733](https://github.com/tenfourty/kbx/commit/797f733d46cc1b7d38deb88361120c2589087ef7))
+
 ## [0.1.33](https://github.com/tenfourty/kbx/compare/kbx-v0.1.32...kbx-v0.1.33) (2026-03-06)
 
 
