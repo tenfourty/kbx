@@ -34,37 +34,40 @@ def prosemirror_to_ydoc_state(
     except ImportError:
         return None
 
-    # Build the new content as a fresh Y.Doc
-    new_doc: Any = Doc()
-    new_frag: Any = XmlFragment()
-    new_doc["prosemirror"] = new_frag
+    try:
+        # Build the new content as a fresh Y.Doc
+        new_doc: Any = Doc()
+        new_frag: Any = XmlFragment()
+        new_doc["prosemirror"] = new_frag
 
-    children = pm_doc.get("content", [])
-    _insert_children(new_frag, children, XmlElement, XmlText)
+        children = pm_doc.get("content", [])
+        _insert_children(new_frag, children, XmlElement, XmlText)
 
-    if existing_ydoc_state:
-        # Load existing state, clear it, then merge with new content.
-        existing_bytes = base64.b64decode(existing_ydoc_state)
+        if existing_ydoc_state:
+            # Load existing state, clear it, then merge with new content.
+            existing_bytes = base64.b64decode(existing_ydoc_state)
 
-        output_doc: Any = Doc()
-        output_doc["prosemirror"] = XmlFragment()
-        output_doc.apply_update(existing_bytes)
+            output_doc: Any = Doc()
+            output_doc["prosemirror"] = XmlFragment()
+            output_doc.apply_update(existing_bytes)
 
-        # Clear existing prosemirror fragment
-        frag = output_doc["prosemirror"]
-        _clear_fragment(frag)
+            # Clear existing prosemirror fragment
+            frag = output_doc["prosemirror"]
+            _clear_fragment(frag)
 
-        # Merge: create a third doc that combines cleared state + new content
-        merged_doc: Any = Doc()
-        merged_doc["prosemirror"] = XmlFragment()
-        merged_doc.apply_update(output_doc.get_update())
-        merged_doc.apply_update(new_doc.get_update())
+            # Merge: create a third doc that combines cleared state + new content
+            merged_doc: Any = Doc()
+            merged_doc["prosemirror"] = XmlFragment()
+            merged_doc.apply_update(output_doc.get_update())
+            merged_doc.apply_update(new_doc.get_update())
 
-        update = merged_doc.get_update()
-    else:
-        update = new_doc.get_update()
+            update = merged_doc.get_update()
+        else:
+            update = new_doc.get_update()
 
-    return base64.b64encode(update).decode("ascii")
+        return base64.b64encode(update).decode("ascii")
+    except Exception:
+        return None
 
 
 def _insert_children(

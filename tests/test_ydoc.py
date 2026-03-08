@@ -383,3 +383,29 @@ class TestRoundTrip:
         frag = doc["prosemirror"]
         # Should still be just one paragraph
         assert _count_children(frag) == 1
+
+
+class TestErrorPaths:
+    def test_invalid_existing_state_returns_none(self):
+        """Invalid base64 in existing_ydoc_state should return None, not raise."""
+        result = prosemirror_to_ydoc_state(SIMPLE_DOC, existing_ydoc_state="not-valid-base64!!!")
+        assert result is None
+
+    def test_corrupt_ydoc_state_returns_none(self):
+        """Corrupt but valid base64 bytes should return None, not raise."""
+        corrupt_b64 = base64.b64encode(b"this is not a valid yjs update").decode()
+        result = prosemirror_to_ydoc_state(SIMPLE_DOC, existing_ydoc_state=corrupt_b64)
+        assert result is None
+
+    def test_malformed_pm_json_no_type(self):
+        """PM JSON without a 'type' key should still produce a valid (empty) doc."""
+        result = prosemirror_to_ydoc_state({"no_type_key": True})
+        assert result is not None
+
+    def test_malformed_pm_json_no_content(self):
+        """PM JSON with type but no content should produce a valid empty doc."""
+        result = prosemirror_to_ydoc_state({"type": "doc"})
+        assert result is not None
+        doc = _decode_ydoc(result)
+        frag = doc["prosemirror"]
+        assert _count_children(frag) == 0
