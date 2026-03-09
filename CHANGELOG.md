@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.37](https://github.com/tenfourty/kbx/compare/kbx-v0.1.36...kbx-v0.1.37) (2026-03-09)
+
+
+### Bug Fixes
+
+* guard MLX import against Python 3.14+ segfault ([f4b71cb](https://github.com/tenfourty/kbx/commit/f4b71cb8b188b99ab98d4520a43f9c8d500c1270))
+
 ## [0.1.36](https://github.com/tenfourty/kbx/compare/kbx-v0.1.35...kbx-v0.1.36) (2026-03-08)
 
 
