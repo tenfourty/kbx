@@ -33,3 +33,17 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
+      - id: ruff-check-pre-push
+        name: ruff check (pre-push)
+        entry: uv run ruff check .
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+      - id: ruff-format-pre-push
+        name: ruff format check (pre-push)
+        entry: uv run ruff format --check .
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
