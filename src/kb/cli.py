@@ -293,9 +293,9 @@ _AGENT_PLAYBOOK = """\
   kb granola edit <calendar-uid> --body "new content"             # replace notes
   kb granola edit <calendar-uid> --body-file updated.md           # replace from file
   kb granola edit <calendar-uid> --append "extra content"         # append to notes
-  kb granola push <calendar-uid> --notes "# Prep\\n- Topic A"    # prepend notes (auto-creates doc)
+  kb granola push <calendar-uid> --notes "# Prep\\n- Topic A"    # prepend notes to existing doc
   kb granola push <calendar-uid> --notes-file prep.md             # prepend from file
-  kb granola push <calendar-uid> --notes "..." --title "1:1"     # set title on auto-created doc
+  kb granola push <calendar-uid> --notes "..." --title "1:1"     # auto-create doc if missing
 
 ## 10. Corrections (find-and-replace across memory)
   kb correct "Quartz Indexer" --json                          # scan: list all occurrences (structured)
@@ -2864,9 +2864,9 @@ def granola_push(
 
     CALENDAR_UID is the Google Calendar event ID or iCalUID.
     Notes are prepended above any existing content.
-    If no Granola document exists for the UID, the push is skipped with a
-    warning. Creating standalone documents creates orphans that aren't linked
-    to calendar events in Granola's UI.
+    If no Granola document exists for the UID and --title is provided,
+    a new document is auto-created and linked to the calendar event.
+    Without --title, the push is skipped with a warning.
     """
     from pathlib import Path as P
 
@@ -2900,12 +2900,19 @@ def granola_push(
     doc = client.find_document(calendar_uid=calendar_uid)
 
     if not doc:
-        click.echo(
-            "No Granola document found for this event. "
-            "Granola creates docs automatically — push will work once the doc exists.",
-            err=True,
-        )
-        raise SystemExit(0)
+        if not title:
+            click.echo(
+                "No Granola document found for this event. "
+                "Pass --title to auto-create one, or wait for Granola to create it.",
+                err=True,
+            )
+            raise SystemExit(0)
+
+        # Auto-create a linked document
+        click.echo(f"Creating Granola document '{title}'...", err=True)
+        calendar_event = {"iCalUID": calendar_uid, "id": calendar_uid, "summary": title}
+        doc = client.create_document(title, calendar_event=calendar_event)
+        click.echo(f"Created document {doc['id']}.", err=True)
 
     doc_id = doc["id"]
     doc_title = doc.get("title", calendar_uid)
