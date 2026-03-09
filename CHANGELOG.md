@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.45](https://github.com/tenfourty/kbx/compare/kbx-v0.1.44...kbx-v0.1.45) (2026-03-09)
+
+
+### Features
+
+* align Claude Code hooks and CI tooling with gm best practices ([29ca69e](https://github.com/tenfourty/kbx/commit/29ca69e074fc8d0e8ec38b58cdb361fd765e37dd))
+
 ## [0.1.44](https://github.com/tenfourty/kbx/compare/kbx-v0.1.43...kbx-v0.1.44) (2026-03-09)
 
 
