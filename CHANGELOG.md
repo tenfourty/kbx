@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.44](https://github.com/tenfourty/kbx/compare/kbx-v0.1.43...kbx-v0.1.44) (2026-03-09)
+
+
+### Features
+
+* add lint prevention measures to catch issues before CI ([76ebf46](https://github.com/tenfourty/kbx/commit/76ebf464390f77d62d8b87416bd863fbcf38abe8))
+
 ## [0.1.43](https://github.com/tenfourty/kbx/compare/kbx-v0.1.42...kbx-v0.1.43) (2026-03-09)
 
 
