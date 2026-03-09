@@ -341,5 +341,6 @@ def _write_audit_log(
         f"{result.files_changed} files, {result.occurrences_replaced} replacements | "
         f"paths: {', '.join(result.changed_paths)}\n"
     )
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     with open(log_path, "a", encoding="utf-8") as f:
         f.write(entry)
