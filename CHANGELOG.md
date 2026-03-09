@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.42](https://github.com/tenfourty/kbx/compare/kbx-v0.1.41...kbx-v0.1.42) (2026-03-09)
+
+
+### Bug Fixes
+
+* resolve pre-existing ruff lint and format failures in CI ([aac06bf](https://github.com/tenfourty/kbx/commit/aac06bf6ed2cfcc5366d4725cbc3f63f6136e6fa))
+
 ## [0.1.41](https://github.com/tenfourty/kbx/compare/kbx-v0.1.40...kbx-v0.1.41) (2026-03-09)
 
 
