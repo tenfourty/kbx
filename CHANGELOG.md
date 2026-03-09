@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.40](https://github.com/tenfourty/kbx/compare/kbx-v0.1.39...kbx-v0.1.40) (2026-03-09)
+
+
+### Bug Fixes
+
+* strip SOCKS proxy env vars at CLI startup ([2e8d0a2](https://github.com/tenfourty/kbx/commit/2e8d0a26db29215c50d636b392eeeba96440bc05))
+
 ## [0.1.39](https://github.com/tenfourty/kbx/compare/kbx-v0.1.38...kbx-v0.1.39) (2026-03-09)
 
 
