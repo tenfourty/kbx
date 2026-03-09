@@ -2,12 +2,27 @@
 
 from __future__ import annotations
 
+import os
 import tempfile
 from pathlib import Path
 from typing import Any
 
 import pytest
 from click.testing import CliRunner
+
+# ---------------------------------------------------------------------------
+# Strip SOCKS proxy env vars that break huggingface_hub's httpx client.
+# Embedding tests use locally-cached models and never need network access.
+# ---------------------------------------------------------------------------
+_PROXY_VARS = ("ALL_PROXY", "all_proxy", "FTP_PROXY", "ftp_proxy",
+               "GRPC_PROXY", "grpc_proxy", "RSYNC_PROXY")
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _strip_socks_proxy():
+    saved = {k: os.environ.pop(k) for k in _PROXY_VARS if k in os.environ}
+    yield
+    os.environ.update(saved)
 
 
 @pytest.fixture
