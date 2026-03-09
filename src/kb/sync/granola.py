@@ -304,12 +304,15 @@ class GranolaClient:
         docs = self.list_documents(since=effective_since)
 
         for doc in docs:
-            # Match by calendar UID
+            # Match by calendar UID — check both iCalUID and id fields since
+            # recurring events use different formats (iCalUID has @google.com
+            # suffix with recurring base date, id has the instance date).
             if calendar_uid:
                 gcal = doc.get("google_calendar_event") or {}
-                doc_uid = gcal.get("iCalUID") or gcal.get("id") or ""
-                if doc_uid and calendar_uid in doc_uid:
-                    return doc
+                candidates = filter(None, [gcal.get("iCalUID"), gcal.get("id")])
+                for candidate in candidates:
+                    if calendar_uid in candidate or candidate in calendar_uid:
+                        return doc
 
             # Match by title substring (case-insensitive)
             if title:
