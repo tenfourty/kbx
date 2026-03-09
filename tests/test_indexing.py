@@ -592,9 +592,10 @@ class TestDocumentLevelSummary:
 
 @pytest.mark.slow
 class TestIndexer:
+    """Indexing behaviour tests — use embedder=None (text-only, no network)."""
+
     def test_incremental_skip(self, tmp_db):
         """Test that unchanged documents are skipped on re-index."""
-        from kb.embeddings import Embedder
         from kb.indexer import index_all
 
         # Create a minimal project root with one test file
@@ -605,17 +606,15 @@ class TestIndexer:
             people_dir.mkdir(parents=True)
             (people_dir / "test-person.md").write_text("# Test Person\n\n**Role:** Test\n")
 
-            embedder = Embedder()
-            r1 = index_all(tmp_db, embedder, tmp_root, full=True)
+            r1 = index_all(tmp_db, None, tmp_root, full=True)
             assert r1.documents_indexed >= 1
 
-            r2 = index_all(tmp_db, embedder, tmp_root, full=False)
+            r2 = index_all(tmp_db, None, tmp_root, full=False)
             assert r2.documents_skipped >= 1
             assert r2.documents_indexed == 0
 
     def test_full_reindex(self, tmp_db):
         """Test full re-index clears and recreates."""
-        from kb.embeddings import Embedder
         from kb.indexer import index_all
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -624,17 +623,15 @@ class TestIndexer:
             people_dir.mkdir(parents=True)
             (people_dir / "test.md").write_text("# Test\n\n**Role:** Test\n")
 
-            embedder = Embedder()
-            r1 = index_all(tmp_db, embedder, tmp_root, full=True)
+            r1 = index_all(tmp_db, None, tmp_root, full=True)
             assert r1.documents_indexed >= 1
 
-            r2 = index_all(tmp_db, embedder, tmp_root, full=True)
+            r2 = index_all(tmp_db, None, tmp_root, full=True)
             assert r2.documents_indexed >= 1
             assert r2.documents_skipped == 0
 
     def test_entity_linking_during_index(self, tmp_db):
         """Test that entity mentions are created during indexing."""
-        from kb.embeddings import Embedder
         from kb.indexer import index_all
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -656,8 +653,7 @@ class TestIndexer:
                 "## Discussion\n\nJane Doe presented the quarterly results.\n"
             )
 
-            embedder = Embedder()
-            result = index_all(tmp_db, embedder, tmp_root, full=True)
+            result = index_all(tmp_db, None, tmp_root, full=True)
             assert result.entities_linked >= 1
 
             # Verify mentions exist in DB
@@ -667,7 +663,6 @@ class TestIndexer:
 
     def test_summary_chunks_created(self, tmp_db):
         """Test that document-level summary chunks are created for notes."""
-        from kb.embeddings import Embedder
         from kb.indexer import index_all
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -682,8 +677,7 @@ class TestIndexer:
                 "## Section B\n\nContent B.\n"
             )
 
-            embedder = Embedder()
-            index_all(tmp_db, embedder, tmp_root, full=True)
+            index_all(tmp_db, None, tmp_root, full=True)
 
             # Verify __document__ chunk exists
             conn = tmp_db.get_sqlite_conn()
@@ -693,7 +687,6 @@ class TestIndexer:
 
     def test_chunk_count_includes_summary(self, tmp_db):
         """Test that documents.chunk_count includes the __document__ summary chunk."""
-        from kb.embeddings import Embedder
         from kb.indexer import index_all
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -708,8 +701,7 @@ class TestIndexer:
                 "## Section B\n\nContent B.\n"
             )
 
-            embedder = Embedder()
-            index_all(tmp_db, embedder, tmp_root, full=True)
+            index_all(tmp_db, None, tmp_root, full=True)
 
             conn = tmp_db.get_sqlite_conn()
             doc = conn.execute("SELECT chunk_count FROM documents").fetchone()
@@ -720,7 +712,6 @@ class TestIndexer:
 
     def test_memory_files_no_summary_chunks(self, tmp_db):
         """Test that memory files do NOT get summary chunks."""
-        from kb.embeddings import Embedder
         from kb.indexer import index_all
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -730,8 +721,7 @@ class TestIndexer:
             people_dir.mkdir(parents=True)
             (people_dir / "test.md").write_text("# Test Person\n\n**Role:** Engineer\n")
 
-            embedder = Embedder()
-            index_all(tmp_db, embedder, tmp_root, full=True)
+            index_all(tmp_db, None, tmp_root, full=True)
 
             conn = tmp_db.get_sqlite_conn()
             summaries = conn.execute(
@@ -974,8 +964,14 @@ class TestNoEmbedIndexing:
             assert result.embeddings_skipped is True
 
     @pytest.mark.slow
+    @pytest.mark.slow
     def test_no_embed_with_embedder_has_skipped_false(self, tmp_db):
         """IndexResult reports embeddings_skipped=False when embedder is provided."""
+        from conftest import _model_cached
+
+        if not _model_cached():
+            pytest.skip("Qwen3 model not in local cache")
+
         from kb.embeddings import Embedder
         from kb.indexer import index_all
 

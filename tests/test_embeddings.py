@@ -46,7 +46,17 @@ class TestBackendSelection:
 
 @pytest.mark.slow
 class TestEmbeddingOutput:
-    """Tests that embedding outputs are correct regardless of backend."""
+    """Tests that embedding outputs are correct regardless of backend.
+
+    Requires the Qwen3-Embedding-0.6B model in the local HF cache.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _skip_without_model(self):
+        from conftest import _model_cached
+
+        if not _model_cached():
+            pytest.skip("Qwen3 model not in local cache")
 
     def test_embed_shape_and_dtype(self):
         """Embeddings have correct shape and dtype."""

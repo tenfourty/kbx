@@ -7,7 +7,15 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from conftest import _model_cached
 
+_skip_no_model = pytest.mark.skipif(
+    not _model_cached(),
+    reason="Qwen3 model not in local cache",
+)
+
+
+@_skip_no_model
 @pytest.mark.slow
 def test_embedder_shape():
     """Embedding returns (n, 1024) L2-normalized float32 array."""
@@ -23,6 +31,7 @@ def test_embedder_shape():
     assert abs(norm - 1.0) < 0.01, f"Expected approximately unit norm, got {norm}"
 
 
+@_skip_no_model
 @pytest.mark.slow
 def test_embedder_batch():
     """Batch embedding works correctly."""
@@ -33,6 +42,7 @@ def test_embedder_batch():
     assert result.shape == (3, EMBEDDING_DIM)
 
 
+@_skip_no_model
 @pytest.mark.slow
 def test_embedder_query():
     """Query embedding uses instruction-aware prompt."""
@@ -44,6 +54,7 @@ def test_embedder_query():
     assert result.dtype == np.float32
 
 
+@_skip_no_model
 @pytest.mark.slow
 def test_embedder_instruction_aware():
     """Different instructions produce different embeddings."""
@@ -96,6 +107,7 @@ def test_sqlite_wal_mode():
         db.close()
 
 
+@_skip_no_model
 @pytest.mark.slow
 def test_lancedb_roundtrip():
     """Store and retrieve a vector from LanceDB."""

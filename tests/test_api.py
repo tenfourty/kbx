@@ -15,11 +15,15 @@ def project_root(tmp_path):
 
 @pytest.fixture
 def kb_instance(tmp_path, project_root):
-    """Create a KnowledgeBase instance with isolated data dir."""
+    """Create a KnowledgeBase instance with isolated data dir.
+
+    Embedder is disabled (text-only indexing) so tests never hit the network.
+    """
     from kb.api import KnowledgeBase
 
     data_dir = tmp_path / "data"
     kb = KnowledgeBase(project_root=project_root, data_dir=data_dir)
+    kb._embedder_failed = True  # force text-only indexing
     yield kb
     kb.close()
 
