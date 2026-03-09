@@ -1998,7 +1998,7 @@ class TestRequestProxyStripping:
 
         # Set SOCKS proxy vars as the sandbox would
         os.environ["ALL_PROXY"] = "socks5h://localhost:59537"
-        os.environ["all_proxy"] = "socks5h://localhost:59537"
+        os.environ["all_proxy"] = "socks5h://localhost:59537"  # noqa: SIM112
         try:
             with patch("httpx.request", side_effect=mock_request):
                 client._request("GET", "/v1/test")

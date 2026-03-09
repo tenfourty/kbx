@@ -157,9 +157,17 @@ class NotionClient:
 
         # Strip SOCKS proxy env vars that the Claude Code sandbox injects
         for var in (
-            "ALL_PROXY", "all_proxy", "FTP_PROXY", "ftp_proxy",
-            "GRPC_PROXY", "grpc_proxy", "RSYNC_PROXY",
-            "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy",
+            "ALL_PROXY",
+            "all_proxy",
+            "FTP_PROXY",
+            "ftp_proxy",
+            "GRPC_PROXY",
+            "grpc_proxy",
+            "RSYNC_PROXY",
+            "HTTPS_PROXY",
+            "https_proxy",
+            "HTTP_PROXY",
+            "http_proxy",
         ):
             os.environ.pop(var, None)
 

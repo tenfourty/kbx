@@ -150,9 +150,17 @@ class GranolaClient:
         tmp_path.rename(self._token_path)
 
     _PROXY_VARS = (
-        "ALL_PROXY", "all_proxy", "FTP_PROXY", "ftp_proxy",
-        "GRPC_PROXY", "grpc_proxy", "RSYNC_PROXY",
-        "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy",
+        "ALL_PROXY",
+        "all_proxy",
+        "FTP_PROXY",
+        "ftp_proxy",
+        "GRPC_PROXY",
+        "grpc_proxy",
+        "RSYNC_PROXY",
+        "HTTPS_PROXY",
+        "https_proxy",
+        "HTTP_PROXY",
+        "http_proxy",
     )
 
     def _request(

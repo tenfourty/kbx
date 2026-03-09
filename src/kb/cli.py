@@ -20,8 +20,15 @@ from typing import TYPE_CHECKING, Any
 # plain HTTPS to reach Granola/Notion/HuggingFace APIs, so we strip the
 # SOCKS-specific vars while leaving HTTP_PROXY/HTTPS_PROXY intact.
 # ---------------------------------------------------------------------------
-for _proxy_var in ("ALL_PROXY", "all_proxy", "FTP_PROXY", "ftp_proxy",
-                   "GRPC_PROXY", "grpc_proxy", "RSYNC_PROXY"):
+for _proxy_var in (
+    "ALL_PROXY",
+    "all_proxy",
+    "FTP_PROXY",
+    "ftp_proxy",
+    "GRPC_PROXY",
+    "grpc_proxy",
+    "RSYNC_PROXY",
+):
     os.environ.pop(_proxy_var, None)
 
 import click

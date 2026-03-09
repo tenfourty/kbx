@@ -17,8 +17,15 @@ from click.testing import CliRunner
 # SOCKS proxy vars are stripped to prevent httpx from trying a SOCKS
 # transport (socksio isn't installed).
 # ---------------------------------------------------------------------------
-_PROXY_VARS = ("ALL_PROXY", "all_proxy", "FTP_PROXY", "ftp_proxy",
-               "GRPC_PROXY", "grpc_proxy", "RSYNC_PROXY")
+_PROXY_VARS = (
+    "ALL_PROXY",
+    "all_proxy",
+    "FTP_PROXY",
+    "ftp_proxy",
+    "GRPC_PROXY",
+    "grpc_proxy",
+    "RSYNC_PROXY",
+)
 
 
 @pytest.fixture(autouse=True, scope="session")

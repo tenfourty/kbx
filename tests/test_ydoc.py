@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import base64
 
-import pytest
 from pycrdt import Doc, XmlElement, XmlFragment, XmlText
 
 from kb.sync.ydoc import prosemirror_to_ydoc_state
-
 
 # ---------------------------------------------------------------------------
 # Fixtures: sample ProseMirror documents
@@ -252,9 +250,7 @@ class TestMarks:
 
         diff = text.diff()
         # Find the "bold and italic" chunk — should have both marks
-        bi_chunks = [
-            c for c in diff if c[1] and "bold" in c[1] and "italic" in c[1]
-        ]
+        bi_chunks = [c for c in diff if c[1] and "bold" in c[1] and "italic" in c[1]]
         assert len(bi_chunks) == 1
         assert bi_chunks[0][0] == "bold and italic"
 

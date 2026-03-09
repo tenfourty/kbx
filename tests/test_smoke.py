@@ -6,7 +6,6 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
 from conftest import _model_cached
 
 _skip_no_model = pytest.mark.skipif(
