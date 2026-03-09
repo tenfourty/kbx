@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.43](https://github.com/tenfourty/kbx/compare/kbx-v0.1.42...kbx-v0.1.43) (2026-03-09)
+
+
+### Bug Fixes
+
+* create corrections log parent directory on CI ([823e1de](https://github.com/tenfourty/kbx/commit/823e1de47f43aea7fd65c2151ae0d742049ec3b3))
+
 ## [0.1.42](https://github.com/tenfourty/kbx/compare/kbx-v0.1.41...kbx-v0.1.42) (2026-03-09)
 
 
