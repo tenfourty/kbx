@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.38](https://github.com/tenfourty/kbx/compare/kbx-v0.1.37...kbx-v0.1.38) (2026-03-09)
+
+
+### Bug Fixes
+
+* strip SOCKS proxy env vars in test conftest ([d7f1bb0](https://github.com/tenfourty/kbx/commit/d7f1bb0a093ebcc72dee387bde5a0312ab5d3eca))
+
 ## [0.1.37](https://github.com/tenfourty/kbx/compare/kbx-v0.1.36...kbx-v0.1.37) (2026-03-09)
 
 
