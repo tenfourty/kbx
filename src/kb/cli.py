@@ -5,11 +5,24 @@ from __future__ import annotations
 import contextlib
 import functools
 import json
+import os
 import shlex
 import sys
 from datetime import date, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+# ---------------------------------------------------------------------------
+# Strip SOCKS proxy env vars before any httpx imports.
+#
+# Some environments (e.g. Claude Code sandbox) set ALL_PROXY=socks5h://...
+# which causes httpx to require the 'socksio' package.  kbx only needs
+# plain HTTPS to reach Granola/Notion/HuggingFace APIs, so we strip the
+# SOCKS-specific vars while leaving HTTP_PROXY/HTTPS_PROXY intact.
+# ---------------------------------------------------------------------------
+for _proxy_var in ("ALL_PROXY", "all_proxy", "FTP_PROXY", "ftp_proxy",
+                   "GRPC_PROXY", "grpc_proxy", "RSYNC_PROXY"):
+    os.environ.pop(_proxy_var, None)
 
 import click
 
