@@ -76,6 +76,7 @@ src/kb/|root: ./src/kb
 |mcp_server.py — MCP server mode (stdio transport)
 |sources/{meetings,memory}.py — walk meetings/ and memory/ directories
 |sync/granola.py — Granola API sync + attendee matching
+|sync/ydoc.py — ProseMirror JSON → Yjs ydoc state (pure-Python via pycrdt, no Node.js)
 ```
 
 ## Conventions

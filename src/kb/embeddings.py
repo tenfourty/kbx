@@ -49,8 +49,16 @@ def _is_apple_silicon() -> bool:
 
 
 def _mlx_available() -> bool:
-    """Return True if Apple Silicon AND mlx is importable."""
+    """Return True if Apple Silicon AND mlx is importable.
+
+    MLX's C extension can fatal-abort (segfault) on unsupported Python
+    versions (e.g. 3.14+).  We guard with a version check first so the
+    process never reaches the C import.
+    """
     if not _is_apple_silicon():
+        return False
+    # MLX doesn't yet support Python 3.14+; importing crashes at C level
+    if sys.version_info >= (3, 14):
         return False
     try:
         import mlx.core  # noqa: F401
