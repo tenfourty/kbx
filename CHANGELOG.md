@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.41](https://github.com/tenfourty/kbx/compare/kbx-v0.1.40...kbx-v0.1.41) (2026-03-09)
+
+
+### Bug Fixes
+
+* auto-create Granola document when --title provided on push ([947b786](https://github.com/tenfourty/kbx/commit/947b786fc91e637d8095ec591c0eebb15acff379))
+* improve granola find_document matching for recurring events ([7e25cf1](https://github.com/tenfourty/kbx/commit/7e25cf112e679feacaf3005566f7de01bbc3bb43))
+* remove private GitLab PyPI index breaking GitHub CI ([bb1267c](https://github.com/tenfourty/kbx/commit/bb1267c08e92426f2a27ac23c7b89f697cc2ac87))
+* strip SOCKS proxy vars in HTTP clients and improve recurring event matching ([eac2eb1](https://github.com/tenfourty/kbx/commit/eac2eb11823ac8e6c7660a4e057a9af7eec4dae2))
+
 ## [0.1.40](https://github.com/tenfourty/kbx/compare/kbx-v0.1.39...kbx-v0.1.40) (2026-03-09)
 
 
