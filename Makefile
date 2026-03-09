@@ -1,9 +1,13 @@
-.PHONY: ci lint typecheck security test
+.PHONY: ci fix lint typecheck security test
 
 # Mirror the exact GitHub CI pipeline locally.
 # Usage: make ci
 ci: lint typecheck security test
 	@echo "✅ All CI checks passed."
+
+fix:
+	uv run ruff check --fix .
+	uv run ruff format .
 
 lint:
 	uv run ruff check .
