@@ -88,6 +88,20 @@ src/kb/|root: ./src/kb
 - All file writes atomic (temp file → rename)
 - NFC Unicode normalization on all paths (macOS compat)
 
+## Claude Code Sandbox
+
+The Claude Code sandbox injects SOCKS proxy env vars (`ALL_PROXY=socks5h://localhost:...`) that break `httpx` (requires `socksio` package). This affects any HTTP call — Granola sync, API calls, HuggingFace model downloads.
+
+**How it's handled:**
+- **CLI startup** (`cli.py`): Strips `ALL_PROXY`, `all_proxy`, `FTP_PROXY`, `ftp_proxy`, `GRPC_PROXY`, `grpc_proxy`, `RSYNC_PROXY` before any imports. Covers all CLI commands.
+- **Tests** (`conftest.py`): Session-scoped autouse fixture strips the same vars + sets `HF_HUB_OFFLINE=1` so tests never hit the network.
+- **Programmatic use**: If using `kb` as a library (e.g., `from kb.sync.granola import GranolaClient`), callers must strip proxy vars themselves — the CLI-level fix doesn't apply.
+
+**Other sandbox notes:**
+- DNS resolution can fail even for allowlisted hosts when running `uv run python3 -c "..."` — may need `dangerouslyDisableSandbox` for direct API calls outside the CLI entry point.
+- GPG signing requires the passphrase to be pre-cached in `gpg-agent` from a regular terminal — `pinentry-mac` can't show a dialog from Claude Code subprocesses.
+- Embedding model tests are skipped when the Qwen3 model isn't in the local HF cache (`~/.cache/huggingface/hub/models--Qwen--Qwen3-Embedding-0.6B/`).
+
 ## Gotchas
 
 - **MPS memory** — embedding batches: 32 on MPS, 16 on CPU; texts truncated at 8K chars. `torch.mps.empty_cache()` between batches

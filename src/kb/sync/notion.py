@@ -155,6 +155,14 @@ class NotionClient:
         """
         import httpx
 
+        # Strip SOCKS proxy env vars that the Claude Code sandbox injects
+        for var in (
+            "ALL_PROXY", "all_proxy", "FTP_PROXY", "ftp_proxy",
+            "GRPC_PROXY", "grpc_proxy", "RSYNC_PROXY",
+            "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy",
+        ):
+            os.environ.pop(var, None)
+
         token = self._get_token()
         for attempt in range(max_retries + 1):
             # Global rate limiter: space requests MIN_REQUEST_INTERVAL apart

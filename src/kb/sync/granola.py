@@ -149,6 +149,12 @@ class GranolaClient:
                 fcntl.flock(f, fcntl.LOCK_UN)
         tmp_path.rename(self._token_path)
 
+    _PROXY_VARS = (
+        "ALL_PROXY", "all_proxy", "FTP_PROXY", "ftp_proxy",
+        "GRPC_PROXY", "grpc_proxy", "RSYNC_PROXY",
+        "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy",
+    )
+
     def _request(
         self,
         method: str,
@@ -158,6 +164,11 @@ class GranolaClient:
     ) -> Any:
         """Make an authenticated API request. Retries once on 401 with token refresh."""
         import httpx
+
+        # Strip SOCKS proxy env vars that the Claude Code sandbox injects —
+        # httpx picks them up via trust_env and requires the socksio package.
+        for var in self._PROXY_VARS:
+            os.environ.pop(var, None)
 
         if not self._access_token:
             self._read_tokens()

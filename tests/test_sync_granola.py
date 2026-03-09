@@ -1908,6 +1908,108 @@ class TestFindDocument:
         assert result is not None
         assert result["id"] == "doc-1"
 
+    def test_find_recurring_event_by_instance_id(self, client):
+        """find_document matches recurring event via id field when iCalUID uses base date."""
+        docs = [
+            {
+                "id": "doc-1",
+                "title": "Platform Stability - weekly sync",
+                "google_calendar_event": {
+                    # iCalUID uses recurring base date format — won't substring-match
+                    "iCalUID": "abc123_R20260223T103000@google.com",
+                    # id uses the specific instance date — should match
+                    "id": "abc123_20260309T103000Z",
+                },
+            },
+        ]
+        with (
+            patch.object(client, "list_documents", return_value=docs),
+            patch("time.sleep"),
+        ):
+            result = client.find_document(calendar_uid="abc123_20260309T103000Z")
+
+        assert result is not None
+        assert result["id"] == "doc-1"
+
+    def test_find_recurring_event_no_false_positive_across_instances(self, client):
+        """find_document does not match a different instance of the same recurring event."""
+        docs = [
+            {
+                "id": "doc-march-2",
+                "title": "Weekly Sync",
+                "google_calendar_event": {
+                    "iCalUID": "abc123_R20260223T103000@google.com",
+                    "id": "abc123_20260302T103000Z",
+                },
+            },
+        ]
+        with (
+            patch.object(client, "list_documents", return_value=docs),
+            patch("time.sleep"),
+        ):
+            # Search for March 9 instance — should NOT match March 2 doc
+            result = client.find_document(calendar_uid="abc123_20260309T103000Z")
+
+        assert result is None
+
+    def test_find_by_icaluid_still_works(self, client):
+        """find_document still matches when iCalUID contains the search UID."""
+        docs = [
+            {
+                "id": "doc-1",
+                "title": "One-off Meeting",
+                "google_calendar_event": {
+                    "iCalUID": "simple123@google.com",
+                },
+            },
+        ]
+        with (
+            patch.object(client, "list_documents", return_value=docs),
+            patch("time.sleep"),
+        ):
+            result = client.find_document(calendar_uid="simple123")
+
+        assert result is not None
+        assert result["id"] == "doc-1"
+
+
+class TestRequestProxyStripping:
+    """_request should strip SOCKS proxy env vars before making HTTP calls."""
+
+    def test_request_strips_socks_proxy_vars(self, supabase_json):
+        """_request strips ALL_PROXY and related vars so httpx doesn't try SOCKS."""
+        import os
+
+        from kb.sync.granola import GranolaClient
+
+        client = GranolaClient(token_path=supabase_json)
+
+        mock_200 = MagicMock()
+        mock_200.status_code = 200
+        mock_200.raise_for_status = MagicMock()
+
+        captured_env = {}
+
+        def mock_request(method, url, **kwargs):
+            # Capture the proxy env vars at the moment httpx.request is called
+            for var in ("ALL_PROXY", "all_proxy", "HTTPS_PROXY", "https_proxy"):
+                captured_env[var] = os.environ.get(var)
+            return mock_200
+
+        # Set SOCKS proxy vars as the sandbox would
+        os.environ["ALL_PROXY"] = "socks5h://localhost:59537"
+        os.environ["all_proxy"] = "socks5h://localhost:59537"
+        try:
+            with patch("httpx.request", side_effect=mock_request):
+                client._request("GET", "/v1/test")
+
+            # Proxy vars should have been stripped before the httpx call
+            assert captured_env["ALL_PROXY"] is None
+            assert captured_env["all_proxy"] is None
+        finally:
+            os.environ.pop("ALL_PROXY", None)
+            os.environ.pop("all_proxy", None)
+
 
 class TestCreateDocument:
     def test_creates_document(self, client):
