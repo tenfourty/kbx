@@ -62,9 +62,6 @@ dev = ["ruff>=0.8", "mypy>=1.13", "pre-commit>=4.0", "types-PyYAML>=6.0", "bandi
 kbx = "kb.cli:cli"
 kb = "kb.cli:cli"
 
-[[tool.uv.index]]
-url = "https://pypi.org/api/v4/projects/435/packages/pypi/simple"
-
 [project.urls]
 Repository = "https://github.com/tenfourty/kbx"
 
