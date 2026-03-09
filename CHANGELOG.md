@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.39](https://github.com/tenfourty/kbx/compare/kbx-v0.1.38...kbx-v0.1.39) (2026-03-09)
+
+
+### Bug Fixes
+
+* make test suite fully offline — no huggingface.co network calls ([ed52cdb](https://github.com/tenfourty/kbx/commit/ed52cdb531fce8737dfbae01a124b562b764e5fa))
+
 ## [0.1.38](https://github.com/tenfourty/kbx/compare/kbx-v0.1.37...kbx-v0.1.38) (2026-03-09)
 
 
