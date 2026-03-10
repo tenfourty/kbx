@@ -24,6 +24,14 @@ uv run kb mcp                                          # start MCP server (stdio
 
 Pre-commit hooks enforce everything (ruff, mypy, bandit, pytest+cov). Trust the hooks.
 
+**Quick CI check locally:**
+```bash
+make ci                          # mirror exact GitHub CI pipeline
+make fix                         # auto-fix lint + format issues
+./scripts/ci-local.sh            # same as make ci, with --fix flag available
+./scripts/ci-local.sh --fix      # auto-fix then run full checks
+```
+
 ## TDD Workflow
 
 1. Write failing test in `tests/`
@@ -101,6 +109,14 @@ The Claude Code sandbox injects SOCKS proxy env vars (`ALL_PROXY=socks5h://local
 - DNS resolution can fail even for allowlisted hosts when running `uv run python3 -c "..."` — may need `dangerouslyDisableSandbox` for direct API calls outside the CLI entry point.
 - GPG signing requires the passphrase to be pre-cached in `gpg-agent` from a regular terminal — `pinentry-mac` can't show a dialog from Claude Code subprocesses.
 - Embedding model tests are skipped when the Qwen3 model isn't in the local HF cache (`~/.cache/huggingface/hub/models--Qwen--Qwen3-Embedding-0.6B/`).
+
+## Claude Code Hooks
+
+`.claude/settings.json` configures two hooks (matching gm's pattern):
+- **PreToolUse** (`block-sensitive-files.sh`): Blocks Edit/Write to `.env*` and `uv.lock`
+- **PostToolUse** (`post-edit-lint.sh`): Auto-runs `ruff check --fix` + `ruff format` on `.py` files after Edit/Write
+
+Scripts in `.claude/hooks/` read stdin JSON for `tool_input.file_path` and `cwd`.
 
 ## Gotchas
 
