@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.52](https://github.com/tenfourty/kbx/compare/kbx-v0.1.51...kbx-v0.1.52) (2026-03-11)
+
+
+### Bug Fixes
+
+* **mcp:** correct note_list total count + XDG path detection ([34333a0](https://github.com/tenfourty/kbx/commit/34333a0fb4bbe1e2d92d7a6ebe61ad5d2836d7a1))
+
 ## [0.1.51](https://github.com/tenfourty/kbx/compare/kbx-v0.1.50...kbx-v0.1.51) (2026-03-11)
 
 
