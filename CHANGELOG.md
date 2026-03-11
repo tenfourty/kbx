@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.46](https://github.com/tenfourty/kbx/compare/kbx-v0.1.45...kbx-v0.1.46) (2026-03-11)
+
+
+### Documentation
+
+* document make ci, hooks, and ci-local.sh in CLAUDE.md ([0b80f92](https://github.com/tenfourty/kbx/commit/0b80f9291fd1e2a0f91e973d1276c57e4a1425c3))
+* move write-through principle above architecture diagram ([2648228](https://github.com/tenfourty/kbx/commit/2648228e018fe1103654992a52dc1536e230714d))
+* overhaul README and all user-facing documentation ([9e65f04](https://github.com/tenfourty/kbx/commit/9e65f04c23dacf723d85bd361cd158411aa5ad26))
+
 ## [0.1.45](https://github.com/tenfourty/kbx/compare/kbx-v0.1.44...kbx-v0.1.45) (2026-03-09)
 
 
