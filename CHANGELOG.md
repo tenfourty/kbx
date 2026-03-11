@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.48](https://github.com/tenfourty/kbx/compare/kbx-v0.1.47...kbx-v0.1.48) (2026-03-11)
+
+
+### Features
+
+* **mcp:** add 17 MCP tools for CLI parity ([8e05535](https://github.com/tenfourty/kbx/commit/8e055355de55c0c1f8234e22fe5e4a1720ed0296))
+
+
+### Documentation
+
+* update TDD workflow in CLAUDE.md ([f329066](https://github.com/tenfourty/kbx/commit/f329066c36d400d02a72470b37cd1c8f26484847))
+
 ## [0.1.47](https://github.com/tenfourty/kbx/compare/kbx-v0.1.46...kbx-v0.1.47) (2026-03-11)
 
 
