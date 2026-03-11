@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.51](https://github.com/tenfourty/kbx/compare/kbx-v0.1.50...kbx-v0.1.51) (2026-03-11)
+
+
+### Features
+
+* **mcp:** add mention_threshold param to kb_context (A4) ([0e86366](https://github.com/tenfourty/kbx/commit/0e863666027804d5c6065de7bc42386db60d0353))
+
 ## [0.1.50](https://github.com/tenfourty/kbx/compare/kbx-v0.1.49...kbx-v0.1.50) (2026-03-11)
 
 
