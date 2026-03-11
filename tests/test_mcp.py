@@ -1876,3 +1876,55 @@ class TestMcpGlossaryPathResolution:
         result = json.loads(handle_kb_glossary_list(tmp_path))
         assert result["results"] == []
         assert result["meta"]["total"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Audit fix A8: find_project_root with global XDG config
+# ---------------------------------------------------------------------------
+
+
+class TestFindProjectRootGlobalConfig:
+    def test_global_config_absolute_memory_path(self, tmp_path):
+        """find_project_root derives root from absolute memory path in global config."""
+        from kb.config import find_project_root
+
+        # Set up a fake project structure
+        project_dir = tmp_path / "project"
+        memory_dir = project_dir / "memory"
+        memory_dir.mkdir(parents=True)
+
+        # Set up a fake global config with absolute memory path
+        xdg_dir = tmp_path / "xdg" / "kbx"
+        xdg_dir.mkdir(parents=True)
+        config_file = xdg_dir / "config.toml"
+        config_file.write_text(
+            f'[sources]\nmemory = "{memory_dir}"\n\n[data]\ndir = "{tmp_path / "data"}"\n'
+        )
+
+        with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(tmp_path / "xdg"), "KBX_CONFIG": ""}):
+            # Clear KBX_CONFIG so find_config walks up CWD then falls to XDG
+            os.environ.pop("KBX_CONFIG", None)
+            # Ensure CWD doesn't contain kbx.toml
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(str(tmp_path / "xdg"))
+                root = find_project_root()
+            finally:
+                os.chdir(old_cwd)
+
+        # Should resolve to project_dir (parent of absolute memory path)
+        assert root == project_dir
+
+    def test_local_config_unchanged(self, tmp_path):
+        """find_project_root still uses config parent for local kbx.toml."""
+        from kb.config import find_project_root
+
+        # Set up local kbx.toml
+        config_file = tmp_path / "kbx.toml"
+        config_file.write_text('[sources]\nmemory = "memory"\n')
+        (tmp_path / "memory").mkdir()
+
+        with patch.dict(os.environ, {"KBX_CONFIG": str(config_file)}):
+            root = find_project_root()
+
+        assert root == tmp_path

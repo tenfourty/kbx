@@ -19,14 +19,26 @@ def find_project_root() -> Path:
 
     Search order:
       1. kbx.toml config file (via find_config) — project root is its parent
+         Exception: if config is global (~/.config/) and memory path is absolute,
+         derive project root from the memory path's parent directory.
       2. Legacy fallback: walk up from CWD looking for kb/ + meetings/ or memory/
       3. Fall back to CWD if nothing found
     """
-    from kb.user_config import find_config
+    from kb.user_config import find_config, load_config
 
     config_path = find_config()
     if config_path is not None:
-        return config_path.parent
+        candidate = config_path.parent
+        # Global config (XDG) may live far from the actual project.  When the
+        # memory source path is absolute, derive project root from it instead
+        # of using the config file's parent directory.
+        xdg = os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))
+        if str(candidate).startswith(xdg):
+            cfg = load_config(config_path)
+            mem_path = Path(cfg.sources.memory)
+            if mem_path.is_absolute():
+                return mem_path.parent
+        return candidate
 
     # Legacy fallback: walk up looking for kbx/ + meetings/ or memory/
     cwd = Path.cwd()
