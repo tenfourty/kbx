@@ -131,6 +131,8 @@ See [architecture docs](docs/architecture.md) for the full API surface.
 
 ## Architecture
 
+**Write-through principle:** Markdown files are the source of truth. All data writes go to flat files first; the database is a derived index rebuilt from those files. The DB is disposable — delete it and re-index.
+
 ```
 Markdown files (source of truth)
         │
@@ -162,8 +164,6 @@ Markdown files (source of truth)
 │  FTS5 (BM25) + Vector → RRF Fusion → Recency Weight │
 └─────────────────────────────────────────────────────┘
 ```
-
-**Write-through principle:** Markdown files are the source of truth. All data writes go to flat files first; the database is a derived index rebuilt from those files. The DB is disposable — delete it and re-index.
 
 ## Search
 
