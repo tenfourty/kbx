@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.49](https://github.com/tenfourty/kbx/compare/kbx-v0.1.48...kbx-v0.1.49) (2026-03-11)
+
+
+### Documentation
+
+* **mcp:** document all 27 MCP tools with parameter reference ([a7fc28d](https://github.com/tenfourty/kbx/commit/a7fc28d4a1cd8a4c3da6306905cb7688abbb4437))
+
 ## [0.1.48](https://github.com/tenfourty/kbx/compare/kbx-v0.1.47...kbx-v0.1.48) (2026-03-11)
 
 
