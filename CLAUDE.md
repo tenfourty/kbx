@@ -34,9 +34,27 @@ make fix                         # auto-fix lint + format issues
 
 ## TDD Workflow
 
-1. Write failing test in `tests/`
-2. Implement in `src/kb/`
-3. `uv run pytest -x -q` — green, then `uv run mypy src/` — clean
+Every new feature must have:
+1. **A happy-path integration test** — exercises the real SQLite + LanceDB layer using the test fixture DB (`KB_DATA_DIR` isolation). No mocking of internal modules — test the actual pipeline end-to-end.
+2. **A happy-path E2E test** — a subprocess smoke test invoking `kbx <command>` as a real process and asserting on stdout/exit code (see `tests/test_cli.py` for the pattern).
+
+**TDD order is mandatory:**
+- Write integration and E2E tests first (red), then implement until they pass (green)
+- When fixing a bug: write a test that reproduces the bug first, then fix the code
+- Never write implementation code before a failing test exists
+
+**Exceptions (must be explicitly noted in a comment, not silently skipped):**
+- Pure infrastructure (migrations, NFC normalization, cache warming) — unit test only is acceptable
+- MCP handler functions — handler unit tests are sufficient; do not test FastMCP transport wiring (that's FastMCP's responsibility)
+- ML model behaviour (embedding quality, search tuning) — covered by `tests/eval_queries.py`, not pytest
+
+Quick commands:
+```bash
+uv run pytest tests/test_search.py::test_name -x -v  # single test
+uv run pytest -n auto -x -q --cov                     # parallel (xdist)
+uv run pytest -m "not slow" -x -q                     # skip embedding model tests
+```
+Then: `uv run mypy src/` — clean before committing.
 
 ## Architecture
 
