@@ -7,6 +7,7 @@ uv run pytest -x -q              # fast: fail on first error
 uv run pytest --cov              # with coverage report
 uv run pytest -k "test_name"     # run specific test
 uv run pytest -m "not slow"      # skip ML model tests (default)
+uv run pytest -n auto -x -q      # parallel (xdist)
 ```
 
 No network or API keys needed — all tests use mocked data.
@@ -16,13 +17,15 @@ No network or API keys needed — all tests use mocked data.
 | File | Focus |
 |------|-------|
 | `test_api.py` | KnowledgeBase public API: lifecycle, entities, documents, memory, search, context, index |
-| `test_cli.py` | CLI commands: search, view, list, entity, index, usage, notes, pin |
+| `test_cli.py` | CLI commands: search, view, list, entity, index, notes, pin |
 | `test_search.py` | Search pipeline: BM25, RRF, recency, filtering, hooks |
 | `test_indexing.py` | Indexing: seed, chunk, embed batch, incremental vs full |
 | `test_entities.py` | Entity seeding, fuzzy matching, mention detection |
 | `test_context.py` | Context generation: pinned docs, entity ranking, filtering |
 | `test_embeddings.py` | Embedding backends: PyTorch, MLX, batch processing, truncation |
+| `test_mlx_backend.py` | MLX-specific backend tests |
 | `test_sync_granola.py` | Granola sync: API mocking, dedup, attendee matching |
+| `test_sync_notion.py` | Notion sync: API mocking, page parsing |
 | `test_mcp.py` | MCP server: resources, tools, error handling |
 | `test_writeback.py` | DB-to-file sync: header rebuild, preserve body, atomic writes |
 | `test_crud.py` | Entity CRUD: create, edit, delete with file sync |
@@ -34,7 +37,11 @@ No network or API keys needed — all tests use mocked data.
 | `test_types.py` | Pydantic model validation, API response types |
 | `test_staleness.py` | Stale file detection + auto-reindex |
 | `test_glossary.py` | Glossary CRUD |
+| `test_correct.py` | Find-and-replace across memory files |
+| `test_matching.py` | Task-to-project matching |
 | `test_db_extras.py` | Database edge cases, migrations |
+| `test_user_config.py` | User configuration handling |
+| `test_ydoc.py` | ProseMirror JSON to Yjs ydoc conversion |
 | `test_coverage_extras.py` | Coverage gap fillers |
 
 ## Fixtures (`conftest.py`)
@@ -80,7 +87,7 @@ def test_my_indexing(self, tmp_db):
 
 ## Markers
 
-- `@pytest.mark.slow` — loads real ML models (~1.1GB). Skipped by default. Run with `uv run pytest -m slow`.
+- `@pytest.mark.slow` — loads real ML models (~1.1GB). Skipped by default in pre-commit. Run with `uv run pytest -m slow`.
 
 ## Coverage
 

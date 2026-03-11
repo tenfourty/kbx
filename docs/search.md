@@ -2,7 +2,7 @@
 
 ## Overview
 
-`kb/search.py` implements a hybrid search engine combining FTS5 keyword search with LanceDB vector search, fused via Weighted Reciprocal Rank Fusion (RRF) with recency weighting.
+`src/kb/search.py` implements a hybrid search engine combining FTS5 keyword search with LanceDB vector search, fused via Weighted Reciprocal Rank Fusion (RRF) with recency weighting.
 
 ## Pipeline
 
@@ -58,8 +58,10 @@ Combines FTS and vector result lists:
 rrf_score = 1 / (k + rank)  # k=60
 ```
 
-- Both FTS and vector lists get **2x weight**
+- FTS and vector weights are configurable (`fts_weight`, `vector_weight`; default 1.0 each)
 - Top-rank bonus: **+0.05** for rank 1, **+0.02** for ranks 2-3
+- Glossary-aware query expansion: automatically expands acronyms/abbreviations from `memory/glossary.md`
+- Entity-aware boosting: results matching known entities get a **+15%** score boost
 - Results appearing in both lists naturally score higher
 
 ### Recency-Weighted Scoring
@@ -88,9 +90,20 @@ search(
     query: str,
     *,
     limit: int = 10,
-    fast: bool = False,       # FTS only, ~instant
-    recency: float = 0.15,    # recency weight
-    doc_type: str | None = None,  # filter
+    fast: bool = False,          # FTS only, ~instant
+    recency: float = 0.15,      # recency weight (0 = pure similarity)
+    doc_type: str | None = None, # filter by document type
+    from_date: str | None = None,# filter: YYYY-MM-DD
+    to_date: str | None = None,  # filter: YYYY-MM-DD
+    tag: str | None = None,      # filter by tag
+    sort_by: str = "score",      # "score" or "date"
+    fts_weight: float = 1.0,     # FTS5 weight in RRF fusion
+    vector_weight: float = 1.0,  # vector weight in RRF fusion
+    dedupe: bool = False,        # deduplicate by document
+    snippet_chars: int = 200,    # snippet length
+    full_chunks: bool = False,   # return complete chunk text
+    merge_chunks: bool = False,  # merge chunks per document
+    highlight: bool = False,     # <mark> highlighting in snippets
     hook: SearchProgressHook | None = None,
 ) -> dict
 ```
@@ -127,8 +140,7 @@ search(
 | Mode | Flag | Speed | Method |
 |------|------|-------|--------|
 | Fast | `--fast` | ~instant | FTS5 only |
-| Default | (none) | ~2s | Hybrid FTS5 + vector + RRF |
-| Deep | `--deep` | ~10s | Hybrid + reranking (future Phase 9+) |
+| Hybrid | *(default)* | ~2s | FTS5 + vector + RRF fusion |
 
 ## Progress Hooks
 
@@ -142,13 +154,4 @@ Default is no-op. CLI can pass a spinner, tests can assert stages.
 
 ## Testing
 
-29 tests in `test_search.py`:
-- BM25 normalization (5 tests)
-- RRF scoring (2 tests)
-- Recency weighting (4 tests)
-- Snippet extraction (4 tests)
-- Progress hooks (2 tests)
-- FTS integration (7 tests)
-- FTS-only fallback (2 tests)
-- Recency in search (2 tests)
-- Hook integration (1 test)
+Tests in `test_search.py` cover: BM25 normalisation, RRF scoring, recency weighting, snippet extraction, progress hooks, FTS integration, FTS-only fallback, and hook integration. Run with `uv run pytest tests/test_search.py -v`.

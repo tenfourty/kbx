@@ -2,7 +2,7 @@
 
 ## Overview
 
-`kb/output.py` provides consistent output formatting across all commands, following the `gh` CLI pattern.
+`src/kb/output.py` provides consistent output formatting across all commands, following the `gh` CLI pattern.
 
 ## Formats
 

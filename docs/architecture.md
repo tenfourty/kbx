@@ -1,12 +1,12 @@
-# kb Architecture
+# Architecture
 
 ## Overview
 
-`kb` is a local knowledge base for your workspace. It provides semantic + keyword search over meeting notes, transcripts, and memory files. Designed as the foundation for a personal digital twin.
+`kbx` is a local knowledge base with hybrid search over markdown files. It provides semantic + keyword search over meeting notes, transcripts, and memory files.
 
 ## Storage Layer
 
-Two storage engines, co-located in the data directory (default `~/.config/kbx/`):
+Two storage engines, co-located in the data directory (configurable via `kbx.toml` or `$KB_DATA_DIR`):
 
 ### SQLite (`metadata.db`)
 
@@ -115,11 +115,11 @@ Instructions used:
 - `EMBED_BATCH = 16` — texts per embedding batch
 - MPS watermark: 50% high / 30% low (prevents GPU memory exhaustion on macOS)
 
-Model cached at `~/.config/kbx/model/` (~1.1GB).
+Model cached at `~/.cache/huggingface/hub/` or `~/.config/kbx/model/` (~1.1GB). First run downloads automatically.
 
 ## Source Adapters
 
-Pluggable adapters in `kb/sources/`:
+Pluggable adapters in `src/kb/sources/`:
 
 ### `meetings.py`
 
@@ -184,7 +184,9 @@ with KnowledgeBase(thread_safe=True) as kb:
 - **Auto-staleness** — changed memory files auto-reindexed before search/context
 - All methods return Pydantic models (see `types.py`)
 
-Design doc: `docs/plans/2026-02-24-python-api-design.md`
+Key methods include: `search()`, `index()`, `context()`, `list_entities()`, `get_entity()`, `get_entity_timeline()`, `find_entities()`, `get_stale_entities()`, `match_tasks_to_projects()`, `list_glossary_terms()`, `count_documents()`, `list_pinned_documents()`, `read_memory_file()`, `write_memory_file()`, `list_memory_tree()`. See `src/kb/api.py` for the complete surface.
+
+See `docs/plans/2026-02-24-python-api-design.md` for the original design doc.
 
 ## File Structure
 
@@ -214,18 +216,22 @@ src/kb/
 │   ├── __init__.py
 │   ├── meetings.py    # Meeting notes + transcripts walker
 │   └── memory.py      # Memory files walker
+├── correct.py         # Bulk term correction (scan + replace)
+├── matching.py        # Task-to-project matching + source extraction
 └── sync/
     ├── __init__.py
-    └── granola.py     # Granola API sync: client, transform, write
+    ├── granola.py     # Granola API sync: client, transform, write
+    ├── notion.py      # Notion AI Meeting Notes sync
+    └── ydoc.py        # ProseMirror JSON → Yjs ydoc state (pure-Python)
 ```
 
 Supporting directories (at repo root):
 
 ```
-kb/
+kbx/
 ├── docs/              # This documentation
-├── data/              # gitignored — SQLite DB, LanceDB vectors, model cache
-└── tests/             # Test suite
+├── tests/             # Test suite (1361+ tests)
+└── kbx-data/          # gitignored — SQLite DB, LanceDB vectors (configurable)
 ```
 
 ## Module Dependency Graph

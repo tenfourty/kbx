@@ -35,12 +35,12 @@ flowchart LR
 
 Seeded from four sources (in order):
 
-1. **`memory/people/*.md`** (25 people) — parsed from markdown fields (`**Role:**`, `**Also known as:**`, etc.)
-2. **`memory/projects/*.md`** (12 projects) — parsed from markdown fields (`**Codename/Also called:**`, `**Lead:**`, etc.). Projects may have a `sources:` list in YAML frontmatter linking to external systems (Slack channels, Linear projects, etc.)
+1. **`memory/people/*.md`** — parsed from markdown fields (`**Role:**`, `**Also known as:**`, etc.)
+2. **`memory/projects/*.md`** — parsed from markdown fields (`**Codename/Also called:**`, `**Lead:**`, etc.). Projects may have a `sources:` list in YAML frontmatter linking to external systems (Slack channels, Linear projects, etc.)
 3. **`memory/context/company.md`** — Company entity + teams extracted from "Teams" section
 4. **`CLAUDE.md` People table** — cross-references existing entities for aliases, adds people not in memory/people/
 
-Total: ~62 entities.
+Run `kbx index status --json` to see current entity counts.
 
 ## Entity Types
 
@@ -117,10 +117,4 @@ Five-tier matching against document metadata and content:
 
 ## Testing
 
-43 tests in `test_entities.py` covering:
-- Person/project file parsing
-- Team extraction from company.md
-- Tag/title/content matching
-- Name disambiguation
-- Full seeding with correct counts
-- Idempotency
+Tests in `test_entities.py` cover: person/project file parsing, team extraction from company.md, tag/title/content matching, name disambiguation, full seeding with correct counts, and idempotency. Run with `uv run pytest tests/test_entities.py -v`.

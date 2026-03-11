@@ -2,137 +2,216 @@
 
 ## Overview
 
-`kb/cli.py` implements the `kb` command-line tool using Click. All commands support structured output via `--format`, `--json`, `--fields`, and `--jq` options.
+`kbx` (also available as `kb`) is the command-line interface, implemented with Click. All commands support structured output via `--format`, `--json`, `--fields`, and `--jq` options.
 
 ## Installation
 
 ```bash
-# From the project directory:
-uv tool install --editable .   # installs `kb` globally (editable — code changes take effect immediately)
-
-# Or without installing:
-uv run kb search "query"       # works from project root or kb/ directory
+pip install kbx                        # from PyPI
+uv tool install --editable .           # editable dev install (code changes take effect immediately)
 ```
 
 ## Command Structure
 
 ```
-kb
+kbx
 ├── search <query>           # Hybrid semantic + keyword search
-├── view <path|#docid>       # View a specific document
+├── view <path|#docid|glob>  # View a specific document
 ├── list                     # Browse documents by date/type
+├── context                  # Compressed entity index for AI agents
+├── me                       # Your own profile (shortcut for person find me)
+├── person
+│   ├── find <name>          # Person profile + linked documents
+│   ├── timeline <name>      # Chronological docs mentioning person
+│   ├── list                 # All known people
+│   ├── create <name>        # Create a new person
+│   ├── edit <name>          # Edit a person's metadata
+│   ├── delete <name>        # Delete a person
+│   └── pin <name>           # Pin a person to context
+├── project
+│   ├── find <name>          # Project profile + linked documents
+│   ├── list                 # All known projects
+│   ├── create <name>        # Create a new project
+│   ├── edit <name>          # Edit a project's metadata
+│   └── delete <name>        # Delete a project
 ├── entity
-│   ├── find <name>          # Entity profile + linked documents
-│   ├── timeline <name>      # Chronological docs mentioning entity
-│   └── list                 # All known entities
+│   └── stale                # Entities not mentioned recently
+├── memory
+│   ├── add <text>           # Create a note or record a fact
+│   ├── list                 # List facts
+│   ├── delete-fact <id>     # Delete a fact
+│   └── edit-fact <id>       # Edit a fact
+├── note
+│   ├── list                 # Browse and filter notes
+│   ├── edit <target>        # Edit a note's body/tags/pin
+│   └── delete <target>      # Delete a note
+├── pin <path|title|#hash>   # Pin a document to context
+├── unpin <path|title>       # Remove from context
+├── glossary
+│   ├── add <term> <text>    # Add a glossary term
+│   ├── list                 # List all terms
+│   ├── edit <term> <text>   # Edit a term
+│   └── delete <term>        # Delete a term
+├── correct <term> [repl]    # Find and replace across memory files
+├── sync
+│   ├── granola              # Sync meetings from Granola API
+│   └── notion               # Sync meetings from Notion
+├── granola
+│   ├── view <uid>           # View meeting notes/transcript/summary
+│   ├── edit <uid>           # Edit meeting notes
+│   └── push <uid>           # Push notes to a Granola document
+├── ingest [paths]           # Organise Granola exports and index
 ├── index
 │   ├── run [paths...]       # Incremental index (or full with --full)
 │   └── status               # DB health: counts, size, freshness
+├── init                     # Create kbx.toml config file
+├── mcp                      # Start MCP server (stdio transport)
 └── --help                   # Init status + commands + agent playbook
 ```
 
-## Commands
+## Key Commands
 
 ### search
 
 ```bash
-kb search "MFA implementation"              # default hybrid, table output
-kb search "MFA implementation" --fast       # FTS only, ~instant
-kb search "MFA implementation" --json       # JSON output
-kb search "Rust" --limit 5 --recency 0.3   # tuned
-kb search "Datastore" --format csv          # CSV
-kb search "meeting" --jq '.results[0].title'
-kb search "Linnea" --fields title,date,score
-kb search "notes" --type notes              # filter by doc_type
+kbx search "MFA implementation"              # default hybrid, table output
+kbx search "MFA implementation" --fast       # FTS only, ~instant
+kbx search "MFA implementation" --json       # JSON output
+kbx search "Rust" --limit 5 --recency 0.3   # tuned
+kbx search "meeting" --type notes            # filter by doc_type
+kbx search "topic" --from 2026-01-01 --to 2026-01-31  # date range
+kbx search "topic" --tag infra --fast        # filter by tag
+kbx search "topic" --sort date               # newest first
+kbx search "topic" --dedupe                  # one result per document
+kbx search "topic" --full-chunks             # include full chunk text
+kbx search "topic" --fields title,date,score # select fields
+kbx search "topic" --jq '.results[0].title'  # jq filtering
 ```
 
 Options:
 - `--fast` — FTS-only search (no vector), ~instant
-- `--deep` — Placeholder (prints "not yet implemented")
 - `--limit N` — Max results (default: 10)
-- `--recency FLOAT` — Recency weight 0-1 (default: 0.15)
+- `--recency FLOAT` — Recency weight 0–1 (default: 0.15)
 - `--type TYPE` — Filter by doc_type
+- `--from` / `--to` — Date range filter
+- `--tag TAG` — Filter by tag (comma-separated for AND)
+- `--sort score|date` — Sort order
+- `--dedupe` — One result per document
+- `--full-chunks` — Include full chunk text in JSON output
+- `--merge-chunks` — With `--dedupe --full-chunks`, concatenate all chunks per doc
+- `--snippet-chars N` — Snippet length (default: 200)
+- `--fts-weight` / `--vector-weight` — Boost FTS or vector results
 
 ### view
 
 ```bash
-kb view "memory/meetings/2026/01/27/Alice___Bob.notes.md"
-kb view "Alice___Bob.notes.md"               # suffix match
-kb view #abcdef                              # content-hash lookup (first 6+ chars)
-kb view "path.md:42"                         # line range (future)
+kbx view "memory/meetings/2026/01/27/abc_Alice_Bob.notes.md"
+kbx view "Alice_Bob.notes.md"              # suffix match
+kbx view "#abcdef"                          # content-hash lookup
+kbx view "*Wren*"                          # glob pattern
+kbx view "path.md" --plain                  # raw content only
+kbx view "path.md" --json                   # structured with chunks
 ```
 
-Resolution order: exact path → suffix match → fuzzy suggestion.
+Resolution order: exact path → glob → suffix match → `#hash` lookup → fuzzy suggestion.
 
-For `#abc123`: queries `content_hash LIKE 'abc123%'`.
-
-### list
+### context
 
 ```bash
-kb list                              # all documents, newest first
-kb list --type notes --limit 20      # filter by type
-kb list --from 2026-01-01 --to 2026-01-31
-kb list --json
+kbx context                                 # compressed entity index
+kbx context --json                          # structured output
+kbx context --human                         # markdown format
+kbx context --for "Rust migration"          # filtered to relevant entities
 ```
 
-### entity find
+### person / project
 
 ```bash
-kb entity find "Linnea"               # profile + linked docs
-kb entity find "Linnea" --json
-kb entity find "thomas"              # case-insensitive
+kbx person find "Wren" --json              # profile + linked docs
+kbx person timeline "Wren" --from 2026-01-01
+kbx person create "Soren" --role "SRE Lead" --team "Platform"
+kbx person edit "Soren" --role "Staff SRE" --meta "timezone=CET"
+kbx person pin "Wren"                      # pin to context
+kbx person list --json
+
+kbx project find "Helix Refactor" --json
+kbx project create "New Project" --status Active --lead "Wren"
+kbx project create "New Project" --source "slack:channel=C123,name=#project"
+kbx project edit "New Project" --source "linear:https://linear.app/..."
+kbx project list --json
 ```
 
-Matching: exact name → alias → partial substring (case-insensitive).
-
-### entity timeline
+### memory / note
 
 ```bash
-kb entity timeline "Linnea"           # chronological mentions
-kb entity timeline "Linnea" --from 2026-01-01
+kbx memory add "Decision: use Postgres" --body "Rationale..." --tags decision --pin
+kbx memory add "Promoted to Staff" --entity "Soren"
+kbx memory list --since 30 --json
+
+kbx note list --tag decision --json
+kbx note list --pinned
+kbx note edit "title" --body "new content"
+kbx note edit "title" --append "extra"
+kbx note edit "title" --tags "a,b,c" --pin
+kbx note delete "title"
 ```
 
-### entity list
+### correct
 
 ```bash
-kb entity list                       # all entities
-kb entity list --type person         # filter
-kb entity list --json
+kbx correct "Quartz Indexer" --json             # scan: list all occurrences
+kbx correct "Quartz Indexer" "Coralogix"        # dry-run: preview replacements
+kbx correct "Quartz Indexer" "Coralogix" --apply  # execute replacements
+kbx correct "Bram" --word-boundary --json  # whole-word matches only
 ```
 
-### project create / edit
+### sync
 
 ```bash
-kb project create "My Project" --status Active --lead "Wren Smith"
-kb project create "My Project" --source "slack:channel=C123,name=#my-channel"
-kb project create "My Project" --source "linear:https://linear.app/project/123"
-
-kb project edit "My Project" --source "jira:key=GG-1234"   # append source
-kb project edit "My Project" --remove-source slack          # remove all slack sources
-kb project edit "My Project" --remove-source "linear:PRJ-123"  # remove specific source
+kbx sync granola --since 2026-01-01        # pull meetings from Granola API
+kbx sync notion --since 2026-01-01         # pull meetings from Notion
+kbx sync granola --dry-run                 # preview, no writes
+kbx sync granola --force                   # overwrite existing files
+kbx sync granola --no-index                # skip indexing after sync
 ```
 
-**Sources schema:** Projects support a `sources:` list in YAML frontmatter for linking to external systems. Each entry requires a `type` key; all other keys are free-form. Source IDs (`id`, `key`, `channel`) are automatically used for entity linking via `src:`-prefixed aliases.
-
-### index run
+### granola
 
 ```bash
-kb index run                         # incremental index
-kb index run --full                  # full re-index
+kbx granola view <uid>                     # view meeting notes
+kbx granola view <uid> --transcript        # show transcript
+kbx granola view <uid> --summary           # show AI summary
+kbx granola view <uid> --all               # notes + summary + transcript
+kbx granola view <uid> --plain             # raw markdown (no YAML header)
+
+kbx granola edit <uid> --body "markdown"   # replace notes
+kbx granola edit <uid> --append "extra"    # append to existing
+kbx granola edit <uid> --body-file notes.md
+
+kbx granola push <uid> --notes "markdown"  # push notes to Granola
+kbx granola push <uid> --notes-file prep.md
 ```
 
-### index status
+### ingest
 
 ```bash
-kb index status                      # human-readable health
-kb index status --json               # structured health info
+kbx ingest export.zip                      # organise Granola export + index
+kbx ingest --dry-run                       # preview only
+kbx ingest --skip-organise                 # index only
 ```
 
-Reports: document count by type, total chunks, entity count, vector count, last indexed timestamp, database file sizes.
+### index
+
+```bash
+kbx index run                               # incremental index
+kbx index run --full                        # full re-index
+kbx index run --no-embed                    # text-only (no model needed)
+kbx index status --json                     # database health
+```
 
 ## Output Options
 
-Available on all data commands (search, view, list, entity, index status):
+Available on all data commands:
 
 | Option | Description |
 |--------|-------------|
@@ -143,27 +222,17 @@ Available on all data commands (search, view, list, entity, index status):
 
 ## Database Path
 
-The database lives at `~/.config/kbx/` by default. This can be overridden via:
+The database lives at the configured data directory. Resolution order:
 1. `data.dir` in `kbx.toml` config file
-2. `KB_DATA_DIR` environment variable
+2. `$KB_DATA_DIR` environment variable
+3. `~/.config/kbx/` (default)
 
-Project root auto-detection walks up from CWD looking for `kbx.toml`, or a directory containing both `kbx/` and `meetings/` (or `memory/`).
+Project root auto-detection walks up from CWD looking for `kbx.toml`.
 
 ## Error Handling
 
 - Unknown path in `view` → suggestion with close matches
-- Missing query in `search` → Click usage error
-- Entity not found → "Entity not found: name" on stderr
+- Entity not found → message on stderr with suggestions
+- JSON mode errors include `error`, `suggestion`, and `available_actions` fields
 
 Exit codes: 0 = success, 1 = not found/validation, 2 = ambiguous match.
-
-## Testing
-
-38 tests in `test_cli.py`:
-- Search: 8 tests (fast/json, table, limit, csv, fields, deep placeholder, type filter, no query)
-- View: 6 tests (path, hash, suffix, not found, content field, summary exclusion)
-- List: 9 tests (json, type filter, limit, date range, default table, consistent schema)
-- Entity: 10 tests (list json, type filter, find json, partial match, not found, timeline, ambiguous, JSON errors)
-- Index: 1 test (status json)
-- Usage: 2 tests (contains "kb search", contains "Score Interpretation")
-- Error handling: 2 tests (bad search, bad path)

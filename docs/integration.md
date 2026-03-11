@@ -1,29 +1,29 @@
-# Integration & Polish (Phase 6)
+# Integration
 
-## `kb ingest` — Granola Export Pipeline
+## `kbx ingest` — Granola Export Pipeline
 
-Wraps the organise + index workflow into a single command:
+Wraps the organise + index workflow:
 
 ```bash
-kb ingest                        # auto-discover Granola exports, organise, then index
-kb ingest path/to/export.zip     # specific export
-kb ingest --dry-run              # preview only
-kb ingest --skip-organise        # only run index, skip the organise step
+kbx ingest                        # auto-discover Granola exports, organise, then index
+kbx ingest path/to/export.zip     # specific export
+kbx ingest --dry-run              # preview only
+kbx ingest --skip-organise        # only run index, skip the organise step
 ```
 
 ### How it works
 
-1. **Organise** (unless `--skip-organise`): Runs `meetings/organise_granola.py` as a subprocess from the project root. Passes any path arguments and `--dry-run` flag through.
+1. **Organise** (unless `--skip-organise`): Runs the organise step to unpack Granola exports into `memory/meetings/`. Passes any path arguments and `--dry-run` flag through.
 2. **Index**: Loads the Embedder and calls `index_all()` directly. The Embedder is only loaded after organise completes (expensive ~600MB model).
 3. All progress goes to stderr; structured output to stdout.
 
 ### Dry run
 
-`--dry-run` passes through to `organise_granola.py` and skips the index step entirely.
+`--dry-run` passes through to the organise step and skips the index step entirely.
 
 ## Schema Migrations
 
-Migrations are defined in `kb/db.py` as a list of `(name, sql)` tuples:
+Migrations are defined in `src/kb/db.py` as a list of `(name, sql)` tuples:
 
 ```python
 MIGRATIONS = [
@@ -63,7 +63,7 @@ Migrations run automatically on next `Database()` instantiation. No manual steps
 ### Standalone script
 
 ```bash
-uv run python kb/tests/eval_queries.py      # from project root directory
+uv run python tests/eval_queries.py      # from project root directory
 ```
 
 Runs 20 test queries against the real indexed data (default `~/.config/kbx/`). Reports Hit@1, Hit@3, Hit@5 metrics. Exits 0 if all queries have at least Hit@5, exits 1 otherwise.
@@ -71,12 +71,12 @@ Runs 20 test queries against the real indexed data (default `~/.config/kbx/`). R
 To test against a different database:
 
 ```bash
-KB_DATA_DIR=/path/to/db uv run python kb/tests/eval_queries.py
+KB_DATA_DIR=/path/to/db uv run python tests/eval_queries.py
 ```
 
 ### Pytest integration
 
-`kb/tests/test_integration.py::TestSearchQualityEval` runs a subset of queries against the test fixture DB (not the real index). These tests verify the search pipeline works correctly with known data.
+`tests/test_integration.py::TestSearchQualityEval` runs a subset of queries against the test fixture DB (not the real index). These tests verify the search pipeline works correctly with known data.
 
 ## `.gitignore`
 
@@ -89,20 +89,10 @@ The project root `.gitignore` excludes:
 
 ## Test Structure
 
-| File | Tests | What |
-|------|-------|------|
-| `test_smoke.py` | 12 | Embedder, SQLite schema, LanceDB, output formatting |
-| `test_entities.py` | 19 | Entity seeding, linking, YAML extraction |
-| `test_indexing.py` | 25 | Chunking, parsing, indexer pipeline |
-| `test_search.py` | 29 | BM25, RRF, recency, FTS, snippets, hooks |
-| `test_cli.py` | 38 | All CLI commands via CliRunner |
-| `test_integration.py` | 12 | Ingest, migrations, search quality, end-to-end |
-| `test_context.py` | 17 | Context generation, filtering, glossary |
-| `test_mcp.py` | 31 | MCP tools, resources, config helpers |
-| **Total** | **183** | |
+See [testing.md](testing.md) for the full test map and fixtures.
 
 Run all tests:
 
 ```bash
-cd kb && uv run pytest tests/ -v
+uv run pytest tests/ -v
 ```

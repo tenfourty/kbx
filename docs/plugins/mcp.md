@@ -13,7 +13,7 @@ Depends on `mcp>=1.2` (FastMCP).
 ## Usage
 
 ```bash
-kb mcp
+kbx mcp
 ```
 
 Starts the MCP server on stdio transport. Configure your AI tool to connect to this process.
@@ -31,6 +31,7 @@ Starts the MCP server on stdio transport. Configure your AI tool to connect to t
 | `kb_memory_add` | Create a searchable note or record a fact about an entity. Supports tags, pinning, and entity linking. |
 | `kb_pin` | Pin a document so it appears in `kb_context` output. |
 | `kb_unpin` | Remove a document from context. |
+| `kb_entity_stale` | List entities not mentioned in recent documents. Filter by days threshold. |
 
 ## Resources
 

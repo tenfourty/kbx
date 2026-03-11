@@ -55,7 +55,7 @@ Texts are truncated to 8,000 characters before embedding.
 
 ## Model Cache
 
-First run downloads ~1.1 GB of model weights. Default location: `kb/data/model/`. The cache is portable across runs.
+First run downloads ~1.1 GB of model weights. Default location: `~/.cache/huggingface/hub/` or `~/.config/kbx/model/`. The cache is portable across runs.
 
 ## Instruction-Aware Embeddings
 

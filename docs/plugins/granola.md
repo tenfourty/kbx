@@ -27,31 +27,65 @@ Token path defaults to `~/Library/Application Support/Granola/supabase.json` (ma
 
 ## CLI Commands
 
-### `kb sync granola`
+### `kbx sync granola`
 
 Pull meetings from the Granola API.
 
 ```
-kb sync granola --since 2026-01-01      # sync since date
-kb sync granola --dry-run               # preview, no writes
-kb sync granola --force                 # overwrite existing files
-kb sync granola --no-index              # skip indexing after sync
-kb sync granola --token-path /path/to/supabase.json
+kbx sync granola --since 2026-01-01      # sync since date
+kbx sync granola --dry-run               # preview, no writes
+kbx sync granola --force                 # overwrite existing files
+kbx sync granola --no-index              # skip indexing after sync
+kbx sync granola --token-path /path/to/supabase.json
 ```
 
 Without `--since`, uses the last sync timestamp from state file (incremental).
 
-### `kb ingest <paths>`
+### `kbx ingest <paths>`
 
 Organise Granola zip exports and index them.
 
 ```
-kb ingest meetings/export.zip           # organise + index
-kb ingest --dry-run                     # preview only
-kb ingest --skip-organise               # index only (already organised)
+kbx ingest meetings/export.zip           # organise + index
+kbx ingest --dry-run                     # preview only
+kbx ingest --skip-organise               # index only (already organised)
 ```
 
 This runs `meetings/organise_granola.py` to unpack exports into `memory/meetings/`, then indexes them.
+
+### `kbx granola view <calendar-uid>`
+
+View synced meeting notes, AI summaries, or transcripts.
+
+```
+kbx granola view <uid>                   # view notes (default)
+kbx granola view <uid> --summary         # show AI summary
+kbx granola view <uid> --transcript      # show transcript
+kbx granola view <uid> --all             # show notes + summary + transcript
+kbx granola view <uid> --plain           # raw markdown (no YAML header)
+```
+
+### `kbx granola edit <calendar-uid>`
+
+Edit or append to meeting notes.
+
+```
+kbx granola edit <uid> --body "markdown"       # full replace
+kbx granola edit <uid> --body-file notes.md    # replace from file
+kbx granola edit <uid> --append "extra notes"  # append to existing
+```
+
+### `kbx granola push <calendar-uid>`
+
+Push prep notes back to Granola (writes to the document's notes field).
+
+```
+kbx granola push <uid> --notes "markdown"       # content to write
+kbx granola push <uid> --notes-file prep.md     # write from file (strips YAML frontmatter)
+kbx granola push <uid> --title "Meeting Title"  # title (for new docs)
+```
+
+Push is idempotent — skips if the first line is already present in existing notes.
 
 ## Rate Limiting
 

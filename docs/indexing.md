@@ -2,7 +2,7 @@
 
 ## Overview
 
-The indexer (`kb/indexer.py`) orchestrates the full pipeline: walk sources → chunk → embed → store in SQLite + LanceDB → link entities.
+The indexer (`src/kb/indexer.py`) orchestrates the full pipeline: walk sources → chunk → embed → store in SQLite + LanceDB → link entities.
 
 ## Modes
 
@@ -22,7 +22,7 @@ flowchart TD
     G --> H["Create summary chunk\nnotes: full body\ntranscripts: first 3000 + last 1500 chars"]
     H --> I["Queue texts for\nbatch embedding"]
 
-    I --> J{"Batch reached\n16 texts?"}
+    I --> J{"Batch\naccumulated?"}
     J -- No --> K["Continue to\nnext document"]
     J -- Yes --> L["Flush batch"]
 
@@ -33,7 +33,7 @@ flowchart TD
 
     N --> K
 
-    K --> O{"100 docs since\nlast commit?"}
+    K --> O{"50 docs since\nlast commit?"}
     O -- Yes --> P["Commit SQLite"]
     O -- No --> Q["Next document"]
     P --> Q
@@ -47,14 +47,14 @@ For each document:
 3. **Link entities** — find mentions via tag/title/content matching, insert into `entity_mentions`
 4. **Create summary chunk** — document-level embedding (notes: full body, transcripts: first+last)
 5. **Queue texts** for batch embedding
-6. **Flush embedding batch** when `EMBED_BATCH` (16) texts accumulated
+6. **Flush embedding batch** when accumulated texts reach batch threshold
 7. **Write vectors** to LanceDB `chunks` table
 
-Periodic commits: SQLite every 100 docs, LanceDB every 1000 vectors.
+Periodic commits: SQLite every `FLUSH_DOCS` (50) documents. LanceDB compaction runs at the end of the index run.
 
 ## Batch Embedding
 
-Texts are accumulated across documents and embedded in batches of 16 for throughput. The embedder uses `batch_size=32` internally (sentence-transformers parameter) with `MAX_TEXT_CHARS=8000` truncation.
+Texts are accumulated across documents and flushed in batches. The embedder uses `batch_size=32` internally on MPS (16 on CPU) with `MAX_TEXT_CHARS=8000` truncation.
 
 ## Summary Embeddings
 
@@ -83,4 +83,4 @@ Per-document try/except. Errors are collected in `IndexResult.errors` without st
 - Full index of ~3000 documents takes ~50 minutes on CPU
 - MPS (Apple Silicon GPU) is faster but requires careful memory management
 - MPS watermark set to 50% high / 30% low to prevent system lockup
-- `EMBED_BATCH = 16` keeps memory usage reasonable
+- `FLUSH_DOCS = 50` — SQLite commit interval during indexing
