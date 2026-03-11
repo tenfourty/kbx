@@ -70,7 +70,7 @@ Claude Code inherits your shell PATH, so the short name works here.
 | `kb_project_list` | List all known projects with metadata. Paginated (limit/offset). |
 | `kb_view` | View a document by path, glob, or content-hash prefix (`#abc123`). Returns metadata and all chunks. |
 | `kb_list` | Browse documents by date and type. Filter by `doc_type`, `from_date`, `to_date`, `since_hours`. Default limit 25. |
-| `kb_context` | Compressed entity index — overview of people, projects, teams, terms. Supports `compact` (pipe-delimited) and `human` (markdown) formats. Optional topic filter. |
+| `kb_context` | Compressed entity index — overview of people, projects, teams, terms. Supports `compact` (pipe-delimited) and `human` (markdown) formats. Optional topic filter and mention_threshold. |
 | `kb_usage` | Usage instructions and current index status (doc/entity/fact counts, date range). |
 | `kb_index_status` | Database health: document counts by type, entity/fact counts, date range, last indexed timestamp. |
 | `kb_memory_add` | Create a searchable note or record a fact about an entity. Supports tags, pinning, and entity linking. |
@@ -124,6 +124,16 @@ entity: str          # entity name (for facts or entity-linked notes)
 pin: bool = False    # pin to context
 date: str            # override date (YYYY-MM-DD)
 ```
+
+### `kb_context`
+
+```
+topic: str             # filter to entities relevant to this topic
+fmt: str = "compact"   # "compact" (pipe-delimited) or "human" (markdown)
+mention_threshold: int = 0  # minimum mention count for non-pinned entities (0 = no filter)
+```
+
+> **Note:** Pinned entities are always included regardless of `mention_threshold`.
 
 ### `kb_list`
 

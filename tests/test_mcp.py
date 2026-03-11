@@ -1928,3 +1928,134 @@ class TestFindProjectRootGlobalConfig:
             root = find_project_root()
 
         assert root == tmp_path
+
+
+# ---------------------------------------------------------------------------
+# A4 — kb_context mention_threshold
+# ---------------------------------------------------------------------------
+
+
+class TestMcpContextMentionThreshold:
+    """A4: mention_threshold filters low-mention entities from context."""
+
+    @pytest.fixture
+    def threshold_db(self):
+        """DB with entities at varying mention counts + one pinned low-mention entity."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db = Database(Path(tmpdir))
+            conn = db.get_sqlite_conn()
+
+            # Create enough documents for mention variety
+            for i in range(1, 12):
+                conn.execute(
+                    "INSERT INTO documents (path, title, doc_type, doc_date, content_hash) "
+                    f"VALUES ('meetings/test{i}.md', 'Test Meeting {i}', 'notes', '2026-01-{i:02d}', 'hash-thr-{i}')"
+                )
+            # Insert a chunk so FTS table exists
+            conn.execute(
+                "INSERT INTO chunks (document_id, chunk_index, content) VALUES (1, 0, 'content')"
+            )
+
+            # Person with 10 mentions (high)
+            conn.execute(
+                "INSERT INTO entities (name, entity_type, aliases, metadata, pinned) "
+                "VALUES ('Wren High', 'person', '[]', "
+                "'{\"role\": \"Engineer\", \"team\": \"Platform\"}', 0)"
+            )
+            # Person with 2 mentions (low)
+            conn.execute(
+                "INSERT INTO entities (name, entity_type, aliases, metadata, pinned) "
+                "VALUES ('Soren Low', 'person', '[]', "
+                "'{\"role\": \"Intern\", \"team\": \"Platform\"}', 0)"
+            )
+            # Person with 1 mention, PINNED (should always appear)
+            conn.execute(
+                "INSERT INTO entities (name, entity_type, aliases, metadata, pinned) "
+                "VALUES ('Linnea Pinned', 'person', '[]', "
+                "'{\"role\": \"CTO\", \"team\": \"Exec\"}', 1)"
+            )
+            # Project with 1 mention (low)
+            conn.execute(
+                "INSERT INTO entities (name, entity_type, aliases, metadata, pinned) "
+                "VALUES ('Tiny Project', 'project', '[]', "
+                "'{\"status\": \"Active\"}', 0)"
+            )
+
+            # Add mentions: Wren=10, Soren=2, Linnea=1, Tiny Project=1
+            # Each mention uses a different document (unique constraint)
+            for i in range(1, 11):
+                conn.execute(
+                    "INSERT INTO entity_mentions (entity_id, document_id, mention_type) "
+                    f"VALUES (1, {i}, 'discussed')"
+                )
+            for i in range(1, 3):
+                conn.execute(
+                    "INSERT INTO entity_mentions (entity_id, document_id, mention_type) "
+                    f"VALUES (2, {i}, 'discussed')"
+                )
+            conn.execute(
+                "INSERT INTO entity_mentions (entity_id, document_id, mention_type) "
+                "VALUES (3, 1, 'discussed')"
+            )
+            conn.execute(
+                "INSERT INTO entity_mentions (entity_id, document_id, mention_type) "
+                "VALUES (4, 1, 'discussed')"
+            )
+
+            conn.commit()
+            yield db, Path(tmpdir)
+            db.close()
+
+    def test_threshold_zero_returns_all(self, threshold_db):
+        """mention_threshold=0 (default) should include all entities."""
+        from kb.mcp_server import handle_kb_context
+
+        db, root = threshold_db
+        result = handle_kb_context(db, project_root=root, mention_threshold=0)
+        data = json.loads(result)
+        text = data["text"]
+        assert "Wren" in text
+        assert "Soren" in text
+        assert "Linnea" in text
+
+    def test_threshold_filters_low_mention_entities(self, threshold_db):
+        """mention_threshold=5 should drop Soren (2 mentions) but keep Wren (10)."""
+        from kb.mcp_server import handle_kb_context
+
+        db, root = threshold_db
+        result = handle_kb_context(db, project_root=root, mention_threshold=5)
+        data = json.loads(result)
+        text = data["text"]
+        assert "Wren" in text
+        assert "Soren" not in text
+
+    def test_threshold_preserves_pinned(self, threshold_db):
+        """Pinned entities should appear regardless of mention_threshold."""
+        from kb.mcp_server import handle_kb_context
+
+        db, root = threshold_db
+        result = handle_kb_context(db, project_root=root, mention_threshold=5)
+        data = json.loads(result)
+        text = data["text"]
+        # Linnea is pinned with only 1 mention — must still appear
+        assert "Linnea" in text
+
+    def test_threshold_filters_projects(self, threshold_db):
+        """mention_threshold should also filter projects below threshold."""
+        from kb.mcp_server import handle_kb_context
+
+        db, root = threshold_db
+        result = handle_kb_context(db, project_root=root, mention_threshold=5)
+        data = json.loads(result)
+        text = data["text"]
+        assert "Tiny Project" not in text
+
+    def test_mcp_tool_accepts_mention_threshold(self, threshold_db):
+        """kb_context MCP tool should accept mention_threshold parameter."""
+        import inspect
+
+        from kb.mcp_server import kb_context
+
+        sig = inspect.signature(kb_context)
+        assert "mention_threshold" in sig.parameters
+        assert sig.parameters["mention_threshold"].default == 0

@@ -279,13 +279,19 @@ def handle_kb_view(db: Database, target: str) -> str:
 
 
 def handle_kb_context(
-    db: Database, project_root: Path, topic: str | None = None, fmt: str = "compact"
+    db: Database,
+    project_root: Path,
+    topic: str | None = None,
+    fmt: str = "compact",
+    mention_threshold: int = 0,
 ) -> str:
     """Compressed entity index. Returns JSON string."""
     try:
         from kb.context import generate_context
 
-        result = generate_context(db, project_root, topic=topic, fmt=fmt)
+        result = generate_context(
+            db, project_root, topic=topic, fmt=fmt, mention_threshold=mention_threshold
+        )
         return json.dumps(result.model_dump(), default=str, ensure_ascii=False)
     except Exception as e:
         print(f"kb_context error: {e}", file=sys.stderr)
@@ -1433,15 +1439,20 @@ def kb_view(target: str) -> str:
 
 
 @mcp.tool()
-def kb_context(topic: str | None = None, fmt: str = "compact") -> str:
+def kb_context(
+    topic: str | None = None, fmt: str = "compact", mention_threshold: int = 0
+) -> str:
     """Get compressed entity index — overview of all people, projects, teams, and terms.
     Optionally filter to entities relevant to a specific topic.
-    fmt: 'compact' (default, pipe-delimited) or 'human' (markdown with headings)."""
+    fmt: 'compact' (default, pipe-delimited) or 'human' (markdown with headings).
+    mention_threshold: minimum mention count for non-pinned entities (0 = no filter)."""
     if fmt not in ("compact", "human"):
         fmt = "compact"
     db = get_db()
     project_root = find_project_root()
-    return handle_kb_context(db, project_root, topic=topic, fmt=fmt)
+    return handle_kb_context(
+        db, project_root, topic=topic, fmt=fmt, mention_threshold=mention_threshold
+    )
 
 
 @mcp.tool()

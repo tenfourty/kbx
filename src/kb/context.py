@@ -713,11 +713,14 @@ def generate_context(
     project_root: Path,
     topic: str | None = None,
     fmt: str = "compact",
+    mention_threshold: int = 0,
 ) -> ContextOutput:
     """Generate a compressed entity index for AI agents.
 
     Args:
         fmt: "compact" (default, pipe-delimited) or "human" (markdown)
+        mention_threshold: Minimum mention count for non-pinned entities.
+            0 (default) = no filtering.  Pinned entities always included.
 
     Returns a ContextOutput with text, stats, and entity summaries.
     """
@@ -764,6 +767,12 @@ def generate_context(
         filtered = [e for e in all_entities if e.id in relevant_ids]
     else:
         filtered = all_entities
+
+    # Apply mention threshold (pinned entities always pass)
+    if mention_threshold > 0:
+        filtered = [
+            e for e in filtered if e.pinned or e.mention_count >= mention_threshold
+        ]
 
     # Group by type with smart filtering (only in full context, not topic mode)
     pinned_people: list[ContextEntity] = []
