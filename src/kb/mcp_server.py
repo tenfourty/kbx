@@ -736,43 +736,70 @@ def handle_kb_note_list(
     """List notes with optional tag/pin filters. Returns JSON string."""
     try:
         conn = db.get_sqlite_conn()
-        rows = conn.execute(
-            "SELECT id, path, title, doc_date, tags, pinned "
-            "FROM documents "
-            "WHERE doc_type IN ('memory_note', 'memory_doc') "
-            "ORDER BY doc_date DESC, id DESC",
-        ).fetchall()
 
+        # Build WHERE clause with optional filters
+        where = "doc_type IN ('memory_note', 'memory_doc')"
+        params: list[Any] = []
+
+        if pinned_only:
+            where += " AND pinned = 1"
+
+        # Tag filtering requires post-fetch check (JSON array in SQLite),
+        # but we can still get the true total by counting all matches.
         required_tags: list[str] = []
         if tag:
             required_tags = [t.strip().lower() for t in tag.split(",") if t.strip()]
 
-        results: list[dict[str, Any]] = []
-        for r in rows:
-            doc_tags: list[str] = json.loads(r["tags"]) if r["tags"] else []
-            is_pinned = bool(r["pinned"])
+        if required_tags:
+            # Tags are stored as JSON arrays — filter in Python, count all matches
+            all_rows = conn.execute(
+                f"SELECT id, path, title, doc_date, tags, pinned FROM documents "
+                f"WHERE {where} ORDER BY doc_date DESC, id DESC",
+                params,
+            ).fetchall()
 
-            if required_tags:
+            matching: list[dict[str, Any]] = []
+            for r in all_rows:
+                doc_tags: list[str] = json.loads(r["tags"]) if r["tags"] else []
                 lower_tags = [t.lower() for t in doc_tags]
-                if not all(rt in lower_tags for rt in required_tags):
-                    continue
-            if pinned_only and not is_pinned:
-                continue
+                if all(rt in lower_tags for rt in required_tags):
+                    matching.append(
+                        {
+                            "path": r["path"],
+                            "title": r["title"],
+                            "date": r["doc_date"],
+                            "tags": doc_tags,
+                            "pinned": bool(r["pinned"]),
+                        }
+                    )
+            total = len(matching)
+            results = matching[:limit]
+        else:
+            # No tag filter — use SQL COUNT + LIMIT
+            total = conn.execute(
+                f"SELECT COUNT(*) as cnt FROM documents WHERE {where}",
+                params,
+            ).fetchone()["cnt"]
 
-            results.append(
+            rows = conn.execute(
+                f"SELECT id, path, title, doc_date, tags, pinned FROM documents "
+                f"WHERE {where} ORDER BY doc_date DESC, id DESC LIMIT ?",
+                [*params, limit],
+            ).fetchall()
+
+            results = [
                 {
                     "path": r["path"],
                     "title": r["title"],
                     "date": r["doc_date"],
-                    "tags": doc_tags,
-                    "pinned": is_pinned,
+                    "tags": json.loads(r["tags"]) if r["tags"] else [],
+                    "pinned": bool(r["pinned"]),
                 }
-            )
-            if len(results) >= limit:
-                break
+                for r in rows
+            ]
 
         return json.dumps(
-            {"results": results, "meta": {"total": len(results), "limit": limit}},
+            {"results": results, "meta": {"total": total, "limit": limit}},
             default=str,
             ensure_ascii=False,
         )

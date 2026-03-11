@@ -2059,3 +2059,99 @@ class TestMcpContextMentionThreshold:
         sig = inspect.signature(kb_context)
         assert "mention_threshold" in sig.parameters
         assert sig.parameters["mention_threshold"].default == 0
+
+
+# ---------------------------------------------------------------------------
+# Fix: kb_note_list meta.total should reflect true count, not capped by limit
+# ---------------------------------------------------------------------------
+
+
+class TestMcpNoteListTotal:
+    """meta.total should be the true count of matching notes, not len(results)."""
+
+    def _insert_note(self, conn, path, title, date, tags, pinned=False):
+        conn.execute(
+            """INSERT INTO documents (path, title, doc_date, doc_type, source_system, tags, content_hash, chunk_count, pinned)
+               VALUES (?, ?, ?, 'memory_note', 'memory', ?, ?, 1, ?)""",
+            (path, title, date, json.dumps(tags), f"hash_{title[:8]}", 1 if pinned else 0),
+        )
+
+    def test_total_exceeds_limit(self, mcp_db):
+        """meta.total should be true count even when results are capped by limit."""
+        from kb.mcp_server import handle_kb_note_list
+
+        db, _ = mcp_db
+        conn = db.get_sqlite_conn()
+        for i in range(10):
+            self._insert_note(conn, f"memory/notes/n{i}.md", f"Note {i}", f"2026-01-{i+1:02d}", [])
+        conn.commit()
+
+        result = json.loads(handle_kb_note_list(db, limit=3))
+        assert len(result["results"]) == 3
+        assert result["meta"]["total"] == 10  # true count, not 3
+
+    def test_total_with_tag_filter(self, mcp_db):
+        """meta.total should reflect filtered count, not all notes."""
+        from kb.mcp_server import handle_kb_note_list
+
+        db, _ = mcp_db
+        conn = db.get_sqlite_conn()
+        for i in range(5):
+            self._insert_note(conn, f"memory/notes/infra{i}.md", f"Infra {i}", f"2026-01-{i+1:02d}", ["infra"])
+        for i in range(3):
+            self._insert_note(conn, f"memory/notes/other{i}.md", f"Other {i}", f"2026-02-{i+1:02d}", ["other"])
+        conn.commit()
+
+        result = json.loads(handle_kb_note_list(db, tag="infra", limit=2))
+        assert len(result["results"]) == 2
+        assert result["meta"]["total"] == 5  # 5 infra notes, not 2
+
+    def test_total_with_pinned_only(self, mcp_db):
+        """meta.total should reflect pinned count when pinned_only=True."""
+        from kb.mcp_server import handle_kb_note_list
+
+        db, _ = mcp_db
+        conn = db.get_sqlite_conn()
+        for i in range(4):
+            self._insert_note(conn, f"memory/notes/pin{i}.md", f"Pinned {i}", f"2026-01-{i+1:02d}", [], pinned=True)
+        for i in range(6):
+            self._insert_note(conn, f"memory/notes/nopin{i}.md", f"Not {i}", f"2026-02-{i+1:02d}", [])
+        conn.commit()
+
+        result = json.loads(handle_kb_note_list(db, pinned_only=True, limit=2))
+        assert len(result["results"]) == 2
+        assert result["meta"]["total"] == 4  # 4 pinned, not 2
+
+
+# ---------------------------------------------------------------------------
+# Fix: find_project_root XDG check should use is_relative_to, not startswith
+# ---------------------------------------------------------------------------
+
+
+class TestFindProjectRootXdgSafety:
+    """XDG detection should not false-positive on paths like ~/.config-other/."""
+
+    def test_config_other_not_treated_as_xdg(self, tmp_path):
+        """A config in /tmp/.config-other/ should NOT trigger XDG fallback."""
+        from kb.config import find_project_root
+
+        # Create a config dir that starts with the XDG path but isn't inside it
+        xdg_dir = tmp_path / ".config"
+        xdg_dir.mkdir()
+        fake_dir = tmp_path / ".config-other" / "kbx"
+        fake_dir.mkdir(parents=True)
+
+        config_file = fake_dir / "kbx.toml"
+        config_file.write_text(
+            '[sources]\nmemory = "/some/absolute/memory"\n'
+        )
+
+        with patch.dict(os.environ, {
+            "KBX_CONFIG": str(config_file),
+            "XDG_CONFIG_HOME": str(xdg_dir),
+        }):
+            root = find_project_root()
+
+        # Should return the config parent (not memory parent),
+        # because .config-other is NOT inside .config
+        assert root == fake_dir

@@ -32,8 +32,8 @@ def find_project_root() -> Path:
         # Global config (XDG) may live far from the actual project.  When the
         # memory source path is absolute, derive project root from it instead
         # of using the config file's parent directory.
-        xdg = os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))
-        if str(candidate).startswith(xdg):
+        xdg_path = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))).resolve()
+        if candidate.resolve().is_relative_to(xdg_path):
             cfg = load_config(config_path)
             mem_path = Path(cfg.sources.memory)
             if mem_path.is_absolute():
