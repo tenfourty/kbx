@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.47](https://github.com/tenfourty/kbx/compare/kbx-v0.1.46...kbx-v0.1.47) (2026-03-11)
+
+
+### Documentation
+
+* document full-path requirement for Claude Desktop MCP config ([7fae1f1](https://github.com/tenfourty/kbx/commit/7fae1f1f348b8645c75d7a12ea5fde81ae182c93))
+
 ## [0.1.46](https://github.com/tenfourty/kbx/compare/kbx-v0.1.45...kbx-v0.1.46) (2026-03-11)
 
 
