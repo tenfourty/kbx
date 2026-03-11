@@ -6,7 +6,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -958,3 +958,691 @@ class TestMcpPersonFindFreshness:
         result = json.loads(handle_kb_person_find(db, "Talia"))
         assert "updated_at" in result
         assert "last_mentioned_at" in result
+
+
+# ---------------------------------------------------------------------------
+# handle_kb_project_find tests
+# ---------------------------------------------------------------------------
+
+
+class TestMcpProjectFind:
+    def test_project_find_returns_json(self, mcp_db):
+        """kb_project_find should return project data."""
+        from kb.mcp_server import handle_kb_project_find
+
+        db, _ = mcp_db
+        result = json.loads(handle_kb_project_find(db, "Helix Refactor"))
+        assert result["name"] == "Helix Refactor"
+        assert result["entity_type"] == "project"
+        assert "facts" in result
+        assert "breadcrumbs" in result
+
+    def test_project_find_by_alias(self, mcp_db):
+        """kb_project_find should work with aliases."""
+        from kb.mcp_server import handle_kb_project_find
+
+        db, _ = mcp_db
+        result = json.loads(handle_kb_project_find(db, "helix-refactor"))
+        assert result["name"] == "Helix Refactor"
+
+    def test_project_find_not_found(self, mcp_db):
+        """kb_project_find should return error for unknown project."""
+        from kb.mcp_server import handle_kb_project_find
+
+        db, _ = mcp_db
+        result = json.loads(handle_kb_project_find(db, "NonexistentProject"))
+        assert "error" in result
+
+    def test_project_find_wrong_type(self, mcp_db):
+        """kb_project_find should reject person entities."""
+        from kb.mcp_server import handle_kb_project_find
+
+        db, _ = mcp_db
+        result = json.loads(handle_kb_project_find(db, "Talia Ström"))
+        assert "error" in result
+        assert "person" in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# handle_kb_project_list / handle_kb_person_list tests
+# ---------------------------------------------------------------------------
+
+
+class TestMcpEntityLists:
+    def test_project_list(self, mcp_db):
+        """kb_project_list returns all projects."""
+        from kb.mcp_server import handle_kb_project_list
+
+        db, _ = mcp_db
+        result = json.loads(handle_kb_project_list(db))
+        assert "results" in result
+        assert "meta" in result
+        assert result["meta"]["total"] == 1
+        assert result["results"][0]["name"] == "Helix Refactor"
+
+    def test_person_list(self, mcp_db):
+        """kb_person_list returns all people."""
+        from kb.mcp_server import handle_kb_person_list
+
+        db, _ = mcp_db
+        result = json.loads(handle_kb_person_list(db))
+        assert "results" in result
+        assert result["meta"]["total"] == 1
+        assert result["results"][0]["name"] == "Talia Ström"
+
+
+# ---------------------------------------------------------------------------
+# handle_kb_note_list tests
+# ---------------------------------------------------------------------------
+
+
+class TestMcpNoteList:
+    def _insert_note(self, conn, path, title, date, tags, pinned=False):
+        conn.execute(
+            """INSERT INTO documents (path, title, doc_date, doc_type, source_system, tags, content_hash, chunk_count, pinned)
+               VALUES (?, ?, ?, 'memory_note', 'memory', ?, ?, 1, ?)""",
+            (path, title, date, json.dumps(tags), f"hash_{title[:6]}", 1 if pinned else 0),
+        )
+
+    def test_note_list_empty(self, mcp_db):
+        """kb_note_list returns empty when no notes exist."""
+        from kb.mcp_server import handle_kb_note_list
+
+        db, _ = mcp_db
+        result = json.loads(handle_kb_note_list(db))
+        assert result["results"] == []
+
+    def test_note_list_returns_notes(self, mcp_db):
+        """kb_note_list returns inserted memory notes."""
+        from kb.mcp_server import handle_kb_note_list
+
+        db, _ = mcp_db
+        conn = db.get_sqlite_conn()
+        self._insert_note(conn, "memory/notes/test.md", "Test Note", "2026-01-01", ["infra"])
+        conn.commit()
+
+        result = json.loads(handle_kb_note_list(db))
+        assert len(result["results"]) == 1
+        assert result["results"][0]["title"] == "Test Note"
+        assert result["results"][0]["tags"] == ["infra"]
+
+    def test_note_list_tag_filter(self, mcp_db):
+        """kb_note_list filters by tag."""
+        from kb.mcp_server import handle_kb_note_list
+
+        db, _ = mcp_db
+        conn = db.get_sqlite_conn()
+        self._insert_note(conn, "memory/notes/a.md", "Note A", "2026-01-01", ["infra", "urgent"])
+        self._insert_note(conn, "memory/notes/b.md", "Note B", "2026-01-02", ["decision"])
+        conn.commit()
+
+        result = json.loads(handle_kb_note_list(db, tag="infra"))
+        assert len(result["results"]) == 1
+        assert result["results"][0]["title"] == "Note A"
+
+    def test_note_list_pinned_only(self, mcp_db):
+        """kb_note_list pinned_only returns only pinned notes."""
+        from kb.mcp_server import handle_kb_note_list
+
+        db, _ = mcp_db
+        conn = db.get_sqlite_conn()
+        self._insert_note(conn, "memory/notes/a.md", "Pinned", "2026-01-01", [], pinned=True)
+        self._insert_note(conn, "memory/notes/b.md", "Not Pinned", "2026-01-02", [])
+        conn.commit()
+
+        result = json.loads(handle_kb_note_list(db, pinned_only=True))
+        assert len(result["results"]) == 1
+        assert result["results"][0]["title"] == "Pinned"
+
+    def test_note_list_limit(self, mcp_db):
+        """kb_note_list respects limit."""
+        from kb.mcp_server import handle_kb_note_list
+
+        db, _ = mcp_db
+        conn = db.get_sqlite_conn()
+        for i in range(5):
+            self._insert_note(conn, f"memory/notes/{i}.md", f"Note {i}", f"2026-01-0{i+1}", [])
+        conn.commit()
+
+        result = json.loads(handle_kb_note_list(db, limit=2))
+        assert len(result["results"]) == 2
+
+
+# ---------------------------------------------------------------------------
+# handle_kb_note_edit tests
+# ---------------------------------------------------------------------------
+
+
+class TestMcpNoteEdit:
+    def _create_note_file(self, project_root, rel_path, content):
+        full = project_root / rel_path
+        full.parent.mkdir(parents=True, exist_ok=True)
+        full.write_text(content, encoding="utf-8")
+
+    def test_note_edit_body(self, mcp_db):
+        """kb_note_edit replaces note body."""
+        from kb.mcp_server import handle_kb_note_edit
+
+        db, root = mcp_db
+        conn = db.get_sqlite_conn()
+        rel = "memory/notes/edit_test.md"
+        self._create_note_file(root, rel, "---\ntitle: Edit Test\n---\nOld body\n")
+        conn.execute(
+            """INSERT INTO documents (path, title, doc_date, doc_type, source_system, tags, content_hash, chunk_count)
+               VALUES (?, 'Edit Test', '2026-01-01', 'memory_note', 'memory', '[]', 'eee111', 1)""",
+            (rel,),
+        )
+        conn.commit()
+
+        with patch("kb.indexer.index_all"):
+            result = json.loads(handle_kb_note_edit(db, root, rel, body="New body"))
+        assert result["status"] == "ok"
+        content = (root / rel).read_text()
+        assert "New body" in content
+        assert "Old body" not in content
+
+    def test_note_edit_append(self, mcp_db):
+        """kb_note_edit appends to note body."""
+        from kb.mcp_server import handle_kb_note_edit
+
+        db, root = mcp_db
+        conn = db.get_sqlite_conn()
+        rel = "memory/notes/append_test.md"
+        self._create_note_file(root, rel, "---\ntitle: Append Test\n---\nExisting.\n")
+        conn.execute(
+            """INSERT INTO documents (path, title, doc_date, doc_type, source_system, tags, content_hash, chunk_count)
+               VALUES (?, 'Append Test', '2026-01-01', 'memory_note', 'memory', '[]', 'fff222', 1)""",
+            (rel,),
+        )
+        conn.commit()
+
+        with patch("kb.indexer.index_all"):
+            result = json.loads(handle_kb_note_edit(db, root, rel, append="\nExtra line."))
+        assert result["status"] == "ok"
+        content = (root / rel).read_text()
+        assert "Existing." in content
+        assert "Extra line." in content
+
+    def test_note_edit_not_found(self, mcp_db):
+        """kb_note_edit returns error for unknown note."""
+        from kb.mcp_server import handle_kb_note_edit
+
+        db, root = mcp_db
+        result = json.loads(handle_kb_note_edit(db, root, "nonexistent.md", body="x"))
+        assert "error" in result
+
+    def test_note_edit_rejects_non_note(self, mcp_db):
+        """kb_note_edit rejects non-memory_note doc types."""
+        from kb.mcp_server import handle_kb_note_edit
+
+        db, root = mcp_db
+        result = json.loads(
+            handle_kb_note_edit(db, root, "meetings/2026/01/27/mfa_review.notes.md", body="x")
+        )
+        assert "error" in result
+        assert "Not a memory note" in result["error"]
+
+    def test_note_edit_no_changes(self, mcp_db):
+        """kb_note_edit returns error when no edit options given."""
+        from kb.mcp_server import handle_kb_note_edit
+
+        db, root = mcp_db
+        conn = db.get_sqlite_conn()
+        rel = "memory/notes/noop.md"
+        self._create_note_file(root, rel, "---\ntitle: Noop\n---\nBody\n")
+        conn.execute(
+            """INSERT INTO documents (path, title, doc_date, doc_type, source_system, tags, content_hash, chunk_count)
+               VALUES (?, 'Noop', '2026-01-01', 'memory_note', 'memory', '[]', 'ggg333', 1)""",
+            (rel,),
+        )
+        conn.commit()
+
+        result = json.loads(handle_kb_note_edit(db, root, rel))
+        assert "error" in result
+        assert "No edit options" in result["error"]
+
+    def test_note_edit_both_body_and_append(self, mcp_db):
+        """kb_note_edit rejects body + append together."""
+        from kb.mcp_server import handle_kb_note_edit
+
+        db, root = mcp_db
+        conn = db.get_sqlite_conn()
+        rel = "memory/notes/both.md"
+        self._create_note_file(root, rel, "---\ntitle: Both\n---\nBody\n")
+        conn.execute(
+            """INSERT INTO documents (path, title, doc_date, doc_type, source_system, tags, content_hash, chunk_count)
+               VALUES (?, 'Both', '2026-01-01', 'memory_note', 'memory', '[]', 'hhh444', 1)""",
+            (rel,),
+        )
+        conn.commit()
+
+        result = json.loads(handle_kb_note_edit(db, root, rel, body="new", append="extra"))
+        assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# handle_kb_note_delete tests
+# ---------------------------------------------------------------------------
+
+
+class TestMcpNoteDelete:
+    def test_note_delete(self, mcp_db):
+        """kb_note_delete removes file and DB rows."""
+        from kb.mcp_server import handle_kb_note_delete
+
+        db, root = mcp_db
+        conn = db.get_sqlite_conn()
+        rel = "memory/notes/delete_me.md"
+        note_path = root / rel
+        note_path.parent.mkdir(parents=True, exist_ok=True)
+        note_path.write_text("---\ntitle: Delete Me\n---\nContent\n")
+        conn.execute(
+            """INSERT INTO documents (path, title, doc_date, doc_type, source_system, tags, content_hash, chunk_count)
+               VALUES (?, 'Delete Me', '2026-01-01', 'memory_note', 'memory', '[]', 'del111', 1)""",
+            (rel,),
+        )
+        conn.commit()
+
+        result = json.loads(handle_kb_note_delete(db, root, rel))
+        assert result["status"] == "ok"
+        assert not note_path.exists()
+        row = conn.execute("SELECT id FROM documents WHERE path = ?", (rel,)).fetchone()
+        assert row is None
+
+    def test_note_delete_not_found(self, mcp_db):
+        """kb_note_delete returns error for unknown note."""
+        from kb.mcp_server import handle_kb_note_delete
+
+        db, root = mcp_db
+        result = json.loads(handle_kb_note_delete(db, root, "nonexistent.md"))
+        assert "error" in result
+
+    def test_note_delete_rejects_non_note(self, mcp_db):
+        """kb_note_delete rejects non-memory_note doc types."""
+        from kb.mcp_server import handle_kb_note_delete
+
+        db, root = mcp_db
+        result = json.loads(
+            handle_kb_note_delete(db, root, "meetings/2026/01/27/mfa_review.notes.md")
+        )
+        assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# handle_kb_memory_list tests
+# ---------------------------------------------------------------------------
+
+
+class TestMcpMemoryList:
+    def test_memory_list_empty(self, mcp_db):
+        """kb_memory_list returns empty when no facts exist."""
+        from kb.mcp_server import handle_kb_memory_list
+
+        db, _ = mcp_db
+        result = json.loads(handle_kb_memory_list(db))
+        assert result["results"] == []
+        assert result["meta"]["total"] == 0
+
+    def test_memory_list_with_facts(self, mcp_db):
+        """kb_memory_list returns inserted facts."""
+        from kb.mcp_server import handle_kb_memory_add, handle_kb_memory_list
+
+        db, root = mcp_db
+        handle_kb_memory_add(db, root, "Talia speaks French", entity="Talia")
+        handle_kb_memory_add(db, root, "Talia likes Rust", entity="Talia")
+
+        result = json.loads(handle_kb_memory_list(db))
+        assert result["meta"]["total"] == 2
+        texts = [f["fact_text"] for f in result["results"]]
+        assert "Talia speaks French" in texts
+
+
+# ---------------------------------------------------------------------------
+# handle_kb_memory_delete_fact / handle_kb_memory_edit_fact tests
+# ---------------------------------------------------------------------------
+
+
+class TestMcpMemoryFactOps:
+    def test_memory_delete_fact(self, mcp_db):
+        """kb_memory_delete_fact removes a fact by ID."""
+        from kb.mcp_server import handle_kb_memory_add, handle_kb_memory_delete_fact
+
+        db, root = mcp_db
+        # Add a fact first
+        add_result = json.loads(handle_kb_memory_add(db, root, "Talia is great", entity="Talia"))
+        assert add_result["status"] == "ok"
+
+        # Get fact ID
+        conn = db.get_sqlite_conn()
+        fact_row = conn.execute("SELECT id FROM facts WHERE fact_text = 'Talia is great'").fetchone()
+        fact_id = fact_row["id"]
+
+        with patch("kb.config.get_data_dir", return_value=root):
+            result = json.loads(handle_kb_memory_delete_fact(root, fact_id))
+        assert result.get("status") == "ok" or "deleted" in str(result).lower()
+
+    def test_memory_delete_fact_not_found(self, mcp_db):
+        """kb_memory_delete_fact returns error for unknown fact ID."""
+        from kb.mcp_server import handle_kb_memory_delete_fact
+
+        _, root = mcp_db
+        with patch("kb.config.get_data_dir", return_value=root):
+            result = json.loads(handle_kb_memory_delete_fact(root, 99999))
+        assert "error" in result
+
+    def test_memory_edit_fact_no_changes(self):
+        """kb_memory_edit_fact returns error when no text or date given."""
+        from kb.mcp_server import handle_kb_memory_edit_fact
+
+        result = json.loads(handle_kb_memory_edit_fact(Path("/tmp"), 1))
+        assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# handle_kb_glossary_* tests
+# ---------------------------------------------------------------------------
+
+
+class TestMcpGlossary:
+    def _create_glossary(self, project_root):
+        glossary_path = project_root / "memory" / "glossary.md"
+        glossary_path.parent.mkdir(parents=True, exist_ok=True)
+        glossary_path.write_text(
+            "# Glossary\n\n## Acronyms\n\n| Term | Expansion |\n|------|----------|\n| GG | Lattice Co |\n\n"
+            "## Jargon\n\n| Term | Expansion |\n|------|----------|\n| Wards | Ward patrol runs |\n",
+            encoding="utf-8",
+        )
+
+    def test_glossary_list(self, mcp_db):
+        """kb_glossary_list returns all terms."""
+        from kb.mcp_server import handle_kb_glossary_list
+
+        _, root = mcp_db
+        self._create_glossary(root)
+
+        result = json.loads(handle_kb_glossary_list(root))
+        assert "results" in result
+        assert result["meta"]["total"] >= 2
+        terms = [r["term"] for r in result["results"]]
+        assert "GG" in terms
+
+    def test_glossary_add(self, mcp_db):
+        """kb_glossary_add inserts a new term."""
+        from kb.mcp_server import handle_kb_glossary_add
+
+        _, root = mcp_db
+        self._create_glossary(root)
+
+        result = json.loads(handle_kb_glossary_add(root, "MFA", "Multi-Factor Authentication"))
+        assert result.get("status") == "ok" or "term" in result
+
+        # Verify it's in the file
+        content = (root / "memory" / "glossary.md").read_text()
+        assert "MFA" in content
+
+    def test_glossary_edit(self, mcp_db):
+        """kb_glossary_edit updates an existing term."""
+        from kb.mcp_server import handle_kb_glossary_edit
+
+        _, root = mcp_db
+        self._create_glossary(root)
+
+        result = json.loads(handle_kb_glossary_edit(root, "GG", "Lattice Co Inc."))
+        assert result.get("status") == "ok" or "term" in result
+
+        content = (root / "memory" / "glossary.md").read_text()
+        assert "Lattice Co Inc." in content
+
+    def test_glossary_edit_not_found(self, mcp_db):
+        """kb_glossary_edit returns error for unknown term."""
+        from kb.mcp_server import handle_kb_glossary_edit
+
+        _, root = mcp_db
+        self._create_glossary(root)
+
+        result = json.loads(handle_kb_glossary_edit(root, "ZZZNOPE", "Nothing"))
+        assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# handle_kb_granola_view / handle_kb_granola_edit tests
+# ---------------------------------------------------------------------------
+
+
+class TestMcpGranolaView:
+    def test_granola_view_not_found(self):
+        """kb_granola_view returns error when no doc found."""
+        from kb.mcp_server import handle_kb_granola_view
+
+        with patch("kb.sync.granola.GranolaClient") as mock_cls:
+            mock_client = MagicMock()
+            mock_client.find_document.return_value = None
+            mock_cls.return_value = mock_client
+
+            result = json.loads(handle_kb_granola_view("fake-uid-123"))
+        assert "error" in result
+
+    def test_granola_view_notes_mode(self):
+        """kb_granola_view returns notes in default mode."""
+        from kb.mcp_server import handle_kb_granola_view
+
+        fake_doc = {
+            "id": "doc1",
+            "title": "Test Meeting",
+            "created_at": "2026-01-15T10:00:00Z",
+            "notes_markdown": "# Notes\nSome notes here.",
+            "google_calendar_event": {"iCalUID": "uid-123"},
+        }
+
+        with patch("kb.sync.granola.GranolaClient") as mock_cls, patch(
+            "kb.sync.granola.extract_panel_markdown", return_value=""
+        ):
+            mock_client = MagicMock()
+            mock_client.find_document.return_value = fake_doc
+            mock_cls.return_value = mock_client
+
+            result = json.loads(handle_kb_granola_view("uid-123"))
+        assert result["title"] == "Test Meeting"
+        assert "Notes" in result["content"]
+
+
+class TestMcpGranolaEdit:
+    def test_granola_edit_no_args(self):
+        """kb_granola_edit returns error when neither body nor append given."""
+        from kb.mcp_server import handle_kb_granola_edit
+
+        result = json.loads(handle_kb_granola_edit("uid-123"))
+        assert "error" in result
+
+    def test_granola_edit_both_args(self):
+        """kb_granola_edit returns error when both body and append given."""
+        from kb.mcp_server import handle_kb_granola_edit
+
+        result = json.loads(handle_kb_granola_edit("uid-123", body="new", append="extra"))
+        assert "error" in result
+
+    def test_granola_edit_body(self):
+        """kb_granola_edit calls API to replace body."""
+        from kb.mcp_server import handle_kb_granola_edit
+
+        fake_doc = {"id": "doc1", "notes_markdown": "old notes"}
+
+        with patch("kb.sync.granola.GranolaClient") as mock_cls:
+            mock_client = MagicMock()
+            mock_client.find_document.return_value = fake_doc
+            mock_cls.return_value = mock_client
+
+            result = json.loads(handle_kb_granola_edit("uid-123", body="new notes"))
+        assert result["status"] == "ok"
+        assert result["action"] == "replace"
+        mock_client.update_document_notes.assert_called_once_with("doc1", "new notes")
+
+    def test_granola_edit_append(self):
+        """kb_granola_edit appends to existing notes."""
+        from kb.mcp_server import handle_kb_granola_edit
+
+        fake_doc = {"id": "doc1", "notes_markdown": "existing notes"}
+
+        with patch("kb.sync.granola.GranolaClient") as mock_cls:
+            mock_client = MagicMock()
+            mock_client.find_document.return_value = fake_doc
+            mock_cls.return_value = mock_client
+
+            result = json.loads(handle_kb_granola_edit("uid-123", append="appended text"))
+        assert result["status"] == "ok"
+        assert result["action"] == "append"
+        call_args = mock_client.update_document_notes.call_args[0]
+        assert "existing notes" in call_args[1]
+        assert "appended text" in call_args[1]
+
+
+# ---------------------------------------------------------------------------
+# handle_kb_list tests
+# ---------------------------------------------------------------------------
+
+
+class TestMcpList:
+    def test_list_all(self, mcp_db):
+        """kb_list returns all documents."""
+        from kb.mcp_server import handle_kb_list
+
+        db, _ = mcp_db
+        result = json.loads(handle_kb_list(db))
+        assert "results" in result
+        assert result["meta"]["total"] == 4  # 3 meetings + 1 memory_person
+
+    def test_list_by_type(self, mcp_db):
+        """kb_list filters by doc_type."""
+        from kb.mcp_server import handle_kb_list
+
+        db, _ = mcp_db
+        result = json.loads(handle_kb_list(db, doc_type="notes"))
+        titles = [r["title"] for r in result["results"]]
+        assert len(titles) == 3  # all 3 meeting notes
+
+    def test_list_by_date_range(self, mcp_db):
+        """kb_list filters by date range."""
+        from kb.mcp_server import handle_kb_list
+
+        db, _ = mcp_db
+        result = json.loads(handle_kb_list(db, from_date="2026-01-25", to_date="2026-02-05"))
+        titles = [r["title"] for r in result["results"]]
+        assert "MFA Implementation Review" in titles
+        assert "Atlas Pipeline Plan" in titles
+        # Helix Refactor Status is 2026-01-20, outside range
+        assert "Helix Refactor Status" not in titles
+
+    def test_list_limit(self, mcp_db):
+        """kb_list respects limit."""
+        from kb.mcp_server import handle_kb_list
+
+        db, _ = mcp_db
+        result = json.loads(handle_kb_list(db, limit=2))
+        assert len(result["results"]) == 2
+
+    def test_list_content_hash_truncated(self, mcp_db):
+        """kb_list truncates content_hash to 6 chars."""
+        from kb.mcp_server import handle_kb_list
+
+        db, _ = mcp_db
+        result = json.loads(handle_kb_list(db, limit=1))
+        hash_val = result["results"][0]["content_hash"]
+        assert hash_val is None or len(hash_val) == 6
+
+
+# ---------------------------------------------------------------------------
+# handle_kb_index_status tests
+# ---------------------------------------------------------------------------
+
+
+class TestMcpIndexStatus:
+    def test_index_status(self, mcp_db):
+        """kb_index_status returns document/entity/fact counts."""
+        from kb.mcp_server import handle_kb_index_status
+
+        db, _ = mcp_db
+        result = json.loads(handle_kb_index_status(db))
+        assert result["documents"] == 4
+        assert result["chunks"] == 6
+        assert result["entities"] == 2
+        assert "documents_by_type" in result
+        assert "date_range" in result
+
+    def test_index_status_doc_types(self, mcp_db):
+        """kb_index_status breaks down by doc_type."""
+        from kb.mcp_server import handle_kb_index_status
+
+        db, _ = mcp_db
+        result = json.loads(handle_kb_index_status(db))
+        by_type = result["documents_by_type"]
+        assert by_type.get("notes") == 3
+        assert by_type.get("memory_person") == 1
+
+
+# ---------------------------------------------------------------------------
+# handle_kb_correct tests
+# ---------------------------------------------------------------------------
+
+
+class TestMcpCorrect:
+    def _create_memory_files(self, project_root):
+        mem = project_root / "memory"
+        mem.mkdir(parents=True, exist_ok=True)
+        notes = mem / "notes"
+        notes.mkdir(exist_ok=True)
+        (notes / "test.md").write_text("---\ntitle: Test\n---\nQuartz Indexer is great.\nQuartz Indexer rules.\n")
+
+    def test_correct_scan(self, mcp_db):
+        """kb_correct scan mode finds occurrences."""
+        from kb.mcp_server import handle_kb_correct
+
+        _, root = mcp_db
+        self._create_memory_files(root)
+
+        result = json.loads(handle_kb_correct(root, "Quartz Indexer"))
+        assert result["meta"]["action"] == "scan"
+        assert result["meta"]["total_occurrences"] == 2
+
+    def test_correct_dry_run(self, mcp_db):
+        """kb_correct dry-run mode previews without changing."""
+        from kb.mcp_server import handle_kb_correct
+
+        _, root = mcp_db
+        self._create_memory_files(root)
+
+        result = json.loads(handle_kb_correct(root, "Quartz Indexer", replacement="Coralogix"))
+        assert result["meta"]["action"] == "dry_run"
+        assert result["meta"]["total_occurrences"] == 2
+
+        # File unchanged
+        content = (root / "memory" / "notes" / "test.md").read_text()
+        assert "Quartz Indexer" in content
+
+    def test_correct_apply(self, mcp_db):
+        """kb_correct apply mode replaces occurrences."""
+        from kb.mcp_server import handle_kb_correct
+
+        _, root = mcp_db
+        self._create_memory_files(root)
+
+        with patch("kb.config.get_data_dir", return_value=root):
+            result = json.loads(
+                handle_kb_correct(root, "Quartz Indexer", replacement="Coralogix", apply=True)
+            )
+        assert result["meta"]["action"] == "applied"
+        assert result["meta"]["occurrences_replaced"] == 2
+
+        content = (root / "memory" / "notes" / "test.md").read_text()
+        assert "Coralogix" in content
+        assert "Quartz Indexer" not in content
+
+    def test_correct_no_matches(self, mcp_db):
+        """kb_correct returns empty when no matches found."""
+        from kb.mcp_server import handle_kb_correct
+
+        _, root = mcp_db
+        self._create_memory_files(root)
+
+        result = json.loads(handle_kb_correct(root, "ZZZnonexistent"))
+        assert result["meta"]["total"] == 0
+        assert result["results"] == []
