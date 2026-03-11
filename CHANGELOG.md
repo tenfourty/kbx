@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.1.50](https://github.com/tenfourty/kbx/compare/kbx-v0.1.49...kbx-v0.1.50) (2026-03-11)
+
+
+### Features
+
+* **mcp:** add missing filters and pagination from audit ([fe627ca](https://github.com/tenfourty/kbx/commit/fe627ca8c4eba9041c2fc97297ae1dfb98084c82))
+
+
+### Bug Fixes
+
+* derive project root from absolute memory path in global config ([c555952](https://github.com/tenfourty/kbx/commit/c55595290907411d88a67d10db1d9f11db06de90))
+
+
+### Documentation
+
+* **mcp:** document new params and tag filtering limitation ([c14ba2f](https://github.com/tenfourty/kbx/commit/c14ba2fca7ab96acedc3c1fcacac8c6275696638))
+
 ## [0.1.49](https://github.com/tenfourty/kbx/compare/kbx-v0.1.48...kbx-v0.1.49) (2026-03-11)
 
 
