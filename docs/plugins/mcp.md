@@ -62,14 +62,14 @@ Claude Code inherits your shell PATH, so the short name works here.
 
 | Tool | Description |
 |------|-------------|
-| `kb_search` | Search the knowledge base. Supports `fast` (FTS-only, default) and hybrid (FTS + vector). Filter by date range, tag, sort by score or date. |
+| `kb_search` | Search the knowledge base. Supports `fast` (FTS-only, default) and hybrid (FTS + vector). Filter by date range, tag, doc_type, sort by score or date. |
 | `kb_person_find` | Look up a person by name, alias, or partial match. Returns profile with facts, metadata, and breadcrumbs. |
-| `kb_person_list` | List all known people with metadata. |
-| `kb_person_timeline` | Chronological list of documents mentioning a person. Optional date range filter. |
+| `kb_person_list` | List all known people with metadata. Paginated (limit/offset). |
+| `kb_person_timeline` | Chronological list of documents mentioning a person. Filter by date range, doc_type, limit. |
 | `kb_project_find` | Look up a project by name, alias, or partial match. Returns profile with facts, metadata, and breadcrumbs. |
-| `kb_project_list` | List all known projects with metadata. |
+| `kb_project_list` | List all known projects with metadata. Paginated (limit/offset). |
 | `kb_view` | View a document by path, glob, or content-hash prefix (`#abc123`). Returns metadata and all chunks. |
-| `kb_list` | Browse documents by date and type. Filter by `doc_type`, `from_date`, `to_date`. Default limit 25. |
+| `kb_list` | Browse documents by date and type. Filter by `doc_type`, `from_date`, `to_date`, `since_hours`. Default limit 25. |
 | `kb_context` | Compressed entity index — overview of people, projects, teams, terms. Supports `compact` (pipe-delimited) and `human` (markdown) formats. Optional topic filter. |
 | `kb_usage` | Usage instructions and current index status (doc/entity/fact counts, date range). |
 | `kb_index_status` | Database health: document counts by type, entity/fact counts, date range, last indexed timestamp. |
@@ -107,9 +107,12 @@ fast: bool = True    # True = FTS only (instant), False = hybrid (FTS + vector, 
 limit: int = 5       # max results (1-100)
 from_date: str       # filter: YYYY-MM-DD
 to_date: str         # filter: YYYY-MM-DD
-tag: str             # filter by tag (comma-separated for AND)
+tag: str             # filter by tag (comma-separated for AND) — notes only, not meetings
+doc_type: str        # filter: "notes", "transcript", "memory_note", etc.
 sort_by: str         # "score" (default) or "date" (newest first)
 ```
+
+> **Note:** Tag filtering only works on memory notes (`memory_note`, `memory_doc`). Meeting documents (notes, transcripts, debriefs) do not have tags. Use `doc_type` to filter by document type instead.
 
 ### `kb_memory_add`
 
@@ -128,6 +131,7 @@ date: str            # override date (YYYY-MM-DD)
 doc_type: str        # filter: "notes", "transcript", "memory_person", etc.
 from_date: str       # filter: YYYY-MM-DD
 to_date: str         # filter: YYYY-MM-DD
+since_hours: int     # only docs indexed in the last N hours
 limit: int = 25      # max results (1-100)
 ```
 
