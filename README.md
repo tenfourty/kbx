@@ -79,12 +79,14 @@ kbx exposes an MCP server for tighter integration with Claude Desktop, Claude Co
 {
   "mcpServers": {
     "kbx": {
-      "command": "kbx",
+      "command": "/Users/YOU/.local/bin/kbx",
       "args": ["mcp"]
     }
   }
 }
 ```
+
+> **Note:** Claude Desktop does not inherit your shell PATH. Use the full path to `kbx` — find it with `which kbx` (typically `~/.local/bin/kbx` when installed via `uv tool install`).
 
 **Claude Code** (`.claude/settings.local.json`):
 

@@ -18,6 +18,46 @@ kbx mcp
 
 Starts the MCP server on stdio transport. Configure your AI tool to connect to this process.
 
+### Claude Desktop
+
+`~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "kbx": {
+      "command": "/Users/YOU/.local/bin/kbx",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+> **Important:** Use the full path to the `kbx` binary. Claude Desktop launches with a minimal PATH that does not include `~/.local/bin/`. Find the path with `which kbx`.
+>
+> Typical locations:
+> - **macOS / Linux** (`uv tool install`): `~/.local/bin/kbx`
+> - **Windows** (`uv tool install`): `%APPDATA%\uv\tools\kbx\bin\kbx.exe`
+> - **pip install**: check `which kbx` or `where kbx`
+
+### Claude Code
+
+`.claude/settings.local.json`:
+
+```json
+{
+  "mcpServers": {
+    "kbx": {
+      "command": "kbx",
+      "args": ["mcp"],
+      "type": "stdio"
+    }
+  }
+}
+```
+
+Claude Code inherits your shell PATH, so the short name works here.
+
 ## Available Tools
 
 | Tool | Description |
@@ -68,3 +108,25 @@ date: str            # override date (YYYY-MM-DD)
 ## Error Handling
 
 All tools return JSON. On error, the response includes an `"error"` key with a message. Errors are also logged to stderr.
+
+## Troubleshooting
+
+### Server fails to start / "No such file or directory"
+
+Claude Desktop (and other GUI tools) launch with a minimal system PATH that does not include directories like `~/.local/bin/`. If the log shows:
+
+```
+Failed to spawn process: No such file or directory
+```
+
+**Fix:** Use the full absolute path to `kbx` in your config:
+
+```bash
+# Find the full path
+which kbx
+# e.g. /Users/you/.local/bin/kbx
+```
+
+Then update `claude_desktop_config.json` to use that path as the `"command"` value. See the [Usage](#usage) section above for the full config example.
+
+**Claude Desktop log location:** `~/Library/Logs/Claude/mcp-server-kbx.log`
