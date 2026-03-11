@@ -31,6 +31,7 @@ def handle_kb_search(
     to_date: str | None = None,
     tag: str | None = None,
     sort_by: str = "score",
+    doc_type: str | None = None,
 ) -> str:
     """Search the knowledge base. Returns JSON string."""
     try:
@@ -46,6 +47,7 @@ def handle_kb_search(
             to_date=to_date,
             tag=tag,
             sort_by=sort_by,
+            doc_type=doc_type,
         )
         return json.dumps(results.model_dump(), default=str, ensure_ascii=False)
     except Exception as e:
@@ -133,7 +135,12 @@ def handle_kb_person_find(db: Database, name: str) -> str:
 
 
 def handle_kb_person_timeline(
-    db: Database, name: str, from_date: str | None = None, to_date: str | None = None
+    db: Database,
+    name: str,
+    from_date: str | None = None,
+    to_date: str | None = None,
+    doc_type: str | None = None,
+    limit: int | None = None,
 ) -> str:
     """Chronological docs mentioning a person. Returns JSON string."""
     try:
@@ -155,8 +162,14 @@ def handle_kb_person_timeline(
         if to_date:
             sql += " AND d.doc_date <= ?"
             params.append(to_date)
+        if doc_type:
+            sql += " AND d.doc_type = ?"
+            params.append(doc_type)
 
         sql += " ORDER BY d.doc_date ASC"
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit)
         docs = conn.execute(sql, params).fetchall()
 
         result = {
@@ -608,33 +621,40 @@ def handle_kb_project_find(db: Database, name: str) -> str:
         return json.dumps({"error": str(e)})
 
 
-def handle_kb_project_list(db: Database) -> str:
+def handle_kb_project_list(db: Database, limit: int = 50, offset: int = 0) -> str:
     """List all projects. Returns JSON string."""
     try:
-        return _entity_list(db, "project")
+        return _entity_list(db, "project", limit=limit, offset=offset)
     except Exception as e:
         print(f"kb_project_list error: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return json.dumps({"error": str(e), "results": []})
 
 
-def handle_kb_person_list(db: Database) -> str:
+def handle_kb_person_list(db: Database, limit: int = 50, offset: int = 0) -> str:
     """List all people. Returns JSON string."""
     try:
-        return _entity_list(db, "person")
+        return _entity_list(db, "person", limit=limit, offset=offset)
     except Exception as e:
         print(f"kb_person_list error: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return json.dumps({"error": str(e), "results": []})
 
 
-def _entity_list(db: Database, entity_type: str) -> str:
-    """Shared: list entities of a given type."""
+def _entity_list(db: Database, entity_type: str, limit: int = 50, offset: int = 0) -> str:
+    """Shared: list entities of a given type with pagination."""
     conn = db.get_sqlite_conn()
+
+    # Get total count first
+    total = conn.execute(
+        "SELECT COUNT(*) as cnt FROM entities WHERE entity_type = ?",
+        (entity_type,),
+    ).fetchone()["cnt"]
+
     rows = conn.execute(
         "SELECT id, name, entity_type, aliases, metadata, source_path FROM entities "
-        "WHERE entity_type = ? ORDER BY name",
-        (entity_type,),
+        "WHERE entity_type = ? ORDER BY name LIMIT ? OFFSET ?",
+        (entity_type, limit, offset),
     ).fetchall()
     entities = [
         {
@@ -647,7 +667,7 @@ def _entity_list(db: Database, entity_type: str) -> str:
         for r in rows
     ]
     return json.dumps(
-        {"results": entities, "meta": {"total": len(entities)}},
+        {"results": entities, "meta": {"total": total, "limit": limit, "offset": offset}},
         default=str,
         ensure_ascii=False,
     )
@@ -1135,6 +1155,7 @@ def handle_kb_list(
     from_date: str | None = None,
     to_date: str | None = None,
     limit: int = 25,
+    since_hours: int | None = None,
 ) -> str:
     """Browse documents by date/type. Returns JSON string."""
     try:
@@ -1151,6 +1172,9 @@ def handle_kb_list(
         if to_date:
             sql += " AND doc_date <= ?"
             params.append(to_date)
+        if since_hours is not None:
+            sql += " AND indexed_at >= datetime('now', ?)"
+            params.append(f"-{since_hours} hours")
 
         sql += " ORDER BY doc_date DESC NULLS LAST LIMIT ?"
         params.append(limit)
@@ -1344,11 +1368,14 @@ def kb_search(
     to_date: str | None = None,
     tag: str | None = None,
     sort_by: str = "score",
+    doc_type: str | None = None,
 ) -> str:
     """Search the knowledge base. Returns JSON with matching documents, ranked by relevance.
     Use fast=True (default) for instant FTS-only search.
     Optionally filter by date range (YYYY-MM-DD).
     Optionally filter by tag (comma-separated for AND, e.g. 'decision,infra').
+    Note: tags only work on memory notes, not meeting docs.
+    doc_type: filter by document type (e.g. 'notes', 'transcript', 'memory_note').
     sort_by: 'score' (default) or 'date' (newest first)."""
     limit = max(1, min(limit, 100))
     from_date = _validate_date(from_date)
@@ -1365,6 +1392,7 @@ def kb_search(
         to_date=to_date,
         tag=tag,
         sort_by=sort_by,
+        doc_type=doc_type,
     )
 
 
@@ -1377,13 +1405,23 @@ def kb_person_find(name: str) -> str:
 
 
 @mcp.tool()
-def kb_person_timeline(name: str, from_date: str | None = None, to_date: str | None = None) -> str:
+def kb_person_timeline(
+    name: str,
+    from_date: str | None = None,
+    to_date: str | None = None,
+    doc_type: str | None = None,
+    limit: int | None = None,
+) -> str:
     """Get chronological list of documents mentioning a person.
-    Optionally filter by date range (YYYY-MM-DD)."""
+    Optionally filter by date range (YYYY-MM-DD).
+    doc_type: filter by document type (e.g. 'notes', 'transcript', 'debrief').
+    limit: max results (default: no limit)."""
     from_date = _validate_date(from_date)
     to_date = _validate_date(to_date)
     db = get_db()
-    return handle_kb_person_timeline(db, name, from_date=from_date, to_date=to_date)
+    return handle_kb_person_timeline(
+        db, name, from_date=from_date, to_date=to_date, doc_type=doc_type, limit=limit
+    )
 
 
 @mcp.tool()
@@ -1469,17 +1507,23 @@ def kb_project_find(name: str) -> str:
 
 
 @mcp.tool()
-def kb_project_list() -> str:
-    """List all known projects with their metadata."""
+def kb_project_list(limit: int = 50, offset: int = 0) -> str:
+    """List all known projects with their metadata.
+    limit: max results (default 50).
+    offset: skip first N results for pagination."""
+    limit = max(1, min(limit, 500))
     db = get_db()
-    return handle_kb_project_list(db)
+    return handle_kb_project_list(db, limit=limit, offset=offset)
 
 
 @mcp.tool()
-def kb_person_list() -> str:
-    """List all known people with their metadata."""
+def kb_person_list(limit: int = 50, offset: int = 0) -> str:
+    """List all known people with their metadata.
+    limit: max results (default 50).
+    offset: skip first N results for pagination."""
+    limit = max(1, min(limit, 500))
     db = get_db()
-    return handle_kb_person_list(db)
+    return handle_kb_person_list(db, limit=limit, offset=offset)
 
 
 @mcp.tool()
@@ -1609,16 +1653,20 @@ def kb_list(
     from_date: str | None = None,
     to_date: str | None = None,
     limit: int = 25,
+    since_hours: int | None = None,
 ) -> str:
     """Browse documents by date and type.
     doc_type: filter (e.g. 'notes', 'transcript', 'memory_person').
     from_date/to_date: YYYY-MM-DD date range.
+    since_hours: only return documents indexed within the last N hours.
     limit: max results (default 25)."""
     limit = max(1, min(limit, 100))
     from_date = _validate_date(from_date)
     to_date = _validate_date(to_date)
     db = get_db()
-    return handle_kb_list(db, doc_type=doc_type, from_date=from_date, to_date=to_date, limit=limit)
+    return handle_kb_list(
+        db, doc_type=doc_type, from_date=from_date, to_date=to_date, limit=limit, since_hours=since_hours
+    )
 
 
 @mcp.tool()

@@ -1646,3 +1646,233 @@ class TestMcpCorrect:
         result = json.loads(handle_kb_correct(root, "ZZZnonexistent"))
         assert result["meta"]["total"] == 0
         assert result["results"] == []
+
+
+# ---------------------------------------------------------------------------
+# Audit fixes: A1 — kb_search doc_type filter
+# ---------------------------------------------------------------------------
+
+
+class TestMcpSearchDocType:
+    def test_search_with_doc_type_filter(self, mcp_db):
+        """kb_search should filter by doc_type when specified."""
+        from kb.mcp_server import handle_kb_search
+
+        db, _ = mcp_db
+        # Search for "migration" which appears in both notes and memory_person chunks
+        result = json.loads(handle_kb_search(db, "migration", fast=True, limit=10, doc_type="notes"))
+        # All results should be doc_type "notes"
+        for r in result["results"]:
+            assert r["doc_type"] == "notes"
+
+    def test_search_without_doc_type_returns_all(self, mcp_db):
+        """kb_search without doc_type should return all matching types."""
+        from kb.mcp_server import handle_kb_search
+
+        db, _ = mcp_db
+        result = json.loads(handle_kb_search(db, "MFA", fast=True, limit=10))
+        assert len(result["results"]) > 0
+
+
+# ---------------------------------------------------------------------------
+# Audit fixes: A2 — entity list pagination
+# ---------------------------------------------------------------------------
+
+
+class TestMcpEntityListPagination:
+    def _insert_people(self, db, count):
+        conn = db.get_sqlite_conn()
+        for i in range(count):
+            conn.execute(
+                "INSERT INTO entities (name, entity_type, aliases, metadata) VALUES (?, 'person', '[]', '{}')",
+                (f"Person {i:03d}",),
+            )
+        conn.commit()
+
+    def test_person_list_default_limit(self, mcp_db):
+        """kb_person_list should default to limit 50."""
+        from kb.mcp_server import handle_kb_person_list
+
+        db, _ = mcp_db
+        self._insert_people(db, 60)
+
+        result = json.loads(handle_kb_person_list(db))
+        # 60 new + 1 existing = 61, but limit 50 should cap it
+        assert len(result["results"]) == 50
+        assert result["meta"]["total"] == 61
+
+    def test_person_list_with_limit(self, mcp_db):
+        """kb_person_list should accept custom limit."""
+        from kb.mcp_server import handle_kb_person_list
+
+        db, _ = mcp_db
+        self._insert_people(db, 10)
+
+        result = json.loads(handle_kb_person_list(db, limit=5))
+        assert len(result["results"]) == 5
+
+    def test_person_list_with_offset(self, mcp_db):
+        """kb_person_list should accept offset for pagination."""
+        from kb.mcp_server import handle_kb_person_list
+
+        db, _ = mcp_db
+        self._insert_people(db, 10)
+
+        page1 = json.loads(handle_kb_person_list(db, limit=5, offset=0))
+        page2 = json.loads(handle_kb_person_list(db, limit=5, offset=5))
+        # No overlap between pages
+        names1 = {r["name"] for r in page1["results"]}
+        names2 = {r["name"] for r in page2["results"]}
+        assert names1.isdisjoint(names2)
+
+    def test_project_list_with_limit(self, mcp_db):
+        """kb_project_list should accept limit param."""
+        from kb.mcp_server import handle_kb_project_list
+
+        db, _ = mcp_db
+        result = json.loads(handle_kb_project_list(db, limit=1))
+        assert len(result["results"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# Audit fixes: A3 — person_timeline doc_type + limit
+# ---------------------------------------------------------------------------
+
+
+class TestMcpTimelineFilters:
+    def _setup_multi_type_docs(self, db):
+        """Add transcript + debrief docs mentioning Talia."""
+        conn = db.get_sqlite_conn()
+        conn.execute(
+            """INSERT INTO documents (path, title, doc_date, doc_type, source_system, tags, content_hash, chunk_count)
+               VALUES ('meetings/2026/01/27/mfa.transcript.md', 'MFA Transcript', '2026-01-27', 'transcript', 'granola', '[]', 'ttt111', 1)""",
+        )
+        conn.execute(
+            """INSERT INTO documents (path, title, doc_date, doc_type, source_system, tags, content_hash, chunk_count)
+               VALUES ('meetings/2026/01/27/mfa.debrief.md', 'MFA Debrief', '2026-01-27', 'debrief', 'memory', '[]', 'ddd111', 1)""",
+        )
+        # Link both to Talia (entity_id=1)
+        # doc IDs 5 and 6 (after the 4 existing docs)
+        transcript_id = conn.execute("SELECT id FROM documents WHERE path = 'meetings/2026/01/27/mfa.transcript.md'").fetchone()["id"]
+        debrief_id = conn.execute("SELECT id FROM documents WHERE path = 'meetings/2026/01/27/mfa.debrief.md'").fetchone()["id"]
+        conn.execute("INSERT INTO entity_mentions (entity_id, document_id, mention_type) VALUES (1, ?, 'discussed')", (transcript_id,))
+        conn.execute("INSERT INTO entity_mentions (entity_id, document_id, mention_type) VALUES (1, ?, 'discussed')", (debrief_id,))
+        conn.commit()
+
+    def test_timeline_with_doc_type_filter(self, mcp_db):
+        """kb_person_timeline should filter by doc_type."""
+        from kb.mcp_server import handle_kb_person_timeline
+
+        db, _ = mcp_db
+        self._setup_multi_type_docs(db)
+
+        result = json.loads(handle_kb_person_timeline(db, "Talia", doc_type="transcript"))
+        assert len(result["documents"]) == 1
+        assert result["documents"][0]["doc_type"] == "transcript"
+
+    def test_timeline_with_limit(self, mcp_db):
+        """kb_person_timeline should respect limit param."""
+        from kb.mcp_server import handle_kb_person_timeline
+
+        db, _ = mcp_db
+        self._setup_multi_type_docs(db)
+
+        # Talia has 3 docs: original mention + transcript + debrief
+        result = json.loads(handle_kb_person_timeline(db, "Talia", limit=2))
+        assert len(result["documents"]) == 2
+
+    def test_timeline_default_has_all(self, mcp_db):
+        """kb_person_timeline without filters returns all doc types."""
+        from kb.mcp_server import handle_kb_person_timeline
+
+        db, _ = mcp_db
+        self._setup_multi_type_docs(db)
+
+        result = json.loads(handle_kb_person_timeline(db, "Talia"))
+        types = {d["doc_type"] for d in result["documents"]}
+        assert "notes" in types
+        assert "transcript" in types
+        assert "debrief" in types
+
+
+# ---------------------------------------------------------------------------
+# Audit fixes: A5 — kb_correct MCP path resolution
+# ---------------------------------------------------------------------------
+
+
+class TestMcpCorrectPathResolution:
+    def test_correct_with_global_config_project_root(self, mcp_db):
+        """kb_correct should work when project_root has memory/ subdir."""
+        from kb.mcp_server import handle_kb_correct
+
+        _, root = mcp_db
+        mem = root / "memory"
+        mem.mkdir(parents=True, exist_ok=True)
+        (mem / "notes").mkdir(exist_ok=True)
+        (mem / "notes" / "test.md").write_text("Some text with Typo here.\n")
+
+        # Should not error — memory dir exists at project_root/memory
+        result = json.loads(handle_kb_correct(root, "Typo"))
+        assert "error" not in result
+        assert result["meta"]["total_occurrences"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Audit fixes: A7 — kb_list since_hours param
+# ---------------------------------------------------------------------------
+
+
+class TestMcpListSinceHours:
+    def test_list_since_hours(self, mcp_db):
+        """kb_list with since_hours returns recently indexed docs."""
+        from kb.mcp_server import handle_kb_list
+
+        db, _ = mcp_db
+        # All test docs were just indexed (indexed_at is NOW), so since_hours=1 should return them
+        result = json.loads(handle_kb_list(db, since_hours=1))
+        assert len(result["results"]) > 0
+
+    def test_list_since_hours_excludes_old(self, mcp_db):
+        """kb_list with since_hours=0 should return nothing (0 hours ago = now)."""
+        from kb.mcp_server import handle_kb_list
+
+        db, _ = mcp_db
+        # Set indexed_at to yesterday for all docs
+        conn = db.get_sqlite_conn()
+        conn.execute("UPDATE documents SET indexed_at = datetime('now', '-2 days')")
+        conn.commit()
+
+        result = json.loads(handle_kb_list(db, since_hours=1))
+        assert len(result["results"]) == 0
+
+
+# ---------------------------------------------------------------------------
+# Audit fixes: A8 — glossary path resolution for MCP
+# ---------------------------------------------------------------------------
+
+
+class TestMcpGlossaryPathResolution:
+    def test_glossary_list_with_correct_project_root(self, mcp_db):
+        """kb_glossary_list should find glossary at project_root/memory/glossary.md."""
+        from kb.mcp_server import handle_kb_glossary_list
+
+        _, root = mcp_db
+        glossary_dir = root / "memory"
+        glossary_dir.mkdir(parents=True, exist_ok=True)
+        (glossary_dir / "glossary.md").write_text(
+            "# Glossary\n\n## Acronyms\n\n| Term | Expansion |\n|------|----------|\n| API | Application Programming Interface |\n",
+            encoding="utf-8",
+        )
+
+        result = json.loads(handle_kb_glossary_list(root))
+        assert result["meta"]["total"] >= 1
+        terms = [r["term"] for r in result["results"]]
+        assert "API" in terms
+
+    def test_glossary_list_empty_when_no_file(self, tmp_path):
+        """kb_glossary_list returns empty when glossary.md doesn't exist."""
+        from kb.mcp_server import handle_kb_glossary_list
+
+        result = json.loads(handle_kb_glossary_list(tmp_path))
+        assert result["results"] == []
+        assert result["meta"]["total"] == 0
