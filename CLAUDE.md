@@ -136,6 +136,16 @@ The Claude Code sandbox injects SOCKS proxy env vars (`ALL_PROXY=socks5h://local
 
 Scripts in `.claude/hooks/` read stdin JSON for `tool_input.file_path` and `cwd`.
 
+## MCP Server
+
+- **27 tools** with full MCP tool annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`)
+- **Handler pattern**: testable `handle_*` functions (take `db`/`project_root` directly) + thin MCP wrappers (call `get_db()`/`find_project_root()` then delegate)
+- **Error shape**: `{"error": str, "suggestion": str | null}` — all tools
+- **List shape**: `{"results": [...], "meta": {"total": N, "limit": N}}` — all list tools. `total` is the true count, not capped by limit.
+- **Tool annotations**: 16 read-only, 6 mutating-idempotent, 3 mutating, 2 destructive. Defined as `_READ_ONLY`, `_MUTATING`, `_MUTATING_IDEMPOTENT`, `_DESTRUCTIVE` presets.
+- **`find_project_root()` with global config**: When XDG config has absolute memory path, derives project root from `memory_path.parent`. Uses `Path.is_relative_to()` for safe XDG detection.
+- **Tag filtering**: Only works on memory notes (`memory_note`, `memory_doc`). Meeting docs don't have tags — use `doc_type` filter instead.
+
 ## Gotchas
 
 - **MPS memory** — embedding batches: 32 on MPS, 16 on CPU; texts truncated at 8K chars. `torch.mps.empty_cache()` between batches
