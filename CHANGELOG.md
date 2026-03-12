@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.53](https://github.com/tenfourty/kbx/compare/kbx-v0.1.52...kbx-v0.1.53) (2026-03-12)
+
+
+### Features
+
+* **mcp:** add MCP tool annotations to all 27 tools ([68b43b0](https://github.com/tenfourty/kbx/commit/68b43b0c9f80e7e3fcbb0899b296d47e7a875184))
+
 ## [0.1.52](https://github.com/tenfourty/kbx/compare/kbx-v0.1.51...kbx-v0.1.52) (2026-03-11)
 
 
