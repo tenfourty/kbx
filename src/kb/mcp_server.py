@@ -9,6 +9,7 @@ import traceback
 from typing import TYPE_CHECKING, Any
 
 from mcp.server.fastmcp import FastMCP
+from mcp.types import ToolAnnotations
 
 from kb.config import find_entity, find_project_root, get_db
 
@@ -1380,6 +1381,12 @@ def handle_kb_correct(
 
 mcp = FastMCP("kbx")
 
+# Tool annotation presets
+_READ_ONLY = ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True)
+_MUTATING = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False)
+_MUTATING_IDEMPOTENT = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True)
+_DESTRUCTIVE = ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=False)
+
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
@@ -1392,7 +1399,7 @@ def _validate_date(value: str | None) -> str | None:
     return value
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def kb_search(
     query: str,
     fast: bool = True,
@@ -1429,7 +1436,7 @@ def kb_search(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def kb_person_find(name: str) -> str:
     """Look up a person profile — compact output with facts, metadata, and breadcrumbs.
     Supports exact name, alias, or partial match."""
@@ -1437,7 +1444,7 @@ def kb_person_find(name: str) -> str:
     return handle_kb_person_find(db, name)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def kb_person_timeline(
     name: str,
     from_date: str | None = None,
@@ -1457,7 +1464,7 @@ def kb_person_timeline(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def kb_view(target: str) -> str:
     """View a specific document by path or content-hash prefix (#abc123).
     Returns document metadata and all chunks."""
@@ -1465,7 +1472,7 @@ def kb_view(target: str) -> str:
     return handle_kb_view(db, target)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def kb_context(
     topic: str | None = None, fmt: str = "compact", mention_threshold: int = 0
 ) -> str:
@@ -1482,14 +1489,14 @@ def kb_context(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def kb_usage() -> str:
     """Get kb usage instructions and current index status (document/entity counts, date range)."""
     db = get_db()
     return handle_kb_usage(db)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_MUTATING)
 def kb_memory_add(
     text: str,
     body: str | None = None,
@@ -1509,7 +1516,7 @@ def kb_memory_add(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations=_MUTATING_IDEMPOTENT)
 def kb_pin(target: str) -> str:
     """Pin a document to context so it appears in kb_context output.
     Accepts path, title, or glob pattern."""
@@ -1517,7 +1524,7 @@ def kb_pin(target: str) -> str:
     return handle_kb_pin(db, target)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_MUTATING_IDEMPOTENT)
 def kb_unpin(target: str) -> str:
     """Unpin a document from context.
     Accepts path, title, or glob pattern."""
@@ -1525,7 +1532,7 @@ def kb_unpin(target: str) -> str:
     return handle_kb_unpin(db, target)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def kb_entity_stale(days: int = 30, entity_type: str | None = None) -> str:
     """List entities not updated or mentioned within a threshold.
     Returns stale entities sorted by stalest first.
@@ -1536,7 +1543,7 @@ def kb_entity_stale(days: int = 30, entity_type: str | None = None) -> str:
     return handle_kb_entity_stale(db, days=days, entity_type=entity_type)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def kb_project_find(name: str) -> str:
     """Look up a project profile — compact output with facts, metadata, and breadcrumbs.
     Supports exact name, alias, or partial match."""
@@ -1544,7 +1551,7 @@ def kb_project_find(name: str) -> str:
     return handle_kb_project_find(db, name)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def kb_project_list(limit: int = 50, offset: int = 0) -> str:
     """List all known projects with their metadata.
     limit: max results (default 50).
@@ -1554,7 +1561,7 @@ def kb_project_list(limit: int = 50, offset: int = 0) -> str:
     return handle_kb_project_list(db, limit=limit, offset=offset)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def kb_person_list(limit: int = 50, offset: int = 0) -> str:
     """List all known people with their metadata.
     limit: max results (default 50).
@@ -1564,7 +1571,7 @@ def kb_person_list(limit: int = 50, offset: int = 0) -> str:
     return handle_kb_person_list(db, limit=limit, offset=offset)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def kb_note_list(
     tag: str | None = None, pinned_only: bool = False, limit: int = 25
 ) -> str:
@@ -1577,7 +1584,7 @@ def kb_note_list(
     return handle_kb_note_list(db, tag=tag, pinned_only=pinned_only, limit=limit)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_MUTATING_IDEMPOTENT)
 def kb_note_edit(
     target: str,
     body: str | None = None,
@@ -1598,7 +1605,7 @@ def kb_note_edit(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations=_DESTRUCTIVE)
 def kb_note_delete(target: str) -> str:
     """Delete a memory note (file + index entry).
     target: note path, title, or glob."""
@@ -1607,7 +1614,7 @@ def kb_note_delete(target: str) -> str:
     return handle_kb_note_delete(db, project_root, target)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def kb_memory_list(since_days: int | None = None) -> str:
     """List recorded facts, newest first.
     since_days: optional filter to only show facts from last N days."""
@@ -1615,14 +1622,14 @@ def kb_memory_list(since_days: int | None = None) -> str:
     return handle_kb_memory_list(db, since_days=since_days)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_DESTRUCTIVE)
 def kb_memory_delete_fact(fact_id: int) -> str:
     """Delete a fact by its ID."""
     project_root = find_project_root()
     return handle_kb_memory_delete_fact(project_root, fact_id)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_MUTATING_IDEMPOTENT)
 def kb_memory_edit_fact(
     fact_id: int, text: str | None = None, date: str | None = None
 ) -> str:
@@ -1634,14 +1641,14 @@ def kb_memory_edit_fact(
     return handle_kb_memory_edit_fact(project_root, fact_id, text=text, date=date)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def kb_glossary_list() -> str:
     """List all glossary terms (acronyms and jargon)."""
     project_root = find_project_root()
     return handle_kb_glossary_list(project_root)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_MUTATING)
 def kb_glossary_add(term: str, expansion: str, section: str = "Acronyms") -> str:
     """Add a term to the glossary.
     term: the abbreviation or term.
@@ -1651,7 +1658,7 @@ def kb_glossary_add(term: str, expansion: str, section: str = "Acronyms") -> str
     return handle_kb_glossary_add(project_root, term, expansion, section=section)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_MUTATING_IDEMPOTENT)
 def kb_glossary_edit(term: str, expansion: str) -> str:
     """Update an existing glossary term's expansion.
     term: the term to edit.
@@ -1660,7 +1667,7 @@ def kb_glossary_edit(term: str, expansion: str) -> str:
     return handle_kb_glossary_edit(project_root, term, expansion)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def kb_granola_view(
     calendar_uid: str, mode: str | None = None
 ) -> str:
@@ -1672,7 +1679,7 @@ def kb_granola_view(
     return handle_kb_granola_view(calendar_uid, mode=mode)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_MUTATING_IDEMPOTENT)
 def kb_granola_edit(
     calendar_uid: str,
     body: str | None = None,
@@ -1685,7 +1692,7 @@ def kb_granola_edit(
     return handle_kb_granola_edit(calendar_uid, body=body, append=append)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def kb_list(
     doc_type: str | None = None,
     from_date: str | None = None,
@@ -1707,14 +1714,14 @@ def kb_list(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def kb_index_status() -> str:
     """Get database health: document counts by type, entity/fact counts, date range, last indexed timestamp."""
     db = get_db()
     return handle_kb_index_status(db)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_MUTATING)
 def kb_correct(
     term: str,
     replacement: str | None = None,
