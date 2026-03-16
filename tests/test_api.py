@@ -224,15 +224,14 @@ class TestEntityOperations:
     def test_get_entity_facts_include_id(self, kb_with_entities):
         conn = kb_with_entities._db.get_sqlite_conn()
         conn.execute(
-            "INSERT INTO facts (entity_id, fact_text, fact_date)"
-            " VALUES (1, 'Promoted to Lead', '2026-01-15')"
+            "INSERT INTO facts (entity_id, fact_text, fact_date, seq)"
+            " VALUES (1, 'Promoted to Lead', '2026-01-15', 1)"
         )
         conn.commit()
         result = kb_with_entities.get_entity("Talia Ström")
         assert result is not None
         fact = result.facts[0]
-        assert isinstance(fact.id, int)
-        assert fact.id > 0
+        assert fact.seq == 1
 
     def test_find_entities_exact(self, kb_with_entities):
         result = kb_with_entities.find_entities("Talia Ström")
@@ -531,26 +530,21 @@ class TestFactDelete:
     def test_delete_fact_by_id(self, kb_with_entities):
         conn = kb_with_entities._db.get_sqlite_conn()
         conn.execute(
-            "INSERT INTO facts (entity_id, fact_text, fact_date)"
-            " VALUES (1, 'Promoted to Lead', '2026-01-15')"
+            "INSERT INTO facts (entity_id, fact_text, fact_date, seq)"
+            " VALUES (1, 'Promoted to Lead', '2026-01-15', 1)"
         )
         conn.execute(
-            "INSERT INTO facts (entity_id, fact_text, fact_date)"
-            " VALUES (1, 'Joined Platform team', '2025-06-01')"
+            "INSERT INTO facts (entity_id, fact_text, fact_date, seq)"
+            " VALUES (1, 'Joined Platform team', '2025-06-01', 2)"
         )
         conn.commit()
 
-        fact_row = conn.execute(
-            "SELECT id FROM facts WHERE fact_text = 'Promoted to Lead'"
-        ).fetchone()
-        fact_id = fact_row["id"]
-
-        result = kb_with_entities.delete_fact(fact_id)
+        result = kb_with_entities.delete_fact("Talia Ström", 1)
         assert result["deleted"] is True
         assert result["fact_text"] == "Promoted to Lead"
 
         # Verify fact is gone from DB
-        remaining = conn.execute("SELECT * FROM facts WHERE id = ?", (fact_id,)).fetchone()
+        remaining = conn.execute("SELECT * FROM facts WHERE entity_id = 1 AND seq = 1").fetchone()
         assert remaining is None
 
         # Other fact still exists
@@ -560,8 +554,8 @@ class TestFactDelete:
         assert other is not None
 
     def test_delete_fact_not_found(self, kb_instance):
-        with pytest.raises(ValueError, match="Fact not found"):
-            kb_instance.delete_fact(99999)
+        with pytest.raises(ValueError, match="not found"):
+            kb_instance.delete_fact("Nobody", 99999)
 
     def test_delete_fact_removes_from_entity_file(self, kb_with_entities, project_root):
         """If entity has a source file with ## Recent Facts, the line is removed."""
@@ -577,16 +571,12 @@ class TestFactDelete:
         conn = kb_with_entities._db.get_sqlite_conn()
         conn.execute("UPDATE entities SET source_path = 'memory/people/eve.md' WHERE id = 1")
         conn.execute(
-            "INSERT INTO facts (entity_id, fact_text, fact_date)"
-            " VALUES (1, 'Promoted to Lead', '2026-01-15')"
+            "INSERT INTO facts (entity_id, fact_text, fact_date, seq)"
+            " VALUES (1, 'Promoted to Lead', '2026-01-15', 1)"
         )
         conn.commit()
 
-        fact_row = conn.execute(
-            "SELECT id FROM facts WHERE fact_text = 'Promoted to Lead'"
-        ).fetchone()
-
-        kb_with_entities.delete_fact(fact_row["id"])
+        kb_with_entities.delete_fact("Talia Ström", 1)
 
         content = (people_dir / "eve.md").read_text()
         assert "Promoted to Lead" not in content
@@ -597,49 +587,41 @@ class TestFactEdit:
     def test_edit_fact_text(self, kb_with_entities):
         conn = kb_with_entities._db.get_sqlite_conn()
         conn.execute(
-            "INSERT INTO facts (entity_id, fact_text, fact_date)"
-            " VALUES (1, 'Promoted to Lead', '2026-01-15')"
+            "INSERT INTO facts (entity_id, fact_text, fact_date, seq)"
+            " VALUES (1, 'Promoted to Lead', '2026-01-15', 1)"
         )
         conn.commit()
 
-        fact_row = conn.execute(
-            "SELECT id FROM facts WHERE fact_text = 'Promoted to Lead'"
-        ).fetchone()
-
-        result = kb_with_entities.edit_fact(fact_row["id"], text="Promoted to Staff")
+        result = kb_with_entities.edit_fact("Talia Ström", 1, text="Promoted to Staff")
         assert result["fact_text"] == "Promoted to Staff"
 
-        updated = conn.execute("SELECT * FROM facts WHERE id = ?", (fact_row["id"],)).fetchone()
+        updated = conn.execute("SELECT * FROM facts WHERE entity_id = 1 AND seq = 1").fetchone()
         assert updated["fact_text"] == "Promoted to Staff"
 
     def test_edit_fact_date(self, kb_with_entities):
         conn = kb_with_entities._db.get_sqlite_conn()
         conn.execute(
-            "INSERT INTO facts (entity_id, fact_text, fact_date)"
-            " VALUES (1, 'Promoted to Lead', '2026-01-15')"
+            "INSERT INTO facts (entity_id, fact_text, fact_date, seq)"
+            " VALUES (1, 'Promoted to Lead', '2026-01-15', 1)"
         )
         conn.commit()
-        fact_row = conn.execute(
-            "SELECT id FROM facts WHERE fact_text = 'Promoted to Lead'"
-        ).fetchone()
 
-        result = kb_with_entities.edit_fact(fact_row["id"], date="2026-02-01")
+        result = kb_with_entities.edit_fact("Talia Ström", 1, date="2026-02-01")
         assert result["fact_date"] == "2026-02-01"
 
     def test_edit_fact_not_found(self, kb_instance):
-        with pytest.raises(ValueError, match="Fact not found"):
-            kb_instance.edit_fact(99999, text="new text")
+        with pytest.raises(ValueError, match="not found"):
+            kb_instance.edit_fact("Nobody", 99999, text="new text")
 
     def test_edit_fact_no_changes(self, kb_with_entities):
         conn = kb_with_entities._db.get_sqlite_conn()
         conn.execute(
-            "INSERT INTO facts (entity_id, fact_text, fact_date)"
-            " VALUES (1, 'Some fact', '2026-01-15')"
+            "INSERT INTO facts (entity_id, fact_text, fact_date, seq)"
+            " VALUES (1, 'Some fact', '2026-01-15', 1)"
         )
         conn.commit()
-        fact_row = conn.execute("SELECT id FROM facts WHERE fact_text = 'Some fact'").fetchone()
         with pytest.raises(ValueError, match="No changes"):
-            kb_with_entities.edit_fact(fact_row["id"])
+            kb_with_entities.edit_fact("Talia Ström", 1)
 
     def test_edit_fact_updates_entity_file(self, kb_with_entities, project_root):
         """If entity has a source file, the fact line is updated."""
@@ -654,16 +636,12 @@ class TestFactEdit:
         conn = kb_with_entities._db.get_sqlite_conn()
         conn.execute("UPDATE entities SET source_path = 'memory/people/eve.md' WHERE id = 1")
         conn.execute(
-            "INSERT INTO facts (entity_id, fact_text, fact_date)"
-            " VALUES (1, 'Promoted to Lead', '2026-01-15')"
+            "INSERT INTO facts (entity_id, fact_text, fact_date, seq)"
+            " VALUES (1, 'Promoted to Lead', '2026-01-15', 1)"
         )
         conn.commit()
 
-        fact_row = conn.execute(
-            "SELECT id FROM facts WHERE fact_text = 'Promoted to Lead'"
-        ).fetchone()
-
-        kb_with_entities.edit_fact(fact_row["id"], text="Promoted to Staff")
+        kb_with_entities.edit_fact("Talia Ström", 1, text="Promoted to Staff")
 
         content = (people_dir / "eve.md").read_text()
         assert "Promoted to Staff" in content
@@ -946,14 +924,10 @@ class TestPostMutationReindex:
             " VALUES ('Jane', 'person', '[]', '{}', 'memory/people/jane.md')"
         )
         conn.execute(
-            "INSERT INTO facts (entity_id, fact_text, fact_date)"
-            " VALUES ((SELECT id FROM entities WHERE name = 'Jane'), 'Promoted to Lead', '2026-01-15')"
+            "INSERT INTO facts (entity_id, fact_text, fact_date, seq)"
+            " VALUES ((SELECT id FROM entities WHERE name = 'Jane'), 'Promoted to Lead', '2026-01-15', 99)"
         )
         conn.commit()
-
-        fact_row = conn.execute(
-            "SELECT id FROM facts WHERE fact_text = 'Promoted to Lead'"
-        ).fetchone()
 
         # Verify old text in FTS
         fts_before = conn.execute(
@@ -961,7 +935,7 @@ class TestPostMutationReindex:
         ).fetchone()["cnt"]
         assert fts_before > 0
 
-        kb_instance.edit_fact(fact_row["id"], text="Became Staff Engineer")
+        kb_instance.edit_fact("Jane", 99, text="Became Staff Engineer")
 
         # New text should be in FTS
         fts_after = conn.execute(
@@ -984,16 +958,12 @@ class TestPostMutationReindex:
             " VALUES ('Soren', 'person', '[]', '{}', 'memory/people/bob.md')"
         )
         conn.execute(
-            "INSERT INTO facts (entity_id, fact_text, fact_date)"
-            " VALUES ((SELECT id FROM entities WHERE name = 'Soren'), 'Deployed zephyr service', '2026-01-15')"
+            "INSERT INTO facts (entity_id, fact_text, fact_date, seq)"
+            " VALUES ((SELECT id FROM entities WHERE name = 'Soren'), 'Deployed zephyr service', '2026-01-15', 99)"
         )
         conn.commit()
 
-        fact_row = conn.execute(
-            "SELECT id FROM facts WHERE fact_text = 'Deployed zephyr service'"
-        ).fetchone()
-
-        kb_instance.delete_fact(fact_row["id"])
+        kb_instance.delete_fact("Soren", 99)
 
         # "zephyr" should be gone from FTS (the fact line was removed from file, file re-indexed)
         fts_after = conn.execute(

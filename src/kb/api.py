@@ -286,8 +286,7 @@ class KnowledgeBase:
         ).fetchone()
 
         fact_rows = conn.execute(
-            "SELECT id, fact_text, fact_date FROM facts WHERE entity_id = ?"
-            " ORDER BY fact_date DESC, id DESC",
+            "SELECT seq, fact_text, fact_date FROM facts WHERE entity_id = ? ORDER BY seq ASC",
             (entity_id,),
         ).fetchall()
 
@@ -301,7 +300,8 @@ class KnowledgeBase:
             pinned=bool(row["pinned"]),
             source_path=row["source_path"],
             facts=[
-                EntityFact(id=f["id"], text=f["fact_text"], date=f["fact_date"]) for f in fact_rows
+                EntityFact(seq=f["seq"], text=f["fact_text"], date=f["fact_date"])
+                for f in fact_rows
             ],
         )
 
@@ -328,15 +328,49 @@ class KnowledgeBase:
         source_path = entity.source_path
 
         quoted_name = shlex.quote(entity.name)
-        breadcrumbs: dict[str, str] = {}
+        thirty_ago = (date.today() - timedelta(days=30)).isoformat()
+
+        # CLI breadcrumbs (command-line hints)
+        cli_breadcrumbs: dict[str, str] = {}
         if entity_type in ("person", "project"):
-            breadcrumbs["timeline"] = f"kbx {entity_type} timeline {quoted_name} --limit 20"
-            thirty_ago = (date.today() - timedelta(days=30)).isoformat()
-            breadcrumbs["recent"] = f"kbx {entity_type} timeline {quoted_name} --from {thirty_ago}"
+            cli_breadcrumbs["timeline"] = f"kbx {entity_type} timeline {quoted_name} --limit 20"
+            cli_breadcrumbs["recent"] = (
+                f"kbx {entity_type} timeline {quoted_name} --from {thirty_ago}"
+            )
         else:
-            breadcrumbs["search"] = f"kbx search {quoted_name} --limit 20"
+            cli_breadcrumbs["search"] = f"kbx search {quoted_name} --limit 20"
         if source_path:
-            breadcrumbs["profile"] = f"kbx view {source_path}"
+            cli_breadcrumbs["profile"] = f"kbx view {source_path}"
+
+        # MCP breadcrumbs (tool references for agents)
+        mcp_breadcrumbs: list[dict[str, Any]] = []
+        if entity_type in ("person", "project"):
+            mcp_breadcrumbs.append(
+                {
+                    "tool": "kb_person_timeline",
+                    "params": {"name": entity.name, "limit": 20},
+                }
+            )
+            mcp_breadcrumbs.append(
+                {
+                    "tool": "kb_person_timeline",
+                    "params": {"name": entity.name, "from_date": thirty_ago},
+                }
+            )
+        else:
+            mcp_breadcrumbs.append(
+                {
+                    "tool": "kb_search",
+                    "params": {"query": entity.name, "limit": 20},
+                }
+            )
+        if source_path:
+            mcp_breadcrumbs.append(
+                {
+                    "tool": "kb_view",
+                    "params": {"target": source_path},
+                }
+            )
 
         return {
             "id": entity.id,
@@ -346,10 +380,11 @@ class KnowledgeBase:
             "metadata": entity.metadata,
             "updated_at": ts_row["updated_at"] if ts_row else None,
             "last_mentioned_at": ts_row["last_mentioned_at"] if ts_row else None,
-            "facts": [{"id": f.id, "text": f.text, "date": f.date} for f in entity.facts],
+            "facts": [{"seq": f.seq, "text": f.text, "date": f.date} for f in entity.facts],
             "source_path": source_path,
             "document_count": entity.mention_count,
-            "breadcrumbs": breadcrumbs,
+            "breadcrumbs": cli_breadcrumbs,
+            "mcp_breadcrumbs": mcp_breadcrumbs,
         }
 
     def find_entities(self, name: str) -> list[EntitySummary]:
@@ -524,9 +559,16 @@ class KnowledgeBase:
         if entity_row is None:
             raise ValueError(f"Entity not found: {entity_name}")
 
+        # Compute next seq for this entity
+        max_seq_row = conn.execute(
+            "SELECT MAX(seq) as m FROM facts WHERE entity_id = ?",
+            (entity_row["id"],),
+        ).fetchone()
+        next_seq = (max_seq_row["m"] or 0) + 1
+
         conn.execute(
-            "INSERT INTO facts (entity_id, fact_text, fact_date) VALUES (?, ?, ?)",
-            (entity_row["id"], text, date),
+            "INSERT INTO facts (entity_id, fact_text, fact_date, seq) VALUES (?, ?, ?, ?)",
+            (entity_row["id"], text, date, next_seq),
         )
         conn.commit()
 
@@ -561,61 +603,65 @@ class KnowledgeBase:
 
         self._atomic_write(path, content)
 
-    def delete_fact(self, fact_id: int) -> dict[str, object]:
-        """Delete a fact by ID. Removes from DB and entity markdown file.
+    def _resolve_fact(self, entity: str, seq: int) -> dict[str, Any]:
+        """Resolve (entity_name, seq) to a fact row. Raises ValueError if not found."""
+        from kb.config import find_entity
 
-        Raises ValueError if the fact is not found.
-        """
         conn = self._get_conn()
+        entity_row = find_entity(conn, entity)
+        if entity_row is None:
+            raise ValueError(f"Entity not found: {entity}")
+
         row = conn.execute(
-            "SELECT f.id, f.entity_id, f.fact_text, f.fact_date, e.source_path "
+            "SELECT f.id, f.entity_id, f.fact_text, f.fact_date, f.seq, e.source_path "
             "FROM facts f JOIN entities e ON f.entity_id = e.id "
-            "WHERE f.id = ?",
-            (fact_id,),
+            "WHERE f.entity_id = ? AND f.seq = ?",
+            (entity_row["id"], seq),
         ).fetchone()
         if row is None:
-            raise ValueError(f"Fact not found: {fact_id}")
+            raise ValueError(f"Fact #{seq} not found on entity '{entity_row['name']}'")
+        return dict(row)
+
+    def delete_fact(self, entity: str, seq: int) -> dict[str, object]:
+        """Delete a fact by entity name and sequence number.
+
+        Raises ValueError if the entity or fact is not found.
+        """
+        row = self._resolve_fact(entity, seq)
+        conn = self._get_conn()
 
         fact_text = row["fact_text"]
         fact_date = row["fact_date"]
         source_path = row["source_path"]
 
-        # Remove from DB
-        conn.execute("DELETE FROM facts WHERE id = ?", (fact_id,))
+        conn.execute("DELETE FROM facts WHERE id = ?", (row["id"],))
         conn.commit()
 
-        # Remove from entity markdown file if present, then reindex
         if source_path:
             self._remove_fact_from_file(source_path, fact_text, fact_date or "")
             self._reindex_memory_file(source_path)
 
-        return {"fact_id": fact_id, "fact_text": fact_text, "deleted": True}
+        return {"entity": entity, "seq": seq, "fact_text": fact_text, "deleted": True}
 
     def edit_fact(
         self,
-        fact_id: int,
+        entity: str,
+        seq: int,
         *,
         text: str | None = None,
         date: str | None = None,
     ) -> dict[str, object]:
-        """Edit a fact's text and/or date. Syncs DB and entity markdown file.
+        """Edit a fact's text and/or date by entity name and sequence number.
 
-        Raises ValueError if fact not found or no changes specified.
+        Raises ValueError if entity/fact not found or no changes specified.
         """
         import re as _re
 
         if text is None and date is None:
             raise ValueError("No changes specified. Provide text and/or date.")
 
+        row = self._resolve_fact(entity, seq)
         conn = self._get_conn()
-        row = conn.execute(
-            "SELECT f.id, f.entity_id, f.fact_text, f.fact_date, e.source_path "
-            "FROM facts f JOIN entities e ON f.entity_id = e.id "
-            "WHERE f.id = ?",
-            (fact_id,),
-        ).fetchone()
-        if row is None:
-            raise ValueError(f"Fact not found: {fact_id}")
 
         old_text = row["fact_text"]
         old_date = row["fact_date"]
@@ -623,14 +669,12 @@ class KnowledgeBase:
         new_date = date if date is not None else old_date
         source_path = row["source_path"]
 
-        # Update DB
         conn.execute(
             "UPDATE facts SET fact_text = ?, fact_date = ? WHERE id = ?",
-            (new_text, new_date, fact_id),
+            (new_text, new_date, row["id"]),
         )
         conn.commit()
 
-        # Update entity markdown file if present, then reindex
         if source_path:
             file_path = self._project_root / source_path
             if file_path.exists():
@@ -647,7 +691,8 @@ class KnowledgeBase:
             self._reindex_memory_file(source_path)
 
         return {
-            "fact_id": fact_id,
+            "entity": entity,
+            "seq": seq,
             "fact_text": new_text,
             "fact_date": new_date,
             "updated": True,
@@ -802,6 +847,89 @@ class KnowledgeBase:
     # ------------------------------------------------------------------
     # Document operations
     # ------------------------------------------------------------------
+
+    def view_document(self, target: str) -> dict[str, object] | None:
+        """View a document by path, hash, title, glob, or substring.
+
+        Returns dict with title, path, date, doc_type, content_hash, chunks.
+        Returns None if not found.
+        """
+        from kb.crud import find_document_by_target
+
+        conn = self._get_conn()
+        doc = find_document_by_target(conn, target)
+        if doc is None:
+            return None
+
+        chunks = conn.execute(
+            "SELECT heading, content FROM chunks WHERE document_id = ? ORDER BY chunk_index",
+            (doc["id"],),
+        ).fetchall()
+
+        return {
+            "title": doc["title"],
+            "path": doc["path"],
+            "date": doc.get("doc_date"),
+            "doc_type": doc.get("doc_type"),
+            "content_hash": doc.get("content_hash"),
+            "chunks": [{"heading": c["heading"], "content": c["content"]} for c in chunks],
+        }
+
+    def list_documents(
+        self,
+        doc_type: str | None = None,
+        from_date: str | None = None,
+        to_date: str | None = None,
+        limit: int = 25,
+        since_hours: int | None = None,
+    ) -> tuple[list[dict[str, object]], int]:
+        """List indexed documents with optional filters.
+
+        Returns (results, total).
+        """
+        conn = self._get_conn()
+        where_parts: list[str] = []
+        params: list[object] = []
+
+        if doc_type:
+            where_parts.append("doc_type = ?")
+            params.append(doc_type)
+        if from_date:
+            where_parts.append("doc_date >= ?")
+            params.append(from_date)
+        if to_date:
+            where_parts.append("doc_date <= ?")
+            params.append(to_date)
+        if since_hours is not None:
+            where_parts.append("indexed_at >= datetime('now', ?)")
+            params.append(f"-{since_hours} hours")
+
+        where = " AND ".join(where_parts) if where_parts else "1=1"
+
+        total_row = conn.execute(
+            f"SELECT COUNT(*) as cnt FROM documents WHERE {where}", params
+        ).fetchone()
+        total = int(total_row["cnt"])
+
+        rows = conn.execute(
+            f"SELECT id, path, title, doc_date, doc_type, source_system, pinned "
+            f"FROM documents WHERE {where} ORDER BY doc_date DESC LIMIT ?",
+            [*params, limit],
+        ).fetchall()
+
+        results = [
+            {
+                "id": r["id"],
+                "path": r["path"],
+                "title": r["title"],
+                "date": r["doc_date"],
+                "doc_type": r["doc_type"],
+                "source_system": r["source_system"],
+                "pinned": bool(r["pinned"]),
+            }
+            for r in rows
+        ]
+        return results, total
 
     def count_documents(self) -> int:
         """Return the total number of indexed documents."""
@@ -1242,7 +1370,7 @@ class KnowledgeBase:
 
         conn = self._get_conn()
         sql = """
-            SELECT f.id, f.fact_text, f.fact_date, f.created_at, e.name as entity_name
+            SELECT f.seq, f.fact_text, f.fact_date, f.created_at, e.name as entity_name
             FROM facts f
             LEFT JOIN entities e ON f.entity_id = e.id
         """
@@ -1264,7 +1392,7 @@ class KnowledgeBase:
 
         return [
             {
-                "id": r["id"],
+                "seq": r["seq"],
                 "entity_name": r["entity_name"],
                 "fact_text": r["fact_text"],
                 "fact_date": r["fact_date"],

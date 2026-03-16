@@ -456,7 +456,61 @@ def seed_entities(db: Database, project_root: Path) -> int:
 
     conn.commit()
 
+    # Round-trip: re-seed facts from ## Recent Facts sections in entity files
+    _seed_facts_from_files(conn, project_root, all_entities)
+
     return len(all_entities)
+
+
+def _seed_facts_from_files(conn: Any, project_root: Path, entities: list[EntityData]) -> None:
+    """Parse ## Recent Facts from entity markdown files and insert missing facts."""
+    import re as _re
+
+    fact_pattern = _re.compile(r"^- \[(\d{4}-\d{2}-\d{2})\]\s+(.+)$", _re.MULTILINE)
+
+    for entity in entities:
+        if not entity.source_path:
+            continue
+        file_path = project_root / entity.source_path
+        if not file_path.exists():
+            continue
+
+        content = file_path.read_text(encoding="utf-8")
+        if "## Recent Facts" not in content:
+            continue
+
+        # Get entity ID
+        row = conn.execute("SELECT id FROM entities WHERE name = ?", (entity.name,)).fetchone()
+        if row is None:
+            continue
+        entity_id = row["id"]
+
+        # Get existing facts for this entity (by text+date to detect duplicates)
+        existing = {
+            (r["fact_text"], r["fact_date"])
+            for r in conn.execute(
+                "SELECT fact_text, fact_date FROM facts WHERE entity_id = ?", (entity_id,)
+            ).fetchall()
+        }
+
+        # Parse facts from file — seq is 1-based position in the file
+        file_facts = list(fact_pattern.finditer(content))
+        for seq, match in enumerate(file_facts, 1):
+            fact_date = match.group(1)
+            fact_text = match.group(2).strip()
+            if (fact_text, fact_date) not in existing:
+                conn.execute(
+                    "INSERT INTO facts (entity_id, fact_text, fact_date, seq) VALUES (?, ?, ?, ?)",
+                    (entity_id, fact_text, fact_date, seq),
+                )
+            else:
+                # Ensure seq is up to date for existing facts
+                conn.execute(
+                    "UPDATE facts SET seq = ? WHERE entity_id = ? AND fact_text = ? AND fact_date = ?",
+                    (seq, entity_id, fact_text, fact_date),
+                )
+
+    conn.commit()
 
 
 def load_entities(db: Database) -> list[Entity]:

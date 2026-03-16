@@ -178,6 +178,19 @@ class TestMigration009DDLCommitBeforeBackfill:
             # Create base schema (entities table has NO updated_at/last_mentioned_at)
             conn.executescript(SCHEMA_SQL)
 
+            # Create facts table (migration 002 would have created it, but SCHEMA_SQL
+            # doesn't include it — simulate a DB that had 002 applied)
+            conn.execute(
+                """CREATE TABLE IF NOT EXISTS facts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    entity_id INTEGER REFERENCES entities(id),
+                    fact_text TEXT NOT NULL,
+                    fact_date TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                )"""
+            )
+            conn.commit()
+
             # Register only migrations 001-007 as applied (008/009 are pending)
             pre_008 = [
                 "001_add_file_mtime",

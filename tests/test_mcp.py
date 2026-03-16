@@ -299,7 +299,7 @@ class TestFactIdsInPersonFind:
     """Facts returned by person_find should include IDs for editing."""
 
     def test_facts_have_ids(self, mcp_db):
-        """Each fact in person_find output should have an 'id' field."""
+        """Each fact in person_find output should have a 'seq' field."""
         from kb.mcp_server import handle_kb_memory_add, handle_kb_person_find
 
         db, root = mcp_db
@@ -308,13 +308,13 @@ class TestFactIdsInPersonFind:
         data = json.loads(handle_kb_person_find(db, "Talia"))
         assert len(data["facts"]) >= 1
         for fact in data["facts"]:
-            assert "id" in fact, f"Fact missing 'id': {fact}"
-            assert isinstance(fact["id"], int)
+            assert "seq" in fact, f"Fact missing 'seq': {fact}"
+            assert isinstance(fact["seq"], int)
             assert "text" in fact
             assert "date" in fact
 
     def test_fact_id_matches_db(self, mcp_db):
-        """Fact ID in output should match the actual DB row ID."""
+        """Fact seq in output should match the actual DB row seq."""
         from kb.mcp_server import handle_kb_memory_add, handle_kb_person_find
 
         db, root = mcp_db
@@ -324,20 +324,22 @@ class TestFactIdsInPersonFind:
         fact = next(f for f in data["facts"] if f["text"] == "Talia knows Rust")
 
         conn = db.get_sqlite_conn()
-        db_fact = conn.execute("SELECT id FROM facts WHERE fact_text = 'Talia knows Rust'").fetchone()
-        assert fact["id"] == db_fact["id"]
+        db_fact = conn.execute(
+            "SELECT seq FROM facts WHERE fact_text = 'Talia knows Rust'"
+        ).fetchone()
+        assert fact["seq"] == db_fact["seq"]
 
     def test_project_find_facts_have_ids(self, mcp_db):
-        """Project find should also return fact IDs."""
+        """Project find should also return fact seq."""
         from kb.mcp_server import handle_kb_project_find
 
         db, _ = mcp_db
         # Helix Refactor is a fixture project — may not have facts, but check shape
         data = json.loads(handle_kb_project_find(db, "Helix Refactor"))
         assert "facts" in data
-        # If there are facts, they should have IDs
+        # If there are facts, they should have seq
         for fact in data["facts"]:
-            assert "id" in fact
+            assert "seq" in fact
 
 
 class TestMemoryListEntityFilter:
@@ -1463,7 +1465,7 @@ class TestMcpMemoryList:
 
 class TestMcpMemoryFactOps:
     def test_memory_delete_fact(self, mcp_db):
-        """kb_memory_delete_fact removes a fact by ID."""
+        """kb_memory_delete_fact removes a fact by entity + seq."""
         from kb.mcp_server import handle_kb_memory_add, handle_kb_memory_delete_fact
 
         db, root = mcp_db
@@ -1471,22 +1473,22 @@ class TestMcpMemoryFactOps:
         add_result = json.loads(handle_kb_memory_add(db, root, "Talia is great", entity="Talia"))
         assert add_result["status"] == "ok"
 
-        # Get fact ID
+        # Get fact seq
         conn = db.get_sqlite_conn()
-        fact_row = conn.execute("SELECT id FROM facts WHERE fact_text = 'Talia is great'").fetchone()
-        fact_id = fact_row["id"]
+        fact_row = conn.execute("SELECT seq FROM facts WHERE fact_text = 'Talia is great'").fetchone()
+        fact_seq = fact_row["seq"]
 
         with patch("kb.config.get_data_dir", return_value=root):
-            result = json.loads(handle_kb_memory_delete_fact(db, root, fact_id))
+            result = json.loads(handle_kb_memory_delete_fact(db, root, "Talia Ström", fact_seq))
         assert result.get("status") == "ok" or "deleted" in str(result).lower()
 
     def test_memory_delete_fact_not_found(self, mcp_db):
-        """kb_memory_delete_fact returns error for unknown fact ID."""
+        """kb_memory_delete_fact returns error for unknown entity/seq."""
         from kb.mcp_server import handle_kb_memory_delete_fact
 
         db, root = mcp_db
         with patch("kb.config.get_data_dir", return_value=root):
-            result = json.loads(handle_kb_memory_delete_fact(db, root, 99999))
+            result = json.loads(handle_kb_memory_delete_fact(db, root, "Nobody", 99999))
         assert "error" in result
 
     def test_memory_edit_fact_no_changes(self, mcp_db):
@@ -1494,7 +1496,7 @@ class TestMcpMemoryFactOps:
         from kb.mcp_server import handle_kb_memory_edit_fact
 
         db, root = mcp_db
-        result = json.loads(handle_kb_memory_edit_fact(db, root, 1))
+        result = json.loads(handle_kb_memory_edit_fact(db, root, "Talia Ström", 1))
         assert "error" in result
 
 
@@ -1701,14 +1703,16 @@ class TestMcpList:
         result = json.loads(handle_kb_list(db, limit=2))
         assert len(result["results"]) == 2
 
-    def test_list_content_hash_truncated(self, mcp_db):
-        """kb_list truncates content_hash to 6 chars."""
+    def test_list_returns_doc_fields(self, mcp_db):
+        """kb_list returns standard document fields."""
         from kb.mcp_server import handle_kb_list
 
         db, _ = mcp_db
         result = json.loads(handle_kb_list(db, limit=1))
-        hash_val = result["results"][0]["content_hash"]
-        assert hash_val is None or len(hash_val) == 6
+        doc = result["results"][0]
+        assert "path" in doc
+        assert "title" in doc
+        assert "doc_type" in doc
 
 
 # ---------------------------------------------------------------------------
@@ -2412,6 +2416,20 @@ class TestMcpPersonCreate:
         content = filepath.read_text()
         assert "# Anders Castle" in content
 
+    def test_create_person_empty_string_role_not_filtered(self, mcp_db):
+        """Empty string role should pass through metadata dict (not filtered by `if v`)."""
+        from kb.mcp_server import handle_kb_person_create
+
+        db, db_path = mcp_db
+        # Empty string is passed to create_entity metadata (not filtered by `if v is not None`).
+        # However, _build_markdown drops empty values from YAML, so after seed_entities
+        # re-reads the file, the metadata won't contain the empty key. This is correct:
+        # empty string on create = don't set the field.
+        result = json.loads(handle_kb_person_create(db, db_path, "Empty Role Person", role=""))
+        assert result["name"] == "Empty Role Person"
+        # Entity should be created successfully even with empty role
+        assert "error" not in result
+
 
 # ---------------------------------------------------------------------------
 # Entity create → index + pin integration tests
@@ -2728,6 +2746,15 @@ class TestMcpProjectCreate:
         assert result["name"] == "Bare Project"
         assert result["entity_type"] == "project"
 
+    def test_create_project_empty_string_status(self, mcp_db):
+        """Empty string status on create should not cause errors."""
+        from kb.mcp_server import handle_kb_project_create
+
+        db, db_path = mcp_db
+        result = json.loads(handle_kb_project_create(db, db_path, "Empty Status Proj", status=""))
+        assert result["name"] == "Empty Status Proj"
+        assert "error" not in result
+
 
 # ---------------------------------------------------------------------------
 # handle_kb_project_edit tests
@@ -2852,6 +2879,45 @@ class TestFindProjectRootXdgSafety:
 # ---------------------------------------------------------------------------
 # Coverage: MCP handlers — project find/list, person list, note delete, etc.
 # ---------------------------------------------------------------------------
+
+
+class TestFactSeqMigration:
+    def test_migration_assigns_seq(self):
+        """Migration 012 should assign seq values to existing facts."""
+        import tempfile
+
+        from kb.db import Database
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db = Database(Path(tmpdir))
+            conn = db.get_sqlite_conn()
+            # Insert entity and facts without seq (simulating old data)
+            conn.execute(
+                "INSERT INTO entities (name, entity_type, aliases, metadata) "
+                "VALUES ('Test', 'person', '[]', '{}')"
+            )
+            eid = conn.execute("SELECT id FROM entities WHERE name = 'Test'").fetchone()["id"]
+            conn.execute(
+                "INSERT INTO facts (entity_id, fact_text, fact_date, seq) VALUES (?, 'Fact A', '2026-01-01', NULL)",
+                (eid,),
+            )
+            conn.execute(
+                "INSERT INTO facts (entity_id, fact_text, fact_date, seq) VALUES (?, 'Fact B', '2026-02-01', NULL)",
+                (eid,),
+            )
+            conn.commit()
+
+            # Run migration manually
+            from kb.db import _migrate_012_add_fact_seq
+
+            _migrate_012_add_fact_seq(conn)
+            conn.commit()
+
+            rows = conn.execute(
+                "SELECT seq FROM facts WHERE entity_id = ? ORDER BY seq", (eid,)
+            ).fetchall()
+            assert [r["seq"] for r in rows] == [1, 2]
+            db.close()
 
 
 class TestCrudHelpers:
@@ -3226,14 +3292,14 @@ class TestMcpWrapperCoverage:
 
             conn = db.get_sqlite_conn()
             fact_row = conn.execute(
-                "SELECT id FROM facts WHERE fact_text = 'Wrapper person fact'"
+                "SELECT seq FROM facts WHERE fact_text = 'Wrapper person fact'"
             ).fetchone()
-            fact_id = fact_row["id"]
+            fact_seq = fact_row["seq"]
 
-            result = json.loads(kb_memory_edit_fact(fact_id, text="Edited fact"))
+            result = json.loads(kb_memory_edit_fact("Wrapper Person", fact_seq, text="Edited fact"))
             assert result.get("updated") is True or "error" in result
 
-            result = json.loads(kb_memory_delete_fact(fact_id))
+            result = json.loads(kb_memory_delete_fact("Wrapper Person", fact_seq))
             assert result.get("deleted") is True or "error" in result
 
             # List documents
@@ -3248,11 +3314,15 @@ class TestMcpMemoryEditFactSuccess:
         db, root = mcp_db
         handle_kb_memory_add(db, root, "Talia fact original", entity="Talia")
         conn = db.get_sqlite_conn()
-        fact = conn.execute("SELECT id FROM facts WHERE fact_text = 'Talia fact original'").fetchone()
+        fact = conn.execute(
+            "SELECT seq FROM facts WHERE fact_text = 'Talia fact original'"
+        ).fetchone()
 
         with patch("kb.config.get_data_dir", return_value=root):
             result = json.loads(
-                handle_kb_memory_edit_fact(db, root, fact["id"], text="Talia fact updated")
+                handle_kb_memory_edit_fact(
+                    db, root, "Talia Ström", fact["seq"], text="Talia fact updated"
+                )
             )
         assert result.get("updated") is True
         assert result["fact_text"] == "Talia fact updated"

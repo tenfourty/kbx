@@ -220,7 +220,7 @@ class EntityTypeConfig(StrictFrozen):
 class EntityFact(StrictFrozen):
     """A structured fact about an entity."""
 
-    id: int
+    seq: int | None = None
     text: str
     date: str | None
 

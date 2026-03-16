@@ -1965,74 +1965,65 @@ def memory_list(
 
 
 @memory.command("delete-fact")
-@click.argument("fact_id", type=int)
+@click.argument("entity_name")
+@click.argument("fact_seq", type=int)
 @click.option("--force", is_flag=True, help="Skip confirmation prompt.")
 @output_options
 def memory_delete_fact(
-    fact_id: int,
+    entity_name: str,
+    fact_seq: int,
     force: bool,
     fmt: str,
     fields: list[str] | None,
     jq_expr: str | None,
 ) -> None:
-    """Delete a fact by ID."""
+    """Delete a fact by entity name and sequence number."""
     from kb.api import KnowledgeBase
-    from kb.config import get_data_dir
 
-    kb = KnowledgeBase(project_root=_find_project_root(), data_dir=get_data_dir())
+    kb = KnowledgeBase._from_existing(db=_get_db(), project_root=_find_project_root())
     try:
-        conn = kb._get_conn()
-        row = conn.execute(
-            "SELECT f.fact_text, f.fact_date, e.name "
-            "FROM facts f JOIN entities e ON f.entity_id = e.id "
-            "WHERE f.id = ?",
-            (fact_id,),
-        ).fetchone()
-        if row is None:
-            click.echo(f"Fact not found: {fact_id}", err=True)
-            raise SystemExit(1)
-
         if not force:
-            click.confirm(
-                f'Delete fact [{row["fact_date"]}] "{row["fact_text"]}" (entity: {row["name"]})?',
-                abort=True,
-            )
+            click.confirm(f"Delete fact #{fact_seq} on '{entity_name}'?", abort=True)
 
-        result = kb.delete_fact(fact_id)
+        result = kb.delete_fact(entity_name, fact_seq)
         if fmt == "table" and not fields and not jq_expr:
-            click.echo(f"Deleted fact {fact_id}.", err=True)
+            click.echo(f"Deleted fact #{fact_seq} on '{entity_name}'.", err=True)
         else:
             kb_output(result, fmt=fmt, fields=fields, jq_expr=jq_expr)
+    except ValueError as e:
+        click.echo(str(e), err=True)
+        raise SystemExit(1) from None
     finally:
         kb.close()
 
 
 @memory.command("edit-fact")
-@click.argument("fact_id", type=int)
+@click.argument("entity_name")
+@click.argument("fact_seq", type=int)
 @click.option("--text", default=None, help="New fact text.")
 @click.option("--date", "fact_date", default=None, help="New fact date (YYYY-MM-DD).")
 @output_options
 def memory_edit_fact(
-    fact_id: int,
+    entity_name: str,
+    fact_seq: int,
     text: str | None,
     fact_date: str | None,
     fmt: str,
     fields: list[str] | None,
     jq_expr: str | None,
 ) -> None:
-    """Edit a fact's text or date."""
+    """Edit a fact's text or date by entity name and sequence number."""
     from kb.api import KnowledgeBase
-    from kb.config import get_data_dir
 
     if text is None and fact_date is None:
         click.echo("Specify --text and/or --date.", err=True)
         raise SystemExit(1)
 
-    kb = KnowledgeBase(project_root=_find_project_root(), data_dir=get_data_dir())
+    kb = KnowledgeBase._from_existing(db=_get_db(), project_root=_find_project_root())
     try:
-        result = kb.edit_fact(fact_id, text=text, date=fact_date)
+        result = kb.edit_fact(entity_name, fact_seq, text=text, date=fact_date)
         if fmt == "table" and not fields and not jq_expr:
-            click.echo(f"Updated fact {fact_id}.", err=True)
+            click.echo(f"Updated fact #{fact_seq} on '{entity_name}'.", err=True)
         else:
             kb_output(result, fmt=fmt, fields=fields, jq_expr=jq_expr)
     except ValueError as e:

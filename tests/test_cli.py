@@ -489,7 +489,7 @@ class TestPersonCommands:
         conn = db.get_sqlite_conn()
         # Insert a fact for Talia (entity_id=1)
         conn.execute(
-            "INSERT INTO facts (entity_id, fact_text, fact_date) VALUES (1, 'Leads platform team', '2026-02-23')"
+            "INSERT INTO facts (entity_id, fact_text, fact_date, seq) VALUES (1, 'Leads platform team', '2026-02-23', 1)"
         )
         conn.commit()
         result = invoke_cli(runner, ["person", "find", "Talia", "--json"], db_path)
@@ -2665,32 +2665,37 @@ class TestGlossaryEditCli:
 
 class TestFactDeleteCli:
     def _setup_entity_with_fact(self, db, root):
-        """Insert an entity with a fact for testing."""
+        """Insert an entity with a fact for testing. Returns seq."""
         conn = db.get_sqlite_conn()
         # Ensure entity exists (use id=1 from notes_env Soren Vance)
         conn.execute(
-            "INSERT INTO facts (entity_id, fact_text, fact_date) VALUES (?, ?, ?)",
-            (1, "Likes testing", "2026-01-10"),
+            "INSERT INTO facts (entity_id, fact_text, fact_date, seq) VALUES (?, ?, ?, ?)",
+            (1, "Likes testing", "2026-01-10", 1),
         )
         conn.commit()
-        fact_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-        return fact_id
+        return 1  # seq
 
     def test_fact_delete_via_cli(self, runner, notes_env):
-        """kb memory delete-fact <id> --force removes the fact."""
+        """kb memory delete-fact <entity> <seq> --force removes the fact."""
         db, root, data_dir = notes_env
-        fact_id = self._setup_entity_with_fact(db, root)
+        seq = self._setup_entity_with_fact(db, root)
         result = invoke_cli_with_root(
-            runner, ["memory", "delete-fact", str(fact_id), "--force"], data_dir, root
+            runner,
+            ["memory", "delete-fact", "Soren Vance", str(seq), "--force"],
+            data_dir,
+            root,
         )
         assert result.exit_code == 0
         assert "Deleted" in result.output
 
     def test_fact_delete_not_found(self, runner, notes_env):
-        """kb memory delete-fact on unknown ID exits with error."""
+        """kb memory delete-fact on unknown entity/seq exits with error."""
         _, root, data_dir = notes_env
         result = invoke_cli_with_root(
-            runner, ["memory", "delete-fact", "99999", "--force"], data_dir, root
+            runner,
+            ["memory", "delete-fact", "Nobody", "99999", "--force"],
+            data_dir,
+            root,
         )
         assert result.exit_code == 1
         assert "not found" in result.output.lower()
@@ -2698,10 +2703,10 @@ class TestFactDeleteCli:
     def test_fact_delete_json_output(self, runner, notes_env):
         """kb memory delete-fact --json returns structured output."""
         db, root, data_dir = notes_env
-        fact_id = self._setup_entity_with_fact(db, root)
+        seq = self._setup_entity_with_fact(db, root)
         result = invoke_cli_with_root(
             runner,
-            ["memory", "delete-fact", str(fact_id), "--force", "--json"],
+            ["memory", "delete-fact", "Soren Vance", str(seq), "--force", "--json"],
             data_dir,
             root,
         )
@@ -2717,23 +2722,22 @@ class TestFactDeleteCli:
 
 class TestFactEditCli:
     def _setup_entity_with_fact(self, db, root):
-        """Insert an entity with a fact for testing."""
+        """Insert an entity with a fact for testing. Returns seq."""
         conn = db.get_sqlite_conn()
         conn.execute(
-            "INSERT INTO facts (entity_id, fact_text, fact_date) VALUES (?, ?, ?)",
-            (1, "Original fact", "2026-01-10"),
+            "INSERT INTO facts (entity_id, fact_text, fact_date, seq) VALUES (?, ?, ?, ?)",
+            (1, "Original fact", "2026-01-10", 1),
         )
         conn.commit()
-        fact_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-        return fact_id
+        return 1  # seq
 
     def test_fact_edit_text(self, runner, notes_env):
-        """kb memory edit-fact <id> --text updates fact text."""
+        """kb memory edit-fact <entity> <seq> --text updates fact text."""
         db, root, data_dir = notes_env
-        fact_id = self._setup_entity_with_fact(db, root)
+        seq = self._setup_entity_with_fact(db, root)
         result = invoke_cli_with_root(
             runner,
-            ["memory", "edit-fact", str(fact_id), "--text", "Updated fact"],
+            ["memory", "edit-fact", "Soren Vance", str(seq), "--text", "Updated fact"],
             data_dir,
             root,
         )
@@ -2741,12 +2745,12 @@ class TestFactEditCli:
         assert "Updated" in result.output
 
     def test_fact_edit_date(self, runner, notes_env):
-        """kb memory edit-fact <id> --date updates fact date."""
+        """kb memory edit-fact <entity> <seq> --date updates fact date."""
         db, root, data_dir = notes_env
-        fact_id = self._setup_entity_with_fact(db, root)
+        seq = self._setup_entity_with_fact(db, root)
         result = invoke_cli_with_root(
             runner,
-            ["memory", "edit-fact", str(fact_id), "--date", "2026-03-01"],
+            ["memory", "edit-fact", "Soren Vance", str(seq), "--date", "2026-03-01"],
             data_dir,
             root,
         )
@@ -2755,10 +2759,10 @@ class TestFactEditCli:
     def test_fact_edit_no_options(self, runner, notes_env):
         """kb memory edit-fact without --text or --date exits with error."""
         db, root, data_dir = notes_env
-        fact_id = self._setup_entity_with_fact(db, root)
+        seq = self._setup_entity_with_fact(db, root)
         result = invoke_cli_with_root(
             runner,
-            ["memory", "edit-fact", str(fact_id)],
+            ["memory", "edit-fact", "Soren Vance", str(seq)],
             data_dir,
             root,
         )
@@ -2766,11 +2770,11 @@ class TestFactEditCli:
         assert "Specify --text and/or --date" in result.output
 
     def test_fact_edit_not_found(self, runner, notes_env):
-        """kb memory edit-fact on unknown ID exits with error."""
+        """kb memory edit-fact on unknown entity/seq exits with error."""
         _, root, data_dir = notes_env
         result = invoke_cli_with_root(
             runner,
-            ["memory", "edit-fact", "99999", "--text", "anything"],
+            ["memory", "edit-fact", "Nobody", "99999", "--text", "anything"],
             data_dir,
             root,
         )
@@ -2780,10 +2784,10 @@ class TestFactEditCli:
     def test_fact_edit_json_output(self, runner, notes_env):
         """kb memory edit-fact --json returns structured output."""
         db, root, data_dir = notes_env
-        fact_id = self._setup_entity_with_fact(db, root)
+        seq = self._setup_entity_with_fact(db, root)
         result = invoke_cli_with_root(
             runner,
-            ["memory", "edit-fact", str(fact_id), "--text", "New text", "--json"],
+            ["memory", "edit-fact", "Soren Vance", str(seq), "--text", "New text", "--json"],
             data_dir,
             root,
         )

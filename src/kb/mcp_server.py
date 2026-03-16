@@ -125,83 +125,17 @@ def handle_kb_person_timeline(
 
 
 def handle_kb_view(db: Database, target: str) -> str:
-    """View a specific document by path or #hash. Returns JSON string."""
+    """View a specific document by path or #hash. Delegates to KnowledgeBase."""
     try:
-        from kb.db import normalize_path
+        from pathlib import Path as _Path
 
-        conn = db.get_sqlite_conn()
-        doc = None
+        from kb.api import KnowledgeBase
 
-        # Content-hash lookup: #abc123
-        if target.startswith("#"):
-            hash_prefix = target[1:]
-            row = conn.execute(
-                "SELECT * FROM documents WHERE content_hash LIKE ?",
-                (hash_prefix + "%",),
-            ).fetchone()
-            if row:
-                doc = dict(row)
-
-        if doc is None and not target.startswith("#"):
-            import unicodedata
-
-            target_nfc = normalize_path(target)
-            target_nfd = unicodedata.normalize("NFD", target)
-            # Exact path match (try both NFC and NFD for compat with old data)
-            row = conn.execute(
-                "SELECT * FROM documents WHERE path = ? OR path = ?",
-                (target_nfc, target_nfd),
-            ).fetchone()
-            if row:
-                doc = dict(row)
-
-            # Suffix match
-            if doc is None:
-                rows = conn.execute(
-                    "SELECT * FROM documents WHERE path LIKE ? OR path LIKE ?",
-                    ("%" + target_nfc, "%" + target_nfd),
-                ).fetchall()
-                if len(rows) == 1:
-                    doc = dict(rows[0])
-
-        if doc is None and not target.startswith("#"):
-            # Glob / substring matching
-            import fnmatch
-
-            all_paths = [r["path"] for r in conn.execute("SELECT path FROM documents").fetchall()]
-
-            if "*" in target or "?" in target:
-                matches = [p for p in all_paths if fnmatch.fnmatch(p, target)]
-            else:
-                matches = [p for p in all_paths if target in p.rsplit("/", 1)[-1]]
-
-            if len(matches) == 1:
-                row = conn.execute(
-                    "SELECT * FROM documents WHERE path = ?", (matches[0],)
-                ).fetchone()
-                if row:
-                    doc = dict(row)
-            elif len(matches) > 1:
-                return json.dumps(
-                    {"error": f"Ambiguous path: {len(matches)} matches", "matches": matches}
-                )
-
-        if doc is None:
+        kb = KnowledgeBase._from_existing(db=db, project_root=_Path("."))
+        result = kb.view_document(target)
+        kb.close()
+        if result is None:
             return json.dumps({"error": f"Document not found: {target}"})
-
-        chunks = conn.execute(
-            "SELECT heading, content FROM chunks WHERE document_id = ? ORDER BY chunk_index",
-            (doc["id"],),
-        ).fetchall()
-
-        result = {
-            "title": doc["title"],
-            "path": doc["path"],
-            "date": doc["doc_date"],
-            "doc_type": doc["doc_type"],
-            "content_hash": doc["content_hash"],
-            "chunks": [{"heading": c["heading"], "content": c["content"]} for c in chunks],
-        }
         return json.dumps(result, default=str, ensure_ascii=False)
     except Exception as e:
         print(f"kb_view error: {e}", file=sys.stderr)
@@ -784,14 +718,16 @@ def handle_kb_memory_list(
         return json.dumps({"error": str(e), "results": []})
 
 
-def handle_kb_memory_delete_fact(db: Database, project_root: Path, fact_id: int) -> str:
-    """Delete a fact by ID. Delegates to KnowledgeBase. Returns JSON string."""
+def handle_kb_memory_delete_fact(
+    db: Database, project_root: Path, entity: str, fact_seq: int
+) -> str:
+    """Delete a fact by entity name + seq. Delegates to KnowledgeBase. Returns JSON string."""
     try:
         from kb.api import KnowledgeBase
 
         kb = KnowledgeBase._from_existing(db=db, project_root=project_root)
         try:
-            result = kb.delete_fact(fact_id)
+            result = kb.delete_fact(entity, fact_seq)
             return json.dumps(result, default=str, ensure_ascii=False)
         finally:
             kb.close()
@@ -806,11 +742,12 @@ def handle_kb_memory_delete_fact(db: Database, project_root: Path, fact_id: int)
 def handle_kb_memory_edit_fact(
     db: Database,
     project_root: Path,
-    fact_id: int,
+    entity: str,
+    fact_seq: int,
     text: str | None = None,
     date: str | None = None,
 ) -> str:
-    """Edit a fact's text or date. Delegates to KnowledgeBase. Returns JSON string."""
+    """Edit a fact's text or date by entity + seq. Delegates to KnowledgeBase."""
     try:
         if text is None and date is None:
             return json.dumps({"error": "Specify text and/or date to edit."})
@@ -819,7 +756,7 @@ def handle_kb_memory_edit_fact(
 
         kb = KnowledgeBase._from_existing(db=db, project_root=project_root)
         try:
-            result = kb.edit_fact(fact_id, text=text, date=date)
+            result = kb.edit_fact(entity, fact_seq, text=text, date=date)
             return json.dumps(result, default=str, ensure_ascii=False)
         finally:
             kb.close()
@@ -986,43 +923,23 @@ def handle_kb_list(
     limit: int = 25,
     since_hours: int | None = None,
 ) -> str:
-    """Browse documents by date/type. Returns JSON string."""
+    """Browse documents by date/type. Delegates to KnowledgeBase."""
     try:
-        conn = db.get_sqlite_conn()
-        sql = "SELECT id, path, title, doc_date, doc_type, content_hash, chunk_count FROM documents WHERE 1=1"
-        params: list[Any] = []
+        from pathlib import Path as _Path
 
-        if doc_type:
-            sql += " AND doc_type = ?"
-            params.append(doc_type)
-        if from_date:
-            sql += " AND doc_date >= ?"
-            params.append(from_date)
-        if to_date:
-            sql += " AND doc_date <= ?"
-            params.append(to_date)
-        if since_hours is not None:
-            sql += " AND indexed_at >= datetime('now', ?)"
-            params.append(f"-{since_hours} hours")
+        from kb.api import KnowledgeBase
 
-        sql += " ORDER BY doc_date DESC NULLS LAST LIMIT ?"
-        params.append(limit)
-
-        rows = conn.execute(sql, params).fetchall()
-        docs = [
-            {
-                "id": r["id"],
-                "path": r["path"],
-                "title": r["title"],
-                "date": r["doc_date"],
-                "doc_type": r["doc_type"],
-                "content_hash": r["content_hash"][:6] if r["content_hash"] else None,
-                "chunks": r["chunk_count"],
-            }
-            for r in rows
-        ]
+        kb = KnowledgeBase._from_existing(db=db, project_root=_Path("."))
+        results, total = kb.list_documents(
+            doc_type=doc_type,
+            from_date=from_date,
+            to_date=to_date,
+            limit=limit,
+            since_hours=since_hours,
+        )
+        kb.close()
         return json.dumps(
-            {"results": docs, "meta": {"total": len(docs), "limit": limit}},
+            {"results": results, "meta": {"total": total, "limit": limit}},
             default=str,
             ensure_ascii=False,
         )
@@ -1452,22 +1369,27 @@ def kb_memory_list(since_days: int | None = None, entity: str | None = None) -> 
 
 
 @mcp.tool(annotations=_DESTRUCTIVE)
-def kb_memory_delete_fact(fact_id: int) -> str:
-    """Delete a fact by its ID."""
+def kb_memory_delete_fact(entity: str, fact_seq: int) -> str:
+    """Delete a fact by entity name and sequence number.
+    entity: the entity name (e.g. 'Idris Kalmar').
+    fact_seq: the fact sequence number (from kb_person_find or kb_memory_list)."""
     db = get_db()
     project_root = find_project_root()
-    return handle_kb_memory_delete_fact(db, project_root, fact_id)
+    return handle_kb_memory_delete_fact(db, project_root, entity, fact_seq)
 
 
 @mcp.tool(annotations=_MUTATING_IDEMPOTENT)
-def kb_memory_edit_fact(fact_id: int, text: str | None = None, date: str | None = None) -> str:
-    """Edit a fact's text or date.
-    fact_id: the fact ID to edit.
+def kb_memory_edit_fact(
+    entity: str, fact_seq: int, text: str | None = None, date: str | None = None
+) -> str:
+    """Edit a fact's text or date by entity name and sequence number.
+    entity: the entity name.
+    fact_seq: the fact sequence number.
     text: new fact text (optional).
     date: new date in YYYY-MM-DD (optional)."""
     db = get_db()
     project_root = find_project_root()
-    return handle_kb_memory_edit_fact(db, project_root, fact_id, text=text, date=date)
+    return handle_kb_memory_edit_fact(db, project_root, entity, fact_seq, text=text, date=date)
 
 
 @mcp.tool(annotations=_READ_ONLY)

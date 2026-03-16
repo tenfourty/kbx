@@ -141,6 +141,7 @@ MIGRATIONS: list[tuple[str, str | None]] = [
         "011_chunk_metadata_prefix",
         "ALTER TABLE chunks ADD COLUMN metadata_prefix TEXT DEFAULT ''",
     ),
+    ("012_add_fact_seq", None),  # Python-based: add seq column + backfill + unique constraint
 ]
 
 
@@ -182,6 +183,28 @@ def _migrate_009_backfill_freshness(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_012_add_fact_seq(conn: sqlite3.Connection) -> None:
+    """Add seq column to facts table and backfill from insert order."""
+    try:
+        conn.execute("ALTER TABLE facts ADD COLUMN seq INTEGER")
+    except sqlite3.OperationalError as e:
+        if "duplicate column" not in str(e).lower():
+            raise
+
+    # Backfill: assign seq per entity ordered by fact_date ASC, id ASC
+    rows = conn.execute(
+        "SELECT id, entity_id FROM facts ORDER BY entity_id, fact_date ASC, id ASC"
+    ).fetchall()
+    seq_counters: dict[int, int] = {}
+    for r in rows:
+        eid = r["entity_id"]
+        seq_counters[eid] = seq_counters.get(eid, 0) + 1
+        conn.execute("UPDATE facts SET seq = ? WHERE id = ?", (seq_counters[eid], r["id"]))
+
+    # Add unique constraint
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_facts_entity_seq ON facts(entity_id, seq)")
+
+
 def _apply_migrations(conn: sqlite3.Connection) -> None:
     """Apply any pending migrations. Idempotent."""
     applied = set()
@@ -200,6 +223,8 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
                 _migrate_005_normalize_paths(conn)
             elif name == "009_backfill_last_mentioned_at":
                 _migrate_009_backfill_freshness(conn)
+            elif name == "012_add_fact_seq":
+                _migrate_012_add_fact_seq(conn)
         else:
             try:
                 conn.execute(sql)
