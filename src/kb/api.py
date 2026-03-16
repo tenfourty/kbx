@@ -1332,6 +1332,98 @@ class KnowledgeBase:
         return result
 
     # ------------------------------------------------------------------
+    # Corrections
+    # ------------------------------------------------------------------
+
+    def correct_term(
+        self,
+        term: str,
+        replacement: str | None = None,
+        *,
+        apply: bool = False,
+        scope: str | None = None,
+        file_type: str | None = None,
+        word_boundary: bool = False,
+        ignore_case: bool = False,
+    ) -> dict[str, object]:
+        """Find (and optionally replace) a term across memory files.
+
+        Three modes:
+        - scan (replacement=None): find all occurrences
+        - dry_run (replacement set, apply=False): preview what would change
+        - apply (replacement set, apply=True): execute replacements
+
+        Returns dict with 'results' and 'meta' keys.
+        """
+        from kb.correct import apply_corrections, enrich_matches, scan
+
+        memory_root = self._project_root / "memory"
+        if not memory_root.is_dir():
+            raise ValueError(f"Memory directory not found at {memory_root}")
+
+        matches = scan(
+            memory_root,
+            term,
+            ignore_case=ignore_case,
+            word_boundary=word_boundary,
+            scope=scope,
+            file_type=file_type,
+        )
+
+        if not matches:
+            return {"results": [], "meta": {"term": term, "total": 0, "action": "scan"}}
+
+        if replacement is None:
+            enriched = enrich_matches(memory_root, matches)
+            total = sum(m.count for m in matches)
+            return {
+                "results": enriched,
+                "meta": {
+                    "term": term,
+                    "total_occurrences": total,
+                    "files": len(matches),
+                    "action": "scan",
+                },
+            }
+
+        if not apply:
+            enriched = enrich_matches(memory_root, matches)
+            total = sum(m.count for m in matches)
+            return {
+                "results": enriched,
+                "meta": {
+                    "term": term,
+                    "replacement": replacement,
+                    "total_occurrences": total,
+                    "files": len(matches),
+                    "action": "dry_run",
+                },
+            }
+
+        # Apply corrections
+        from kb.config import get_data_dir
+
+        log_path = get_data_dir() / "corrections.log"
+        result = apply_corrections(
+            memory_root,
+            matches,
+            replacement,
+            ignore_case=ignore_case,
+            word_boundary=word_boundary,
+            log_path=log_path,
+        )
+        return {
+            "results": [{"path": p} for p in result.changed_paths],
+            "meta": {
+                "term": term,
+                "replacement": replacement,
+                "action": "applied",
+                "files_changed": result.files_changed,
+                "occurrences_replaced": result.occurrences_replaced,
+            },
+        }
+
+    # ------------------------------------------------------------------
     # Embedder
     # ------------------------------------------------------------------
 

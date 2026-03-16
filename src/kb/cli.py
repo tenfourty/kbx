@@ -1697,130 +1697,76 @@ def correct(
       kb correct "Quartz Indexer" "Coralogix" --apply     # apply changes
       kb correct "Bram" "Bram" --word-boundary --scope "meetings/2026/02/17/*" --apply
     """
-    from kb.correct import apply_corrections, enrich_matches, scan
+    from kb.api import KnowledgeBase
 
     project_root = _find_project_root()
-    memory_root = project_root / "memory"
+    kb = KnowledgeBase._from_existing(db=_get_db(), project_root=project_root)
 
-    if not memory_root.is_dir():
-        click.echo(f"Error: memory directory not found at {memory_root}", err=True)
-        raise SystemExit(1)
+    try:
+        result: dict[str, Any] = kb.correct_term(
+            term,
+            replacement,
+            apply=apply_flag,
+            scope=scope,
+            file_type=file_type,
+            word_boundary=word_boundary,
+            ignore_case=ignore_case,
+        )
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        raise SystemExit(1) from None
+    finally:
+        kb.close()
 
-    matches = scan(
-        memory_root,
-        term,
-        ignore_case=ignore_case,
-        word_boundary=word_boundary,
-        scope=scope,
-        file_type=file_type,
-    )
+    meta = result["meta"]
+    action = meta.get("action", "scan")
 
-    if not matches:
-        if fmt in ("json", "jsonl"):
-            kb_output(
-                {"results": [], "meta": {"term": term, "total": 0, "action": "scan"}},
-                fmt=fmt,
-                fields=fields,
-                jq_expr=jq_expr,
-            )
-        else:
-            click.echo(f"No occurrences of '{term}' found.", err=True)
-        return
-
-    # Scan-only mode (no replacement)
-    if replacement is None:
-        enriched = enrich_matches(memory_root, matches)
-        total = sum(m.count for m in matches)
-        output: dict[str, Any] = {
-            "results": enriched,
-            "meta": {
-                "term": term,
-                "total_occurrences": total,
-                "files": len(matches),
-                "action": "scan",
-            },
-        }
-        if fmt in ("json", "jsonl"):
-            kb_output(output, fmt=fmt, fields=fields, jq_expr=jq_expr)
-        else:
-            click.echo(
-                f"Found {total} occurrences of '{term}' in {len(matches)} files:\n",
-                err=True,
-            )
-            for e in enriched:
-                header = e["rel_path"]
-                if e["title"]:
-                    header += f"  ({e['title']}"
-                    if e["date"]:
-                        header += f", {e['date']}"
-                    header += ")"
-                click.echo(f"  {e['count']}x  {header}")
-                if e["attendees"]:
-                    names = ", ".join(a["name"] for a in e["attendees"])
-                    click.echo(f"       attendees: {names}")
-                for line in e["sample_lines"][:3]:
-                    click.echo(f"       | {line.strip()}")
-        return
-
-    # Replace mode
-    if not apply_flag:
-        # Dry-run preview
-        enriched = enrich_matches(memory_root, matches)
-        total = sum(m.count for m in matches)
-        dry_run_output: dict[str, Any] = {
-            "results": enriched,
-            "meta": {
-                "term": term,
-                "replacement": replacement,
-                "total_occurrences": total,
-                "files": len(matches),
-                "action": "dry_run",
-            },
-        }
-        if fmt in ("json", "jsonl"):
-            kb_output(dry_run_output, fmt=fmt, fields=fields, jq_expr=jq_expr)
-        else:
-            click.echo(
-                f"DRY RUN: Would replace {total} occurrences of "
-                f"'{term}' → '{replacement}' in {len(matches)} files:\n",
-                err=True,
-            )
-            for e in enriched:
-                click.echo(f"  {e['count']}x  {e['rel_path']}")
-            click.echo("\nAdd --apply to execute.", err=True)
-        return
-
-    # Apply corrections (with audit log)
-    log_path = _get_data_dir() / "corrections.log"
-    result = apply_corrections(
-        memory_root,
-        matches,
-        replacement,
-        ignore_case=ignore_case,
-        word_boundary=word_boundary,
-        log_path=log_path,
-    )
-
-    apply_output: dict[str, Any] = {
-        "results": [{"path": p} for p in result.changed_paths],
-        "meta": {
-            "term": term,
-            "replacement": replacement,
-            "action": "applied",
-            "files_changed": result.files_changed,
-            "occurrences_replaced": result.occurrences_replaced,
-        },
-    }
     if fmt in ("json", "jsonl"):
-        kb_output(apply_output, fmt=fmt, fields=fields, jq_expr=jq_expr)
-    else:
+        kb_output(result, fmt=fmt, fields=fields, jq_expr=jq_expr)
+        return
+
+    # Human-readable output
+    if not result["results"]:
+        click.echo(f"No occurrences of '{term}' found.", err=True)
+        return
+
+    if action == "scan":
+        total = meta.get("total_occurrences", 0)
         click.echo(
-            f"Replaced {result.occurrences_replaced} occurrences of "
-            f"'{term}' → '{replacement}' in {result.files_changed} files.",
+            f"Found {total} occurrences of '{term}' in {meta.get('files', 0)} files:\n",
             err=True,
         )
-        for p in result.changed_paths:
-            click.echo(f"  {p}")
+        for entry in result["results"]:
+            header = entry["rel_path"]
+            if entry.get("title"):
+                header += f"  ({entry['title']}"
+                if entry.get("date"):
+                    header += f", {entry['date']}"
+                header += ")"
+            click.echo(f"  {entry['count']}x  {header}")
+            if entry.get("attendees"):
+                names = ", ".join(a["name"] for a in entry["attendees"])
+                click.echo(f"       attendees: {names}")
+            for line in (entry.get("sample_lines") or [])[:3]:
+                click.echo(f"       | {line.strip()}")
+    elif action == "dry_run":
+        total = meta.get("total_occurrences", 0)
+        click.echo(
+            f"DRY RUN: Would replace {total} occurrences of "
+            f"'{term}' → '{replacement}' in {meta.get('files', 0)} files:\n",
+            err=True,
+        )
+        for entry in result["results"]:
+            click.echo(f"  {entry['count']}x  {entry['rel_path']}")
+        click.echo("\nAdd --apply to execute.", err=True)
+    elif action == "applied":
+        click.echo(
+            f"Replaced {meta.get('occurrences_replaced', 0)} occurrences of "
+            f"'{term}' → '{replacement}' in {meta.get('files_changed', 0)} files.",
+            err=True,
+        )
+        for r in result["results"]:
+            click.echo(f"  {r['path']}")
 
 
 # ---------------------------------------------------------------------------

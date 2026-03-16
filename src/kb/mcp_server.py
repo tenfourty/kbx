@@ -1059,86 +1059,26 @@ def handle_kb_correct(
     word_boundary: bool = False,
     ignore_case: bool = False,
 ) -> str:
-    """Find (and optionally replace) a term across memory files. Returns JSON string."""
+    """Find (and optionally replace) a term across memory files. Delegates to KnowledgeBase."""
     try:
-        from kb.correct import apply_corrections, enrich_matches, scan
+        from kb.api import KnowledgeBase
 
-        memory_root = project_root / "memory"
-        if not memory_root.is_dir():
-            return json.dumps({"error": f"Memory directory not found at {memory_root}"})
-
-        matches = scan(
-            memory_root,
-            term,
-            ignore_case=ignore_case,
-            word_boundary=word_boundary,
-            scope=scope,
-            file_type=file_type,
-        )
-
-        if not matches:
-            return json.dumps({"results": [], "meta": {"term": term, "total": 0, "action": "scan"}})
-
-        if replacement is None:
-            enriched = enrich_matches(memory_root, matches)
-            total = sum(m.count for m in matches)
-            return json.dumps(
-                {
-                    "results": enriched,
-                    "meta": {
-                        "term": term,
-                        "total_occurrences": total,
-                        "files": len(matches),
-                        "action": "scan",
-                    },
-                },
-                default=str,
-                ensure_ascii=False,
+        kb = KnowledgeBase._from_existing(db=get_db(), project_root=project_root)
+        try:
+            result = kb.correct_term(
+                term,
+                replacement,
+                apply=apply,
+                scope=scope,
+                file_type=file_type,
+                word_boundary=word_boundary,
+                ignore_case=ignore_case,
             )
-
-        if not apply:
-            enriched = enrich_matches(memory_root, matches)
-            total = sum(m.count for m in matches)
-            return json.dumps(
-                {
-                    "results": enriched,
-                    "meta": {
-                        "term": term,
-                        "replacement": replacement,
-                        "total_occurrences": total,
-                        "files": len(matches),
-                        "action": "dry_run",
-                    },
-                },
-                default=str,
-                ensure_ascii=False,
-            )
-
-        from kb.config import get_data_dir
-
-        log_path = get_data_dir() / "corrections.log"
-        result = apply_corrections(
-            memory_root,
-            matches,
-            replacement,
-            ignore_case=ignore_case,
-            word_boundary=word_boundary,
-            log_path=log_path,
-        )
-        return json.dumps(
-            {
-                "results": [{"path": p} for p in result.changed_paths],
-                "meta": {
-                    "term": term,
-                    "replacement": replacement,
-                    "action": "applied",
-                    "files_changed": result.files_changed,
-                    "occurrences_replaced": result.occurrences_replaced,
-                },
-            },
-            default=str,
-            ensure_ascii=False,
-        )
+            return json.dumps(result, default=str, ensure_ascii=False)
+        except ValueError as e:
+            return json.dumps({"error": str(e)})
+        finally:
+            kb.close()
     except Exception as e:
         print(f"kb_correct error: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
