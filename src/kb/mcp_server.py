@@ -132,10 +132,12 @@ def handle_kb_view(db: Database, target: str) -> str:
         from kb.api import KnowledgeBase
 
         kb = KnowledgeBase._from_existing(db=db, project_root=_Path("."))
-        result = kb.view_document(target)
-        kb.close()
-        if result is None:
-            return json.dumps({"error": f"Document not found: {target}"})
+        try:
+            result = kb.view_document(target)
+        except ValueError as e:
+            return json.dumps({"error": str(e)})
+        finally:
+            kb.close()
         return json.dumps(result, default=str, ensure_ascii=False)
     except Exception as e:
         print(f"kb_view error: {e}", file=sys.stderr)

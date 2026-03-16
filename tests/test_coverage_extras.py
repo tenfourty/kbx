@@ -270,26 +270,8 @@ class TestEntityEditDelete:
 
 
 # ---------------------------------------------------------------------------
-# CLI: _slugify, _fuzzy_suggest, _fuzzy_suggest_entity
+# CLI: _fuzzy_suggest, _fuzzy_suggest_entity
 # ---------------------------------------------------------------------------
-
-
-class TestSlugify:
-    def test_basic_slug(self):
-        from kb.cli import _slugify
-
-        assert _slugify("Hello World!") == "hello-world"
-
-    def test_special_chars(self):
-        from kb.cli import _slugify
-
-        assert _slugify("Test's @#$ value") == "tests-value"
-
-    def test_long_text_truncated(self):
-        from kb.cli import _slugify
-
-        result = _slugify("x" * 100)
-        assert len(result) <= 60
 
 
 class TestFuzzySuggest:

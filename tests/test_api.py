@@ -1244,6 +1244,55 @@ class TestListFacts:
             kb_instance.list_facts(entity="Nobody")
 
 
+class TestFactsRoundTrip:
+    """Facts survive DB deletion and reindex via ## Recent Facts in markdown files."""
+
+    def test_facts_survive_db_rebuild(self, tmp_path):
+        from kb.api import KnowledgeBase
+        from kb.crud import create_entity
+        from kb.entities import seed_entities
+
+        project_root = tmp_path
+        (project_root / "memory").mkdir()
+        (project_root / "memory" / "glossary.md").write_text("# Glossary\n")
+        data_dir = tmp_path / "data"
+
+        # Phase 1: Create entity, add facts
+        kb = KnowledgeBase(project_root=project_root, data_dir=data_dir)
+        kb._embedder_failed = True
+        create_entity(kb._db, project_root, "person", "Round Trip Person")
+        seed_entities(kb._db, project_root)
+
+        kb.add_fact("Round Trip Person", "Fact Alpha", date="2026-01-01")
+        kb.add_fact("Round Trip Person", "Fact Beta", date="2026-02-01")
+
+        # Verify facts are in file
+        entity_file = project_root / "memory" / "people" / "round-trip-person.md"
+        content = entity_file.read_text()
+        assert "[2026-01-01] Fact Alpha" in content
+        assert "[2026-02-01] Fact Beta" in content
+        kb.close()
+
+        # Phase 2: Delete DB entirely
+        import shutil
+
+        shutil.rmtree(data_dir)
+
+        # Phase 3: Rebuild from files
+        kb2 = KnowledgeBase(project_root=project_root, data_dir=data_dir)
+        kb2._embedder_failed = True
+        kb2.index()
+
+        # Phase 4: Verify facts survived with entity-scoped seq IDs
+        entity = kb2.get_entity("Round Trip Person")
+        assert entity is not None
+        assert len(entity.facts) == 2
+        texts = [(f.seq, f.text) for f in entity.facts]
+        assert (1, "Fact Alpha") in texts
+        assert (2, "Fact Beta") in texts
+        kb2.close()
+
+
 class TestIndex:
     def test_index_with_glossary(self, kb_instance):
         # project_root fixture creates memory/glossary.md, so indexer finds it

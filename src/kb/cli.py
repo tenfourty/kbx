@@ -641,17 +641,6 @@ def _fuzzy_suggest(target: str, paths: list[str], max_suggestions: int = 3) -> l
     return [p for _, p in scored[:max_suggestions]]
 
 
-def _slugify(text: str) -> str:
-    """Convert text to a URL-safe slug."""
-    import re as _re
-
-    slug = text.lower().strip()
-    slug = _re.sub(r"[^\w\s-]", "", slug)
-    slug = _re.sub(r"[\s_]+", "-", slug)
-    slug = _re.sub(r"-+", "-", slug)
-    return slug[:60].strip("-")
-
-
 def _find_document_by_target(conn: sqlite3.Connection, target: str) -> dict[str, Any] | None:
     """Resolve a document by path, content hash, title, glob, or substring.
 

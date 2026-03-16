@@ -848,18 +848,21 @@ class KnowledgeBase:
     # Document operations
     # ------------------------------------------------------------------
 
-    def view_document(self, target: str) -> dict[str, object] | None:
+    def view_document(self, target: str) -> dict[str, object]:
         """View a document by path, hash, title, glob, or substring.
 
         Returns dict with title, path, date, doc_type, content_hash, chunks.
-        Returns None if not found.
+        Raises ValueError if not found. Returns dict with 'ambiguous' key if ambiguous.
         """
-        from kb.crud import find_document_by_target
+        from kb.crud import AmbiguousDocumentError, find_document_by_target
 
         conn = self._get_conn()
-        doc = find_document_by_target(conn, target)
+        try:
+            doc = find_document_by_target(conn, target, strict=True)
+        except AmbiguousDocumentError as e:
+            return {"error": f"Ambiguous target: {len(e.matches)} matches", "matches": e.matches}
         if doc is None:
-            return None
+            raise ValueError(f"Document not found: {target}")
 
         chunks = conn.execute(
             "SELECT heading, content FROM chunks WHERE document_id = ? ORDER BY chunk_index",
