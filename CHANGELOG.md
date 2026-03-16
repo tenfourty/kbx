@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.55](https://github.com/tenfourty/kbx/compare/kbx-v0.1.54...kbx-v0.1.55) (2026-03-16)
+
+
+### Bug Fixes
+
+* **mcp:** index newly created entities for immediate search and pin ([0c708b7](https://github.com/tenfourty/kbx/commit/0c708b720465687bd313221409e91b10aeecce14))
+
 ## [0.1.54](https://github.com/tenfourty/kbx/compare/kbx-v0.1.53...kbx-v0.1.54) (2026-03-16)
 
 
