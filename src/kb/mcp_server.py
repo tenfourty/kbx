@@ -441,7 +441,7 @@ def handle_kb_usage(db: Database) -> str:
             "FROM documents WHERE doc_date IS NOT NULL"
         ).fetchone()
 
-        tool_count = len(mcp._tool_manager._tools)  # noqa: SLF001
+        tool_count = len(mcp._tool_manager._tools)
 
         return json.dumps({
             "docs": total_docs,

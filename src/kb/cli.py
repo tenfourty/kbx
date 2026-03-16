@@ -2060,7 +2060,7 @@ def memory_add(
                 click.echo(f"Fact recorded for {result['entity']}.", err=True)
             except ValueError as e:
                 click.echo(str(e), err=True)
-                raise SystemExit(1)
+                raise SystemExit(1) from None
             return
 
         # Read body from stdin if -
@@ -2337,7 +2337,7 @@ def note_edit(
             kb_output(result_data, fmt=fmt, fields=fields, jq_expr=jq_expr)
     except ValueError as e:
         click.echo(str(e), err=True)
-        raise SystemExit(1)
+        raise SystemExit(1) from None
     finally:
         kb.close()
 
