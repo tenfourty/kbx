@@ -295,6 +295,77 @@ class TestMcpPersonFind:
         assert "error" in data
 
 
+class TestFactIdsInPersonFind:
+    """Facts returned by person_find should include IDs for editing."""
+
+    def test_facts_have_ids(self, mcp_db):
+        """Each fact in person_find output should have an 'id' field."""
+        from kb.mcp_server import handle_kb_memory_add, handle_kb_person_find
+
+        db, root = mcp_db
+        handle_kb_memory_add(db, root, "Talia is great at debugging", entity="Talia")
+
+        data = json.loads(handle_kb_person_find(db, "Talia"))
+        assert len(data["facts"]) >= 1
+        for fact in data["facts"]:
+            assert "id" in fact, f"Fact missing 'id': {fact}"
+            assert isinstance(fact["id"], int)
+            assert "text" in fact
+            assert "date" in fact
+
+    def test_fact_id_matches_db(self, mcp_db):
+        """Fact ID in output should match the actual DB row ID."""
+        from kb.mcp_server import handle_kb_memory_add, handle_kb_person_find
+
+        db, root = mcp_db
+        handle_kb_memory_add(db, root, "Talia knows Rust", entity="Talia", date="2026-03-16")
+
+        data = json.loads(handle_kb_person_find(db, "Talia"))
+        fact = next(f for f in data["facts"] if f["text"] == "Talia knows Rust")
+
+        conn = db.get_sqlite_conn()
+        db_fact = conn.execute("SELECT id FROM facts WHERE fact_text = 'Talia knows Rust'").fetchone()
+        assert fact["id"] == db_fact["id"]
+
+    def test_project_find_facts_have_ids(self, mcp_db):
+        """Project find should also return fact IDs."""
+        from kb.mcp_server import handle_kb_project_find
+
+        db, _ = mcp_db
+        # Helix Refactor is a fixture project — may not have facts, but check shape
+        data = json.loads(handle_kb_project_find(db, "Helix Refactor"))
+        assert "facts" in data
+        # If there are facts, they should have IDs
+        for fact in data["facts"]:
+            assert "id" in fact
+
+
+class TestMemoryListEntityFilter:
+    """list_facts should support entity filtering."""
+
+    def test_list_facts_filtered_by_entity(self, mcp_db):
+        from kb.mcp_server import handle_kb_memory_add, handle_kb_memory_list
+
+        db, root = mcp_db
+        handle_kb_memory_add(db, root, "Talia speaks French", entity="Talia")
+        handle_kb_memory_add(db, root, "Cloud is migrating", entity="Helix Refactor")
+
+        # Filter by entity
+        result = json.loads(handle_kb_memory_list(db, root, entity="Talia"))
+        assert result["meta"]["total"] == 1
+        assert result["results"][0]["entity_name"] == "Talia Ström"
+
+    def test_list_facts_no_entity_returns_all(self, mcp_db):
+        from kb.mcp_server import handle_kb_memory_add, handle_kb_memory_list
+
+        db, root = mcp_db
+        handle_kb_memory_add(db, root, "Talia speaks French", entity="Talia")
+        handle_kb_memory_add(db, root, "Cloud is migrating", entity="Helix Refactor")
+
+        result = json.loads(handle_kb_memory_list(db, root))
+        assert result["meta"]["total"] == 2
+
+
 class TestMcpPersonTimeline:
     def test_timeline_returns_json(self, mcp_db):
         """kb_person_timeline should return valid JSON."""

@@ -507,9 +507,9 @@ class TestPersonCommands:
 
         # Mock date.today() to make breadcrumbs deterministic
         fake_today = datetime.date(2026, 2, 23)
-        with patch("kb.cli.date") as mock_date:
+        with patch("datetime.date") as mock_date:
             mock_date.today.return_value = fake_today
-            mock_date.side_effect = lambda *a, **kw: datetime.date(*a, **kw)
+            mock_date.side_effect = lambda *a, **kw: datetime.date.__new__(datetime.date, *a, **kw)
             result = invoke_cli(runner, ["person", "find", "Talia", "--json"], db_path)
 
         assert result.exit_code == 0

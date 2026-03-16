@@ -75,60 +75,7 @@ def handle_kb_person_find(db: Database, name: str) -> str:
     """Look up a person profile. Returns JSON string."""
     try:
         name = _resolve_me(name)
-        conn = db.get_sqlite_conn()
-        entity_row = find_entity(conn, name)
-        if entity_row is None:
-            return json.dumps({"error": f"Entity not found: {name}"})
-
-        entity_id = entity_row["id"]
-        entity_name = str(entity_row["name"])
-        entity_type = str(entity_row["entity_type"])
-        source_path = str(entity_row["source_path"]) if entity_row["source_path"] else None
-
-        # Facts
-        fact_rows = conn.execute(
-            "SELECT fact_text, fact_date FROM facts WHERE entity_id = ? "
-            "ORDER BY fact_date DESC, id DESC",
-            (entity_id,),
-        ).fetchall()
-        facts = [{"text": str(r["fact_text"]), "date": r["fact_date"]} for r in fact_rows]
-
-        # Document count
-        doc_count_row = conn.execute(
-            "SELECT COUNT(DISTINCT document_id) as cnt FROM entity_mentions WHERE entity_id = ?",
-            (entity_id,),
-        ).fetchone()
-        document_count = int(doc_count_row["cnt"])
-
-        # Breadcrumbs
-        import shlex
-        from datetime import date, timedelta
-
-        quoted_name = shlex.quote(entity_name)
-        thirty_ago = (date.today() - timedelta(days=30)).isoformat()
-        breadcrumbs: dict[str, str] = {}
-        if entity_type in ("person", "project"):
-            breadcrumbs["timeline"] = f"kbx {entity_type} timeline {quoted_name} --limit 20"
-            breadcrumbs["recent"] = f"kbx {entity_type} timeline {quoted_name} --from {thirty_ago}"
-        else:
-            breadcrumbs["search"] = f"kbx search {quoted_name} --limit 20"
-        if source_path:
-            breadcrumbs["profile"] = f"kbx view {source_path}"
-
-        result = {
-            "id": entity_id,
-            "name": entity_name,
-            "entity_type": entity_type,
-            "aliases": json.loads(entity_row["aliases"]) if entity_row["aliases"] else [],
-            "metadata": json.loads(entity_row["metadata"]) if entity_row["metadata"] else {},
-            "updated_at": entity_row["updated_at"],
-            "last_mentioned_at": entity_row["last_mentioned_at"],
-            "facts": facts,
-            "source_path": source_path,
-            "document_count": document_count,
-            "breadcrumbs": breadcrumbs,
-        }
-        return json.dumps(result, default=str, ensure_ascii=False)
+        return _build_entity_result(db, name)
     except Exception as e:
         print(f"kb_person_find error: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
@@ -526,7 +473,7 @@ def handle_kb_project_find(db: Database, name: str) -> str:
             return json.dumps(
                 {"error": f"'{entity_row['name']}' is a {entity_row['entity_type']}, not a project"}
             )
-        return _build_entity_result(conn, entity_row)
+        return _build_entity_result(db, entity_row["name"])
     except Exception as e:
         print(f"kb_project_find error: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
@@ -782,52 +729,18 @@ def _entity_list(db: Database, entity_type: str, limit: int = 50, offset: int = 
     )
 
 
-def _build_entity_result(conn: Any, entity_row: Any) -> str:
-    """Build a compact entity result with facts, doc count, and breadcrumbs. Returns JSON string."""
-    import shlex
-    from datetime import date, timedelta
+def _build_entity_result(db: Database, name: str) -> str:
+    """Build a compact entity result via KnowledgeBase.get_entity_profile(). Returns JSON string."""
+    from pathlib import Path as _Path
 
-    entity_id = entity_row["id"]
-    entity_name = str(entity_row["name"])
-    entity_type = str(entity_row["entity_type"])
-    source_path = str(entity_row["source_path"]) if entity_row["source_path"] else None
+    from kb.api import KnowledgeBase
 
-    fact_rows = conn.execute(
-        "SELECT fact_text, fact_date FROM facts WHERE entity_id = ? "
-        "ORDER BY fact_date DESC, id DESC",
-        (entity_id,),
-    ).fetchall()
-    facts = [{"text": str(r["fact_text"]), "date": r["fact_date"]} for r in fact_rows]
-
-    doc_count_row = conn.execute(
-        "SELECT COUNT(DISTINCT document_id) as cnt FROM entity_mentions WHERE entity_id = ?",
-        (entity_id,),
-    ).fetchone()
-    document_count = int(doc_count_row["cnt"])
-
-    quoted_name = shlex.quote(entity_name)
-    thirty_ago = (date.today() - timedelta(days=30)).isoformat()
-    breadcrumbs: dict[str, str] = {}
-    if entity_type in ("person", "project"):
-        breadcrumbs["timeline"] = f"kbx {entity_type} timeline {quoted_name} --limit 20"
-        breadcrumbs["recent"] = f"kbx {entity_type} timeline {quoted_name} --from {thirty_ago}"
-    else:
-        breadcrumbs["search"] = f"kbx search {quoted_name} --limit 20"
-    if source_path:
-        breadcrumbs["profile"] = f"kbx view {source_path}"
-
-    result = {
-        "id": entity_id,
-        "name": entity_name,
-        "entity_type": entity_type,
-        "aliases": json.loads(entity_row["aliases"]) if entity_row["aliases"] else [],
-        "metadata": json.loads(entity_row["metadata"]) if entity_row["metadata"] else {},
-        "facts": facts,
-        "source_path": source_path,
-        "document_count": document_count,
-        "breadcrumbs": breadcrumbs,
-    }
-    return json.dumps(result, default=str, ensure_ascii=False)
+    kb = KnowledgeBase._from_existing(db=db, project_root=_Path("."))
+    profile = kb.get_entity_profile(name)
+    kb.close()
+    if profile is None:
+        return json.dumps({"error": f"Entity not found: {name}"})
+    return json.dumps(profile, default=str, ensure_ascii=False)
 
 
 def handle_kb_note_list(
@@ -969,14 +882,16 @@ def handle_kb_note_delete(db: Database, project_root: Path, target: str) -> str:
         return json.dumps({"error": str(e)})
 
 
-def handle_kb_memory_list(db: Database, project_root: Path, since_days: int | None = None) -> str:
+def handle_kb_memory_list(
+    db: Database, project_root: Path, since_days: int | None = None, entity: str | None = None
+) -> str:
     """List recorded facts. Delegates to KnowledgeBase. Returns JSON string."""
     try:
         from kb.api import KnowledgeBase
 
         kb = KnowledgeBase._from_existing(db=db, project_root=project_root)
         try:
-            facts = kb.list_facts(since_days=since_days)
+            facts = kb.list_facts(since_days=since_days, entity=entity)
             return json.dumps(
                 {"results": facts, "meta": {"total": len(facts)}},
                 default=str,
@@ -1729,12 +1644,13 @@ def kb_note_delete(target: str) -> str:
 
 
 @mcp.tool(annotations=_READ_ONLY)
-def kb_memory_list(since_days: int | None = None) -> str:
+def kb_memory_list(since_days: int | None = None, entity: str | None = None) -> str:
     """List recorded facts, newest first.
-    since_days: optional filter to only show facts from last N days."""
+    since_days: optional filter to only show facts from last N days.
+    entity: optional entity name to filter facts for a specific person/project."""
     db = get_db()
     project_root = find_project_root()
-    return handle_kb_memory_list(db, project_root, since_days=since_days)
+    return handle_kb_memory_list(db, project_root, since_days=since_days, entity=entity)
 
 
 @mcp.tool(annotations=_DESTRUCTIVE)

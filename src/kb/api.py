@@ -305,6 +305,53 @@ class KnowledgeBase:
             ],
         )
 
+    def get_entity_profile(self, name: str) -> dict[str, Any] | None:
+        """Get a compact entity profile with facts (incl. IDs), timestamps, and breadcrumbs.
+
+        Returns None if the entity is not found. This is the shared method
+        backing both CLI and MCP entity find commands.
+        """
+        import shlex
+        from datetime import date, timedelta
+
+        entity = self.get_entity(name)
+        if entity is None:
+            return None
+
+        conn = self._get_conn()
+        ts_row = conn.execute(
+            "SELECT updated_at, last_mentioned_at FROM entities WHERE id = ?",
+            (entity.id,),
+        ).fetchone()
+
+        entity_type = entity.entity_type
+        source_path = entity.source_path
+
+        quoted_name = shlex.quote(entity.name)
+        breadcrumbs: dict[str, str] = {}
+        if entity_type in ("person", "project"):
+            breadcrumbs["timeline"] = f"kbx {entity_type} timeline {quoted_name} --limit 20"
+            thirty_ago = (date.today() - timedelta(days=30)).isoformat()
+            breadcrumbs["recent"] = f"kbx {entity_type} timeline {quoted_name} --from {thirty_ago}"
+        else:
+            breadcrumbs["search"] = f"kbx search {quoted_name} --limit 20"
+        if source_path:
+            breadcrumbs["profile"] = f"kbx view {source_path}"
+
+        return {
+            "id": entity.id,
+            "name": entity.name,
+            "entity_type": entity_type,
+            "aliases": entity.aliases,
+            "metadata": entity.metadata,
+            "updated_at": ts_row["updated_at"] if ts_row else None,
+            "last_mentioned_at": ts_row["last_mentioned_at"] if ts_row else None,
+            "facts": [{"id": f.id, "text": f.text, "date": f.date} for f in entity.facts],
+            "source_path": source_path,
+            "document_count": entity.mention_count,
+            "breadcrumbs": breadcrumbs,
+        }
+
     def find_entities(self, name: str) -> list[EntitySummary]:
         """Find entities by name/alias (case-insensitive, partial match).
 
@@ -1119,21 +1166,35 @@ class KnowledgeBase:
     # Fact listing
     # ------------------------------------------------------------------
 
-    def list_facts(self, since_days: int | None = None) -> list[dict[str, object]]:
-        """List recorded facts, optionally filtered by recency.
+    def list_facts(
+        self, since_days: int | None = None, entity: str | None = None
+    ) -> list[dict[str, object]]:
+        """List recorded facts, optionally filtered by recency or entity.
 
         Returns a list of dicts with id, entity_name, fact_text, fact_date, created_at.
+        Raises ValueError if entity is specified but not found.
         """
+        from kb.config import find_entity
+
         conn = self._get_conn()
         sql = """
             SELECT f.id, f.fact_text, f.fact_date, f.created_at, e.name as entity_name
             FROM facts f
             LEFT JOIN entities e ON f.entity_id = e.id
         """
+        wheres: list[str] = []
         params: list[object] = []
         if since_days is not None:
-            sql += " WHERE f.created_at >= datetime('now', ?)"
+            wheres.append("f.created_at >= datetime('now', ?)")
             params.append(f"-{since_days} days")
+        if entity is not None:
+            entity_row = find_entity(conn, entity)
+            if entity_row is None:
+                raise ValueError(f"Entity not found: {entity}")
+            wheres.append("f.entity_id = ?")
+            params.append(entity_row["id"])
+        if wheres:
+            sql += " WHERE " + " AND ".join(wheres)
         sql += " ORDER BY f.created_at DESC"
         rows = conn.execute(sql, params).fetchall()
 

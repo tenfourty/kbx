@@ -1254,6 +1254,25 @@ class TestListFacts:
         assert "Invented AC" in texts
         assert "Loved pigeons" in texts
 
+    def test_list_facts_filtered_by_entity(self, kb_instance, project_root):
+        from kb.crud import create_entity
+        from kb.entities import seed_entities
+
+        create_entity(kb_instance._db, project_root, "person", "Ada Lovelace")
+        create_entity(kb_instance._db, project_root, "person", "Grace Hopper")
+        seed_entities(kb_instance._db, project_root)
+
+        kb_instance.add_fact("Ada Lovelace", "First programmer", date="2026-01-01")
+        kb_instance.add_fact("Grace Hopper", "Found first bug", date="2026-01-01")
+
+        facts = kb_instance.list_facts(entity="Ada Lovelace")
+        assert len(facts) == 1
+        assert facts[0]["entity_name"] == "Ada Lovelace"
+
+    def test_list_facts_entity_not_found(self, kb_instance):
+        with pytest.raises(ValueError, match="not found"):
+            kb_instance.list_facts(entity="Nobody")
+
 
 class TestIndex:
     def test_index_with_glossary(self, kb_instance):

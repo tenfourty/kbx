@@ -6,9 +6,8 @@ import contextlib
 import functools
 import json
 import os
-import shlex
 import sys
-from datetime import date, timedelta
+from datetime import timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -845,50 +844,16 @@ def _entity_list_impl(
     )
 
 
-def _build_entity_result(conn: sqlite3.Connection, entity_row: sqlite3.Row) -> dict[str, Any]:
-    """Build a compact entity result with facts, doc count, and breadcrumbs."""
-    entity_id = entity_row["id"]
-    entity_name = str(entity_row["name"])
-    entity_type = str(entity_row["entity_type"])
-    source_path = str(entity_row["source_path"]) if entity_row["source_path"] else None
+def _build_entity_result(db: Any, name: str) -> dict[str, Any]:
+    """Build a compact entity result via KnowledgeBase.get_entity_profile()."""
+    from kb.api import KnowledgeBase
 
-    # Facts from the facts table
-    fact_rows = conn.execute(
-        "SELECT fact_text, fact_date FROM facts WHERE entity_id = ? ORDER BY fact_date DESC, id DESC",
-        (entity_id,),
-    ).fetchall()
-    facts = [{"text": str(r["fact_text"]), "date": r["fact_date"]} for r in fact_rows]
-
-    # Document count (not the full list)
-    doc_count_row = conn.execute(
-        "SELECT COUNT(DISTINCT document_id) as cnt FROM entity_mentions WHERE entity_id = ?",
-        (entity_id,),
-    ).fetchone()
-    document_count = int(doc_count_row["cnt"])
-
-    # Breadcrumbs — commands for deeper exploration
-    quoted_name = shlex.quote(entity_name)
-    breadcrumbs: dict[str, str] = {}
-    if entity_type in ("person", "project"):
-        breadcrumbs["timeline"] = f"kbx {entity_type} timeline {quoted_name} --limit 20"
-        thirty_ago = (date.today() - timedelta(days=30)).isoformat()
-        breadcrumbs["recent"] = f"kbx {entity_type} timeline {quoted_name} --from {thirty_ago}"
-    else:
-        breadcrumbs["search"] = f"kbx search {quoted_name} --limit 20"
-    if source_path:
-        breadcrumbs["profile"] = f"kbx view {source_path}"
-
-    return {
-        "id": entity_id,
-        "name": entity_name,
-        "entity_type": entity_type,
-        "aliases": json.loads(entity_row["aliases"]) if entity_row["aliases"] else [],
-        "metadata": json.loads(entity_row["metadata"]) if entity_row["metadata"] else {},
-        "facts": facts,
-        "source_path": source_path,
-        "document_count": document_count,
-        "breadcrumbs": breadcrumbs,
-    }
+    kb = KnowledgeBase._from_existing(db=db, project_root=Path("."))
+    profile = kb.get_entity_profile(name)
+    kb.close()
+    if profile is None:
+        return {"error": f"Entity not found: {name}"}
+    return profile
 
 
 def _resolve_me(name: str) -> str:
@@ -973,10 +938,10 @@ def _entity_find_impl(
         raise SystemExit(1)
 
     if len(matches) == 1:
-        result: Any = _build_entity_result(conn, matches[0])
+        result: Any = _build_entity_result(db, matches[0]["name"])
     else:
         result = {
-            "results": [_build_entity_result(conn, m) for m in matches],
+            "results": [_build_entity_result(db, m["name"]) for m in matches],
             "meta": {
                 "total": len(matches),
                 "note": f"Multiple entities match '{name}'. Use a more specific name.",
