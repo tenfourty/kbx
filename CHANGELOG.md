@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.57](https://github.com/tenfourty/kbx/compare/kbx-v0.1.56...kbx-v0.1.57) (2026-03-16)
+
+
+### Bug Fixes
+
+* address 6 code review findings on write-through consolidation ([132c474](https://github.com/tenfourty/kbx/commit/132c474b79dabea109829875579218d20b6c6f73))
+
 ## [0.1.56](https://github.com/tenfourty/kbx/compare/kbx-v0.1.55...kbx-v0.1.56) (2026-03-16)
 
 
