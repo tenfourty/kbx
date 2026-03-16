@@ -184,22 +184,32 @@ def _migrate_009_backfill_freshness(conn: sqlite3.Connection) -> None:
 
 
 def _migrate_012_add_fact_seq(conn: sqlite3.Connection) -> None:
-    """Add seq column to facts table and backfill from insert order."""
-    try:
-        conn.execute("ALTER TABLE facts ADD COLUMN seq INTEGER")
-    except sqlite3.OperationalError as e:
-        if "duplicate column" not in str(e).lower():
-            raise
+    """Add seq column to facts table and backfill from insert order.
 
-    # Backfill: assign seq per entity ordered by fact_date ASC, id ASC
+    Idempotent: checks column existence before ALTER, backfills NULLs only.
+    """
+    # Check if column already exists
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(facts)").fetchall()}
+    if "seq" not in cols:
+        conn.execute("ALTER TABLE facts ADD COLUMN seq INTEGER")
+
+    # Backfill only rows with NULL seq
     rows = conn.execute(
-        "SELECT id, entity_id FROM facts ORDER BY entity_id, fact_date ASC, id ASC"
+        "SELECT id, entity_id FROM facts WHERE seq IS NULL "
+        "ORDER BY entity_id, fact_date ASC, id ASC"
     ).fetchall()
-    seq_counters: dict[int, int] = {}
-    for r in rows:
-        eid = r["entity_id"]
-        seq_counters[eid] = seq_counters.get(eid, 0) + 1
-        conn.execute("UPDATE facts SET seq = ? WHERE id = ?", (seq_counters[eid], r["id"]))
+    if rows:
+        # Get current max seq per entity to avoid collisions
+        max_seqs: dict[int, int] = {}
+        for r in conn.execute(
+            "SELECT entity_id, MAX(seq) as m FROM facts WHERE seq IS NOT NULL GROUP BY entity_id"
+        ).fetchall():
+            max_seqs[r["entity_id"]] = r["m"]
+
+        for r in rows:
+            eid = r["entity_id"]
+            max_seqs[eid] = max_seqs.get(eid, 0) + 1
+            conn.execute("UPDATE facts SET seq = ? WHERE id = ?", (max_seqs[eid], r["id"]))
 
     # Add unique constraint
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_facts_entity_seq ON facts(entity_id, seq)")

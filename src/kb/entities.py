@@ -493,22 +493,22 @@ def _seed_facts_from_files(conn: Any, project_root: Path, entities: list[EntityD
             ).fetchall()
         }
 
-        # Parse facts from file — seq is 1-based position in the file
-        file_facts = list(fact_pattern.finditer(content))
-        for seq, match in enumerate(file_facts, 1):
+        # Get current max seq for this entity
+        max_row = conn.execute(
+            "SELECT MAX(seq) as m FROM facts WHERE entity_id = ?", (entity_id,)
+        ).fetchone()
+        next_seq = (max_row["m"] or 0) + 1
+
+        # Insert only missing facts with next available seq
+        for match in fact_pattern.finditer(content):
             fact_date = match.group(1)
             fact_text = match.group(2).strip()
             if (fact_text, fact_date) not in existing:
                 conn.execute(
                     "INSERT INTO facts (entity_id, fact_text, fact_date, seq) VALUES (?, ?, ?, ?)",
-                    (entity_id, fact_text, fact_date, seq),
+                    (entity_id, fact_text, fact_date, next_seq),
                 )
-            else:
-                # Ensure seq is up to date for existing facts
-                conn.execute(
-                    "UPDATE facts SET seq = ? WHERE entity_id = ? AND fact_text = ? AND fact_date = ?",
-                    (seq, entity_id, fact_text, fact_date),
-                )
+                next_seq += 1
 
     conn.commit()
 
