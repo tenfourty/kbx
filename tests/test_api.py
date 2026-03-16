@@ -965,6 +965,175 @@ class TestPostMutationReindex:
         assert fts_after == 0
 
 
+# ------------------------------------------------------------------
+# add_fact / add_note / edit_note — shared write layer
+# ------------------------------------------------------------------
+
+
+class TestAddFact:
+    """KnowledgeBase.add_fact: DB insert + file write-through."""
+
+    def test_add_fact_inserts_into_db(self, kb_instance, project_root):
+        from kb.crud import create_entity
+
+        create_entity(kb_instance._db, project_root, "person", "Ada Lovelace")
+        from kb.entities import seed_entities
+
+        seed_entities(kb_instance._db, project_root)
+
+        result = kb_instance.add_fact("Ada Lovelace", "Invented programming", date="2026-01-01")
+        assert result["status"] == "ok"
+        assert result["entity"] == "Ada Lovelace"
+
+        conn = kb_instance._get_conn()
+        facts = conn.execute("SELECT * FROM facts").fetchall()
+        assert any("Invented programming" in f["fact_text"] for f in facts)
+
+    def test_add_fact_writes_to_file(self, kb_instance, project_root):
+        from kb.crud import create_entity
+        from kb.entities import seed_entities
+
+        create_entity(kb_instance._db, project_root, "person", "Grace Hopper")
+        seed_entities(kb_instance._db, project_root)
+
+        kb_instance.add_fact("Grace Hopper", "Found the first bug", date="2026-02-01")
+
+        entity_file = project_root / "memory" / "people" / "grace-hopper.md"
+        content = entity_file.read_text(encoding="utf-8")
+        assert "## Recent Facts" in content
+        assert "[2026-02-01] Found the first bug" in content
+
+    def test_add_fact_entity_not_found(self, kb_instance):
+        with pytest.raises(ValueError, match="not found"):
+            kb_instance.add_fact("Nobody", "Some fact")
+
+    def test_add_fact_default_date(self, kb_instance, project_root):
+        from kb.crud import create_entity
+        from kb.entities import seed_entities
+
+        create_entity(kb_instance._db, project_root, "person", "Alan Turing")
+        seed_entities(kb_instance._db, project_root)
+
+        result = kb_instance.add_fact("Alan Turing", "Cracked Enigma")
+        assert result["status"] == "ok"
+        # Fact should have today's date
+        conn = kb_instance._get_conn()
+        fact = conn.execute(
+            "SELECT fact_date FROM facts WHERE fact_text = 'Cracked Enigma'"
+        ).fetchone()
+        assert fact is not None
+        assert fact["fact_date"] is not None
+
+
+class TestAddNote:
+    """KnowledgeBase.add_note: file creation + indexing."""
+
+    def test_add_note_creates_file(self, kb_instance, project_root):
+        result = kb_instance.add_note("Test note", body="Some content", date="2026-03-01")
+        assert result["status"] == "ok"
+        assert result["type"] == "note"
+        assert "2026-03-01" in result["path"]
+
+        filepath = project_root / result["path"]
+        assert filepath.exists()
+        content = filepath.read_text(encoding="utf-8")
+        assert "title: Test note" in content
+        assert "Some content" in content
+
+    def test_add_note_with_tags(self, kb_instance, project_root):
+        result = kb_instance.add_note(
+            "Tagged note", body="Body", tags=["foo", "bar"], date="2026-03-01"
+        )
+        filepath = project_root / result["path"]
+        content = filepath.read_text(encoding="utf-8")
+        assert "tags:" in content
+        assert "foo" in content
+        assert "bar" in content
+
+    def test_add_note_with_pin(self, kb_instance, project_root):
+        result = kb_instance.add_note("Pinned note", body="Content", pin=True, date="2026-03-01")
+        assert result["pinned"] is True
+
+    def test_add_note_duplicate_filename(self, kb_instance, project_root):
+        r1 = kb_instance.add_note("Same title", body="First", date="2026-01-15")
+        r2 = kb_instance.add_note("Same title", body="Second", date="2026-01-15")
+        assert r1["path"] != r2["path"]
+
+    def test_add_note_with_entity_linking(self, kb_instance, project_root):
+        from kb.crud import create_entity
+        from kb.entities import seed_entities
+
+        create_entity(kb_instance._db, project_root, "person", "Emmy Noether")
+        seed_entities(kb_instance._db, project_root)
+
+        result = kb_instance.add_note(
+            "About Emmy", body="Emmy did great work", entity="Emmy Noether", date="2026-03-01"
+        )
+        assert result["status"] == "ok"
+        assert result["type"] == "note"
+
+    def test_add_note_body_defaults_to_title(self, kb_instance, project_root):
+        result = kb_instance.add_note("Quick thought", date="2026-03-01")
+        filepath = project_root / result["path"]
+        content = filepath.read_text(encoding="utf-8")
+        # Body should default to the title text
+        assert "Quick thought" in content
+
+
+class TestEditNote:
+    """KnowledgeBase.edit_note: file modification + reindex."""
+
+    def test_edit_note_body(self, kb_instance, project_root):
+        result = kb_instance.add_note("Editable", body="Original", date="2026-03-01")
+        path = result["path"]
+
+        edit_result = kb_instance.edit_note(path, body="Replaced body")
+        assert edit_result["status"] == "ok"
+
+        filepath = project_root / path
+        content = filepath.read_text(encoding="utf-8")
+        assert "Replaced body" in content
+        assert "Original" not in content
+
+    def test_edit_note_append(self, kb_instance, project_root):
+        result = kb_instance.add_note("Appendable", body="Start.", date="2026-03-01")
+        path = result["path"]
+
+        kb_instance.edit_note(path, append="\nMore text.")
+
+        filepath = project_root / path
+        content = filepath.read_text(encoding="utf-8")
+        assert "Start." in content
+        assert "More text." in content
+
+    def test_edit_note_tags(self, kb_instance, project_root):
+        result = kb_instance.add_note("Taggable", body="Content", date="2026-03-01")
+        path = result["path"]
+
+        kb_instance.edit_note(path, tags=["new-tag", "another"])
+
+        filepath = project_root / path
+        content = filepath.read_text(encoding="utf-8")
+        assert "new-tag" in content
+        assert "another" in content
+
+    def test_edit_note_pin(self, kb_instance, project_root):
+        result = kb_instance.add_note("Pinnable", body="Content", date="2026-03-01")
+        path = result["path"]
+
+        edit_result = kb_instance.edit_note(path, pin=True)
+        assert edit_result["pinned"] is True
+
+    def test_edit_note_not_found(self, kb_instance):
+        with pytest.raises(ValueError, match="not found"):
+            kb_instance.edit_note("nonexistent.md", body="New")
+
+    def test_edit_note_no_changes(self, kb_instance, project_root):
+        result = kb_instance.add_note("Unchanged", body="Content", date="2026-03-01")
+        with pytest.raises(ValueError, match="No edit options"):
+            kb_instance.edit_note(result["path"])
+
+
 class TestIndex:
     def test_index_with_glossary(self, kb_instance):
         # project_root fixture creates memory/glossary.md, so indexer finds it

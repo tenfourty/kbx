@@ -400,6 +400,64 @@ class KnowledgeBase:
     # Fact operations
     # ------------------------------------------------------------------
 
+    def add_fact(
+        self,
+        entity_name: str,
+        text: str,
+        date: str | None = None,
+    ) -> dict[str, object]:
+        """Add a fact: DB insert + append to entity markdown file.
+
+        Raises ValueError if the entity is not found.
+        """
+        from datetime import date as date_cls
+
+        from kb.config import find_entity
+
+        conn = self._get_conn()
+        if date is None:
+            date = date_cls.today().isoformat()
+
+        entity_row = find_entity(conn, entity_name)
+        if entity_row is None:
+            raise ValueError(f"Entity not found: {entity_name}")
+
+        conn.execute(
+            "INSERT INTO facts (entity_id, fact_text, fact_date) VALUES (?, ?, ?)",
+            (entity_row["id"], text, date),
+        )
+        conn.commit()
+
+        # Write-through: append fact to entity markdown file
+        source_path = entity_row["source_path"]
+        if source_path:
+            source_file = self._project_root / source_path
+            if source_file.exists():
+                self._append_fact_to_file(source_file, text, date)
+
+        return {"status": "ok", "type": "fact", "entity": entity_row["name"]}
+
+    def _append_fact_to_file(self, path: Path, fact_text: str, fact_date: str) -> None:
+        """Append a fact to a markdown file under a ## Recent Facts section."""
+        import re as _re
+
+        content = path.read_text(encoding="utf-8")
+        fact_line = f"- [{fact_date}] {fact_text}\n"
+
+        if "## Recent Facts" in content:
+            header_match = _re.search(r"^## Recent Facts\s*$", content, _re.MULTILINE)
+            assert header_match is not None
+            next_section = _re.search(r"^## ", content[header_match.end() :], _re.MULTILINE)
+            if next_section:
+                insert_pos = header_match.end() + next_section.start()
+                content = content[:insert_pos] + fact_line + "\n" + content[insert_pos:]
+            else:
+                content = content.rstrip("\n") + "\n" + fact_line
+        else:
+            content = content.rstrip("\n") + "\n\n## Recent Facts\n" + fact_line
+
+        self._atomic_write(path, content)
+
     def delete_fact(self, fact_id: int) -> dict[str, object]:
         """Delete a fact by ID. Removes from DB and entity markdown file.
 
@@ -822,6 +880,217 @@ class KnowledgeBase:
                 lance_table.delete(f"document_id = {doc_id}")
 
         return {"path": path, "title": row["title"], "deleted": True}
+
+    def add_note(
+        self,
+        title: str,
+        *,
+        body: str | None = None,
+        tags: list[str] | None = None,
+        pin: bool = False,
+        entity: str | None = None,
+        date: str | None = None,
+    ) -> dict[str, object]:
+        """Create a memory note: build frontmatter, atomic write, index, pin, entity-link.
+
+        Returns dict with status, type, path, pinned.
+        """
+        import re as _re
+        from datetime import date as date_cls
+
+        from kb.config import find_entity
+        from kb.db import normalize_path
+
+        conn = self._get_conn()
+        if date is None:
+            date = date_cls.today().isoformat()
+
+        # Slugify title
+        slug = _re.sub(r"[^\w\s-]", "", title.lower().strip())
+        slug = _re.sub(r"[\s_]+", "-", slug)
+        slug = _re.sub(r"-+", "-", slug)[:60].strip("-")
+
+        notes_dir = self._project_root / "memory" / "notes"
+        notes_dir.mkdir(parents=True, exist_ok=True)
+        filepath = notes_dir / f"{date}-{slug}.md"
+        counter = 2
+        while filepath.exists():
+            filepath = notes_dir / f"{date}-{slug}-{counter}.md"
+            counter += 1
+
+        # Build frontmatter
+        frontmatter_lines = ["---", f"title: {title}", f"date: {date}"]
+        if tags:
+            frontmatter_lines.append(f"tags: [{', '.join(tags)}]")
+        if pin:
+            frontmatter_lines.append("pinned: true")
+        frontmatter_lines.extend(["---", ""])
+        note_body = body if body else title
+        note_content = "\n".join(frontmatter_lines) + note_body + "\n"
+
+        # Atomic write
+        self._atomic_write(filepath, note_content)
+
+        rel_path = normalize_path(str(filepath.relative_to(self._project_root)))
+
+        # Index so the note is immediately searchable
+        from kb.indexer import index_all
+
+        index_all(self._db, None, self._project_root, memory_only=True, skip_seed=True)
+
+        # Pin in DB
+        if pin:
+            conn.execute("UPDATE documents SET pinned = 1 WHERE path = ?", (rel_path,))
+            conn.commit()
+
+        # Entity linking
+        if entity:
+            entity_row = find_entity(conn, entity)
+            if entity_row:
+                doc_row = conn.execute(
+                    "SELECT id FROM documents WHERE path = ?", (rel_path,)
+                ).fetchone()
+                if doc_row:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO entity_mentions"
+                        " (entity_id, document_id, mention_type) VALUES (?, ?, ?)",
+                        (entity_row["id"], doc_row["id"], "tagged"),
+                    )
+                    conn.commit()
+
+        return {"status": "ok", "type": "note", "path": rel_path, "pinned": pin}
+
+    def edit_note(
+        self,
+        target: str,
+        *,
+        body: str | None = None,
+        append: str | None = None,
+        tags: list[str] | None = None,
+        pin: bool | None = None,
+    ) -> dict[str, object]:
+        """Edit a note: modify frontmatter/body, atomic write, reindex.
+
+        Raises ValueError if note not found, not a memory note, or no changes specified.
+        """
+        import re as _re
+
+        from kb.db import normalize_path
+
+        conn = self._get_conn()
+
+        import fnmatch
+        import unicodedata
+
+        from kb.db import normalize_path as _normalize_path
+
+        # Resolve target to a document — try exact path, suffix, title, glob
+        path_nfc = _normalize_path(target)
+        path_nfd = unicodedata.normalize("NFD", target)
+        doc = conn.execute(
+            "SELECT * FROM documents WHERE path = ? OR path = ?", (path_nfc, path_nfd)
+        ).fetchone()
+        if doc is None:
+            # Suffix match
+            rows = conn.execute(
+                "SELECT * FROM documents WHERE path LIKE ? OR path LIKE ?",
+                ("%" + path_nfc, "%" + path_nfd),
+            ).fetchall()
+            if len(rows) == 1:
+                doc = rows[0]
+        if doc is None:
+            # Title match
+            rows = conn.execute(
+                "SELECT * FROM documents WHERE title = ? COLLATE NOCASE", (target,)
+            ).fetchall()
+            if len(rows) == 1:
+                doc = rows[0]
+        if doc is None:
+            # Glob / substring
+            all_paths = [r["path"] for r in conn.execute("SELECT path FROM documents").fetchall()]
+            if "*" in target or "?" in target:
+                matches = [p for p in all_paths if fnmatch.fnmatch(p, target)]
+            else:
+                matches = [p for p in all_paths if target in p.rsplit("/", 1)[-1]]
+            if len(matches) == 1:
+                doc = conn.execute(
+                    "SELECT * FROM documents WHERE path = ?", (matches[0],)
+                ).fetchone()
+        if doc is None:
+            raise ValueError(f"Note not found: {target}")
+        if doc["doc_type"] not in ("memory_note", "memory_doc"):
+            raise ValueError(f"Not a memory note (doc_type={doc['doc_type']})")
+        if body is not None and append is not None:
+            raise ValueError("Cannot specify both body and append")
+        if body is None and append is None and tags is None and pin is None:
+            raise ValueError("No edit options. Provide body, append, tags, or pin.")
+
+        file_path = self._project_root / doc["path"]
+        if not file_path.exists():
+            raise ValueError(f"Note file not found on disk: {doc['path']}")
+
+        content = file_path.read_text(encoding="utf-8")
+        fm_match = _re.match(r"^---\s*\n(.*?)\n---\s*\n", content, _re.DOTALL)
+        if fm_match:
+            fm_block = fm_match.group(1)
+            note_body = content[fm_match.end():]
+        else:
+            fm_block = ""
+            note_body = content
+
+        # Apply body/append
+        if body is not None:
+            note_body = body + "\n"
+        elif append is not None:
+            note_body = note_body.rstrip("\n") + append + "\n"
+
+        # Apply tags
+        if tags is not None:
+            tags_line = f"tags: [{', '.join(tags)}]"
+            if _re.search(r"^tags:\s", fm_block, _re.MULTILINE):
+                fm_block = _re.sub(
+                    r"^tags:\s.*$", tags_line, fm_block, count=1, flags=_re.MULTILINE
+                )
+            elif fm_block:
+                fm_block = fm_block.rstrip("\n") + f"\n{tags_line}"
+            else:
+                fm_block = tags_line
+
+        # Apply pin
+        if pin is not None:
+            pinned_line = f"pinned: {'true' if pin else 'false'}"
+            if _re.search(r"^pinned:\s", fm_block, _re.MULTILINE):
+                fm_block = _re.sub(
+                    r"^pinned:\s.*$", pinned_line, fm_block, count=1, flags=_re.MULTILINE
+                )
+            elif fm_block:
+                fm_block = fm_block.rstrip("\n") + f"\n{pinned_line}"
+            else:
+                fm_block = pinned_line
+
+        new_content = f"---\n{fm_block}\n---\n{note_body}" if fm_block else note_body
+        self._atomic_write(file_path, new_content)
+
+        rel_path = normalize_path(str(file_path.relative_to(self._project_root)))
+
+        # Re-index
+        from kb.indexer import index_all
+
+        index_all(self._db, None, self._project_root, memory_only=True, skip_seed=True)
+
+        if pin is not None:
+            conn.execute(
+                "UPDATE documents SET pinned = ? WHERE path = ?",
+                (1 if pin else 0, rel_path),
+            )
+            conn.commit()
+
+        return {
+            "status": "ok",
+            "path": rel_path,
+            "title": doc["title"],
+            "pinned": bool(pin) if pin is not None else bool(doc["pinned"]),
+        }
 
     # ------------------------------------------------------------------
     # Glossary

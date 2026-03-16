@@ -429,15 +429,24 @@ class TestMemoryList:
 
 
 class TestAppendFactToFile:
+    @staticmethod
+    def _append_fact(md, fact_text, fact_date):
+        """Call KnowledgeBase._append_fact_to_file via a lightweight mock."""
+        from unittest.mock import MagicMock
+
+        from kb.api import KnowledgeBase
+
+        mock_kb = MagicMock(spec=KnowledgeBase)
+        mock_kb._atomic_write = KnowledgeBase._atomic_write
+        KnowledgeBase._append_fact_to_file(mock_kb, md, fact_text, fact_date)
+
     def test_fact_inserted_under_header_not_at_eof(self, tmp_path):
         """Fact should go under ## Recent Facts, not after a following section."""
         md = tmp_path / "person.md"
         md.write_text(
             "# Person\n\n## Recent Facts\n- [2026-01-01] Old fact\n\n## Notes\nSome notes.\n"
         )
-        from kb.cli import _append_fact_to_file
-
-        _append_fact_to_file(md, "New fact", "2026-02-01")
+        self._append_fact(md, "New fact", "2026-02-01")
         content = md.read_text()
         # New fact should appear before ## Notes
         notes_pos = content.index("## Notes")
@@ -448,9 +457,7 @@ class TestAppendFactToFile:
         """When ## Recent Facts is the last section, fact appends at end (existing behavior)."""
         md = tmp_path / "person.md"
         md.write_text("# Person\n\n## Recent Facts\n- [2026-01-01] Old fact\n")
-        from kb.cli import _append_fact_to_file
-
-        _append_fact_to_file(md, "New fact", "2026-02-01")
+        self._append_fact(md, "New fact", "2026-02-01")
         content = md.read_text()
         assert "[2026-02-01] New fact" in content
         assert content.index("[2026-02-01]") > content.index("[2026-01-01]")
@@ -459,9 +466,7 @@ class TestAppendFactToFile:
         """When no ## Recent Facts exists, creates the section."""
         md = tmp_path / "person.md"
         md.write_text("# Person\n\nSome content.\n")
-        from kb.cli import _append_fact_to_file
-
-        _append_fact_to_file(md, "First fact", "2026-02-01")
+        self._append_fact(md, "First fact", "2026-02-01")
         content = md.read_text()
         assert "## Recent Facts" in content
         assert "[2026-02-01] First fact" in content

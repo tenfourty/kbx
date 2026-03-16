@@ -721,9 +721,14 @@ class TestAppendFactEdgeCases:
         """Appending to a file without Recent Facts section creates it."""
         md = tmp_path / "person.md"
         md.write_text("# Person\n\nJust some text.\n")
-        from kb.cli import _append_fact_to_file
+        from unittest.mock import MagicMock
 
-        _append_fact_to_file(md, "New fact", "2026-02-20")
+        from kb.api import KnowledgeBase
+
+        # _append_fact_to_file is an instance method that calls self._atomic_write
+        mock_kb = MagicMock(spec=KnowledgeBase)
+        mock_kb._atomic_write = KnowledgeBase._atomic_write
+        KnowledgeBase._append_fact_to_file(mock_kb, md, "New fact", "2026-02-20")
         content = md.read_text()
         assert "## Recent Facts" in content
         assert "[2026-02-20] New fact" in content

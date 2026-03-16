@@ -300,26 +300,6 @@ def handle_kb_context(
         return json.dumps({"error": str(e)})
 
 
-def _append_fact_to_file(path: Path, fact_text: str, fact_date: str) -> None:
-    """Append a fact to a markdown file under a ## Recent Facts section."""
-    content = path.read_text(encoding="utf-8")
-    fact_line = f"- [{fact_date}] {fact_text}\n"
-
-    if "## Recent Facts" in content:
-        header_match = re.search(r"^## Recent Facts\s*$", content, re.MULTILINE)
-        assert header_match is not None
-        next_section = re.search(r"^## ", content[header_match.end() :], re.MULTILINE)
-        if next_section:
-            insert_pos = header_match.end() + next_section.start()
-            content = content[:insert_pos] + fact_line + "\n" + content[insert_pos:]
-        else:
-            content = content.rstrip("\n") + "\n" + fact_line
-    else:
-        content = content.rstrip("\n") + "\n\n## Recent Facts\n" + fact_line
-
-    path.write_text(content, encoding="utf-8")
-
-
 def handle_kb_memory_add(
     db: Database,
     project_root: Path,
@@ -330,95 +310,34 @@ def handle_kb_memory_add(
     pin: bool = False,
     date: str | None = None,
 ) -> str:
-    """Create a note or record a fact. Returns JSON string."""
+    """Create a note or record a fact. Delegates to KnowledgeBase. Returns JSON string."""
     try:
-        import os
-        from datetime import date as date_cls
+        from kb.api import KnowledgeBase
+        from kb.config import get_data_dir
 
-        from kb.db import normalize_path
+        kb = KnowledgeBase(project_root=project_root, data_dir=get_data_dir())
+        kb._db = db  # reuse the existing DB instance
+        kb._embedder_failed = True  # text-only indexing in MCP context
+        try:
+            is_note = body is not None or tags is not None or pin or entity is None
 
-        conn = db.get_sqlite_conn()
+            if not is_note:
+                assert entity is not None
+                try:
+                    result = kb.add_fact(entity, text, date=date)
+                except ValueError as e:
+                    return json.dumps({"error": str(e)})
+                return json.dumps(result)
 
-        if date is None:
-            date = date_cls.today().isoformat()
-
-        is_note = body is not None or tags is not None or pin or entity is None
-
-        if not is_note:
-            # FACT PATH
-            assert entity is not None
-            entity_row = find_entity(conn, entity)
-            if entity_row is None:
-                return json.dumps({"error": f"Entity not found: {entity}"})
-
-            conn.execute(
-                "INSERT INTO facts (entity_id, fact_text, fact_date) VALUES (?, ?, ?)",
-                (entity_row["id"], text, date),
+            # NOTE PATH
+            tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
+            result = kb.add_note(
+                text, body=body, tags=tag_list, pin=pin, entity=entity, date=date
             )
-            conn.commit()
-
-            # Write-through: append fact to entity markdown file (matches CLI behaviour)
-            source_path = entity_row["source_path"]
-            if source_path:
-                source_file = project_root / source_path
-                if source_file.exists():
-                    _append_fact_to_file(source_file, text, date)
-
-            return json.dumps({"status": "ok", "type": "fact", "entity": entity_row["name"]})
-
-        # NOTE PATH
-        tag_list: list[str] = []
-        if tags:
-            tag_list = [t.strip() for t in tags.split(",") if t.strip()]
-
-        # Slugify
-        slug = re.sub(r"[^\w\s-]", "", text.lower().strip())
-        slug = re.sub(r"[\s_]+", "-", slug)
-        slug = re.sub(r"-+", "-", slug)[:60].strip("-")
-
-        notes_dir = project_root / "memory" / "notes"
-        notes_dir.mkdir(parents=True, exist_ok=True)
-        filepath = notes_dir / f"{date}-{slug}.md"
-        counter = 2
-        while filepath.exists():
-            filepath = notes_dir / f"{date}-{slug}-{counter}.md"
-            counter += 1
-
-        frontmatter_lines = ["---", f"title: {text}", f"date: {date}"]
-        if tag_list:
-            frontmatter_lines.append(f"tags: [{', '.join(tag_list)}]")
-        frontmatter_lines.extend(["---", ""])
-        note_body = body if body else text
-        note_content = "\n".join(frontmatter_lines) + note_body + "\n"
-
-        tmp_path = filepath.with_suffix(".md.tmp")
-        tmp_path.write_text(note_content, encoding="utf-8")
-        os.replace(str(tmp_path), str(filepath))
-
-        rel_path = normalize_path(str(filepath.relative_to(project_root)))
-
-        from kb.indexer import index_all
-
-        index_all(db, None, project_root, memory_only=True, skip_seed=True)
-
-        if pin:
-            conn.execute("UPDATE documents SET pinned = 1 WHERE path = ?", (rel_path,))
-            conn.commit()
-
-        if entity:
-            entity_row = find_entity(conn, entity)
-            if entity_row:
-                doc_row = conn.execute(
-                    "SELECT id FROM documents WHERE path = ?", (rel_path,)
-                ).fetchone()
-                if doc_row:
-                    conn.execute(
-                        "INSERT OR IGNORE INTO entity_mentions (entity_id, document_id, mention_type) VALUES (?, ?, ?)",
-                        (entity_row["id"], doc_row["id"], "tagged"),
-                    )
-                    conn.commit()
-
-        return json.dumps({"status": "ok", "type": "note", "path": rel_path, "pinned": pin})
+            return json.dumps(result)
+        finally:
+            # Don't close db — it's shared
+            kb._db = None  # type: ignore[assignment]
     except Exception as e:
         print(f"kb_memory_add error: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
@@ -992,99 +911,22 @@ def handle_kb_note_edit(
     tags: str | None = None,
     pin: bool | None = None,
 ) -> str:
-    """Edit a note's body, tags, or pin status. Returns JSON string."""
+    """Edit a note's body, tags, or pin status. Delegates to KnowledgeBase. Returns JSON string."""
     try:
-        import os
-        import re as _re
+        from kb.api import KnowledgeBase
+        from kb.config import get_data_dir
 
-        from kb.db import normalize_path
-
-        conn = db.get_sqlite_conn()
-        doc = _find_document_by_target(conn, target)
-        if doc is None:
-            return json.dumps({"error": f"Note not found: {target}"})
-        if doc["doc_type"] not in ("memory_note", "memory_doc"):
-            return json.dumps(
-                {"error": f"Not a memory note (doc_type={doc['doc_type']})"}
-            )
-        if body is not None and append is not None:
-            return json.dumps({"error": "Cannot specify both body and append"})
-        if body is None and append is None and tags is None and pin is None:
-            return json.dumps(
-                {"error": "No edit options. Provide body, append, tags, or pin."}
-            )
-
-        from pathlib import Path as P
-
-        file_path = P(doc["path"])
-        if not file_path.is_absolute():
-            file_path = project_root / doc["path"]
-        if not file_path.exists():
-            return json.dumps({"error": f"Note file not found on disk: {doc['path']}"})
-
-        content = file_path.read_text(encoding="utf-8")
-        fm_match = _re.match(r"^---\s*\n(.*?)\n---\s*\n", content, _re.DOTALL)
-        if fm_match:
-            fm_block = fm_match.group(1)
-            note_body = content[fm_match.end():]
-        else:
-            fm_block = ""
-            note_body = content
-
-        if body is not None:
-            note_body = body + "\n"
-        elif append is not None:
-            note_body = note_body.rstrip("\n") + append + "\n"
-
-        if tags is not None:
-            new_tags = [t.strip() for t in tags.split(",") if t.strip()]
-            tags_line = f"tags: [{', '.join(new_tags)}]"
-            if _re.search(r"^tags:\s", fm_block, _re.MULTILINE):
-                fm_block = _re.sub(r"^tags:\s.*$", tags_line, fm_block, count=1, flags=_re.MULTILINE)
-            elif fm_block:
-                fm_block = fm_block.rstrip("\n") + f"\n{tags_line}"
-            else:
-                fm_block = tags_line
-
-        if pin is not None:
-            pinned_line = f"pinned: {'true' if pin else 'false'}"
-            if _re.search(r"^pinned:\s", fm_block, _re.MULTILINE):
-                fm_block = _re.sub(
-                    r"^pinned:\s.*$", pinned_line, fm_block, count=1, flags=_re.MULTILINE
-                )
-            elif fm_block:
-                fm_block = fm_block.rstrip("\n") + f"\n{pinned_line}"
-            else:
-                fm_block = pinned_line
-
-        new_content = f"---\n{fm_block}\n---\n{note_body}" if fm_block else note_body
-        tmp_path = file_path.with_suffix(".md.tmp")
-        tmp_path.write_text(new_content, encoding="utf-8")
-        os.replace(str(tmp_path), str(file_path))
-
-        rel_path = normalize_path(str(file_path.relative_to(project_root)))
-
-        from kb.indexer import index_all
-
-        index_all(db, None, project_root, memory_only=True, skip_seed=True)
-
-        if pin is not None:
-            conn.execute(
-                "UPDATE documents SET pinned = ? WHERE path = ?",
-                (1 if pin else 0, rel_path),
-            )
-            conn.commit()
-
-        return json.dumps(
-            {
-                "status": "ok",
-                "path": rel_path,
-                "title": doc["title"],
-                "pinned": bool(pin) if pin is not None else bool(doc.get("pinned")),
-            },
-            default=str,
-            ensure_ascii=False,
-        )
+        kb = KnowledgeBase(project_root=project_root, data_dir=get_data_dir())
+        kb._db = db  # reuse the existing DB instance
+        kb._embedder_failed = True
+        try:
+            tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
+            result = kb.edit_note(target, body=body, append=append, tags=tag_list, pin=pin)
+            return json.dumps(result, default=str, ensure_ascii=False)
+        except ValueError as e:
+            return json.dumps({"error": str(e)})
+        finally:
+            kb._db = None  # type: ignore[assignment]
     except Exception as e:
         print(f"kb_note_edit error: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
