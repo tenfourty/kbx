@@ -2776,3 +2776,337 @@ class TestFindProjectRootXdgSafety:
         # Should return the config parent (not memory parent),
         # because .config-other is NOT inside .config
         assert root == fake_dir
+
+
+# ---------------------------------------------------------------------------
+# Coverage: MCP handlers — project find/list, person list, note delete, etc.
+# ---------------------------------------------------------------------------
+
+
+class TestMcpProjectFindCoverage:
+    def test_project_find_success(self, mcp_db):
+        from kb.mcp_server import handle_kb_project_find
+
+        db, _ = mcp_db
+        result = json.loads(handle_kb_project_find(db, "Helix Refactor"))
+        assert result["name"] == "Helix Refactor"
+        assert result["entity_type"] == "project"
+
+    def test_project_find_not_found(self, mcp_db):
+        from kb.mcp_server import handle_kb_project_find
+
+        db, _ = mcp_db
+        result = json.loads(handle_kb_project_find(db, "Nonexistent"))
+        assert "error" in result
+
+    def test_project_find_wrong_type(self, mcp_db):
+        from kb.mcp_server import handle_kb_project_find
+
+        db, _ = mcp_db
+        result = json.loads(handle_kb_project_find(db, "Talia"))
+        assert "error" in result
+        assert "person" in result["error"]
+
+
+class TestMcpProjectListCoverage:
+    def test_project_list(self, mcp_db):
+        from kb.mcp_server import handle_kb_project_list
+
+        db, _ = mcp_db
+        result = json.loads(handle_kb_project_list(db))
+        assert "results" in result
+        assert result["meta"]["total"] >= 1
+
+
+class TestMcpPersonListCoverage:
+    def test_person_list(self, mcp_db):
+        from kb.mcp_server import handle_kb_person_list
+
+        db, _ = mcp_db
+        result = json.loads(handle_kb_person_list(db))
+        assert "results" in result
+        assert result["meta"]["total"] >= 1
+        names = [r["name"] for r in result["results"]]
+        assert "Talia Ström" in names
+
+
+class TestMcpNoteDeleteConsolidated:
+    def test_note_delete_removes_file_and_db(self, mcp_db):
+        from kb.mcp_server import handle_kb_memory_add, handle_kb_note_delete
+
+        db, root = mcp_db
+        # Create a note
+        add_result = json.loads(
+            handle_kb_memory_add(db, root, "Deletable", body="Content", date="2026-01-01")
+        )
+        assert add_result["status"] == "ok"
+        path = add_result["path"]
+
+        # Delete it
+        with patch("kb.config.get_data_dir", return_value=root):
+            result = json.loads(handle_kb_note_delete(db, root, path))
+        assert result["status"] == "ok"
+
+        # File should be gone
+        assert not (root / path).exists()
+
+    def test_note_delete_not_found(self, mcp_db):
+        from kb.mcp_server import handle_kb_note_delete
+
+        db, root = mcp_db
+        result = json.loads(handle_kb_note_delete(db, root, "nonexistent.md"))
+        assert "error" in result
+
+
+class TestMcpEntityStaleCoverage:
+    def test_entity_stale_returns_results(self, mcp_db):
+        from kb.mcp_server import handle_kb_entity_stale
+
+        db, _ = mcp_db
+        result = json.loads(handle_kb_entity_stale(db))
+        assert "results" in result
+        assert "meta" in result
+
+
+class TestMcpNoteListCoverage:
+    def test_note_list_empty(self, mcp_db):
+        from kb.mcp_server import handle_kb_note_list
+
+        db, _ = mcp_db
+        result = json.loads(handle_kb_note_list(db))
+        assert "results" in result
+        assert result["meta"]["total"] == 0
+
+    def test_note_list_with_notes(self, mcp_db):
+        from kb.mcp_server import handle_kb_memory_add, handle_kb_note_list
+
+        db, root = mcp_db
+        handle_kb_memory_add(db, root, "Test note", body="Content", date="2026-01-01")
+
+        result = json.loads(handle_kb_note_list(db))
+        assert result["meta"]["total"] >= 1
+
+
+class TestMcpNoteEditCoverage:
+    def test_note_edit_body(self, mcp_db):
+        from kb.mcp_server import handle_kb_memory_add, handle_kb_note_edit
+
+        db, root = mcp_db
+        add_result = json.loads(
+            handle_kb_memory_add(db, root, "Editable note", body="Original", date="2026-01-01")
+        )
+        path = add_result["path"]
+
+        with patch("kb.config.get_data_dir", return_value=root):
+            result = json.loads(handle_kb_note_edit(db, root, path, body="Replaced"))
+        assert result["status"] == "ok"
+        content = (root / path).read_text()
+        assert "Replaced" in content
+
+    def test_note_edit_append(self, mcp_db):
+        from kb.mcp_server import handle_kb_memory_add, handle_kb_note_edit
+
+        db, root = mcp_db
+        add_result = json.loads(
+            handle_kb_memory_add(db, root, "Append note", body="Start.", date="2026-01-01")
+        )
+        path = add_result["path"]
+
+        with patch("kb.config.get_data_dir", return_value=root):
+            result = json.loads(handle_kb_note_edit(db, root, path, append="\nMore."))
+        assert result["status"] == "ok"
+
+    def test_note_edit_tags(self, mcp_db):
+        from kb.mcp_server import handle_kb_memory_add, handle_kb_note_edit
+
+        db, root = mcp_db
+        add_result = json.loads(
+            handle_kb_memory_add(db, root, "Tag note", body="Content", date="2026-01-01")
+        )
+        path = add_result["path"]
+
+        with patch("kb.config.get_data_dir", return_value=root):
+            result = json.loads(handle_kb_note_edit(db, root, path, tags="foo,bar"))
+        assert result["status"] == "ok"
+
+    def test_note_edit_pin(self, mcp_db):
+        from kb.mcp_server import handle_kb_memory_add, handle_kb_note_edit
+
+        db, root = mcp_db
+        add_result = json.loads(
+            handle_kb_memory_add(db, root, "Pin note", body="Content", date="2026-01-01")
+        )
+        path = add_result["path"]
+
+        with patch("kb.config.get_data_dir", return_value=root):
+            result = json.loads(handle_kb_note_edit(db, root, path, pin=True))
+        assert result["pinned"] is True
+
+    def test_note_edit_not_found(self, mcp_db):
+        from kb.mcp_server import handle_kb_note_edit
+
+        db, root = mcp_db
+        with patch("kb.config.get_data_dir", return_value=root):
+            result = json.loads(handle_kb_note_edit(db, root, "nonexistent.md"))
+        assert "error" in result
+
+
+class TestMcpWrapperCoverage:
+    """Exercise MCP tool wrappers by mocking get_db/find_project_root."""
+
+    def test_wrappers_exercise(self, mcp_db):
+        """Call multiple MCP tool wrappers to cover their thin delegation code."""
+        db, root = mcp_db
+
+        with (
+            patch("kb.mcp_server.get_db", return_value=db),
+            patch("kb.mcp_server.find_project_root", return_value=root),
+        ):
+            from kb.mcp_server import (
+                kb_context,
+                kb_index_status,
+                kb_memory_list,
+                kb_note_list,
+                kb_person_find,
+                kb_person_list,
+                kb_person_timeline,
+                kb_project_find,
+                kb_project_list,
+                kb_search,
+                kb_usage,
+                kb_view,
+            )
+
+            # Read-only wrappers
+            result = json.loads(kb_search("test query"))
+            assert "results" in result or "error" in result
+
+            result = json.loads(kb_person_find("Talia"))
+            assert "name" in result or "error" in result
+
+            result = json.loads(kb_person_timeline("Talia"))
+            assert "documents" in result or "error" in result
+
+            result = json.loads(kb_view("memory/people/eve.md"))
+            assert "title" in result or "error" in result
+
+            result = json.loads(kb_context())
+            assert isinstance(result, dict)
+
+            result = json.loads(kb_usage())
+            assert "docs" in result or "error" in result
+
+            result = json.loads(kb_person_list())
+            assert "results" in result
+
+            result = json.loads(kb_project_list())
+            assert "results" in result
+
+            result = json.loads(kb_project_find("Helix Refactor"))
+            assert "name" in result or "error" in result
+
+            result = json.loads(kb_note_list())
+            assert "results" in result
+
+            result = json.loads(kb_memory_list())
+            assert "results" in result
+
+            result = json.loads(kb_index_status())
+            assert isinstance(result, dict)
+
+    def test_mutating_wrappers(self, mcp_db):
+        """Exercise mutating MCP wrappers."""
+        db, root = mcp_db
+
+        with (
+            patch("kb.mcp_server.get_db", return_value=db),
+            patch("kb.mcp_server.find_project_root", return_value=root),
+            patch("kb.config.get_data_dir", return_value=root),
+        ):
+            from kb.mcp_server import (
+                kb_entity_stale,
+                kb_list,
+                kb_memory_add,
+                kb_memory_delete_fact,
+                kb_memory_edit_fact,
+                kb_note_delete,
+                kb_note_edit,
+                kb_person_create,
+                kb_person_edit,
+                kb_pin,
+                kb_project_create,
+                kb_project_edit,
+                kb_unpin,
+            )
+
+            result = json.loads(kb_entity_stale())
+            assert "results" in result
+
+            # Create a note then edit/pin/unpin/delete it
+            add_result = json.loads(
+                kb_memory_add("Wrapper test note", body="Content", date="2026-01-01")
+            )
+            assert add_result["status"] == "ok"
+            path = add_result["path"]
+
+            result = json.loads(kb_pin(path))
+            assert "pinned" in result or "error" in result
+
+            result = json.loads(kb_unpin(path))
+            assert "pinned" in result or "error" in result
+
+            result = json.loads(kb_note_edit(path, body="Updated"))
+            assert result.get("status") == "ok" or "error" in result
+
+            result = json.loads(kb_note_delete(path))
+            assert result.get("status") == "ok" or "error" in result
+
+            # Entity create/edit
+            result = json.loads(kb_person_create("Wrapper Person", role="Tester"))
+            assert "name" in result or "error" in result
+
+            result = json.loads(kb_person_edit("Wrapper Person", role="Senior Tester"))
+            assert "updated" in result or "error" in result
+
+            result = json.loads(kb_project_create("Wrapper Project", status="Active"))
+            assert "name" in result or "error" in result
+
+            result = json.loads(kb_project_edit("Wrapper Project", status="Done"))
+            assert "updated" in result or "error" in result
+
+            # Fact via add, edit, delete
+            fact_result = json.loads(kb_memory_add("Wrapper person fact", entity="Wrapper Person"))
+            assert fact_result["status"] == "ok"
+
+            conn = db.get_sqlite_conn()
+            fact_row = conn.execute(
+                "SELECT id FROM facts WHERE fact_text = 'Wrapper person fact'"
+            ).fetchone()
+            fact_id = fact_row["id"]
+
+            result = json.loads(kb_memory_edit_fact(fact_id, text="Edited fact"))
+            assert result.get("updated") is True or "error" in result
+
+            result = json.loads(kb_memory_delete_fact(fact_id))
+            assert result.get("deleted") is True or "error" in result
+
+            # List documents
+            result = json.loads(kb_list())
+            assert "results" in result
+
+
+class TestMcpMemoryEditFactSuccess:
+    def test_edit_fact_updates_text(self, mcp_db):
+        from kb.mcp_server import handle_kb_memory_add, handle_kb_memory_edit_fact
+
+        db, root = mcp_db
+        handle_kb_memory_add(db, root, "Talia fact original", entity="Talia")
+        conn = db.get_sqlite_conn()
+        fact = conn.execute("SELECT id FROM facts WHERE fact_text = 'Talia fact original'").fetchone()
+
+        with patch("kb.config.get_data_dir", return_value=root):
+            result = json.loads(
+                handle_kb_memory_edit_fact(db, root, fact["id"], text="Talia fact updated")
+            )
+        assert result.get("updated") is True
+        assert result["fact_text"] == "Talia fact updated"

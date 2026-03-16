@@ -1171,6 +1171,66 @@ class TestEditNote:
             kb_instance.edit_note(result["path"])
 
 
+class TestEditNoteResolution:
+    """Coverage for edit_note's title/glob/suffix resolution paths."""
+
+    def test_edit_note_by_title(self, kb_instance, project_root):
+        kb_instance.add_note("Unique Title XYZ", body="Original", date="2026-03-01")
+        edit_result = kb_instance.edit_note("Unique Title XYZ", body="Updated")
+        assert edit_result["status"] == "ok"
+
+    def test_edit_note_by_suffix(self, kb_instance, project_root):
+        result = kb_instance.add_note("Suffix Test", body="Original", date="2026-03-01")
+        filename = result["path"].rsplit("/", 1)[-1]
+        edit_result = kb_instance.edit_note(filename, body="Updated via suffix")
+        assert edit_result["status"] == "ok"
+
+    def test_edit_note_body_and_append_error(self, kb_instance, project_root):
+        result = kb_instance.add_note("Both Error", body="Content", date="2026-03-01")
+        with pytest.raises(ValueError, match="Cannot specify both"):
+            kb_instance.edit_note(result["path"], body="New", append="Extra")
+
+    def test_edit_note_not_memory_note(self, kb_instance, project_root):
+        conn = kb_instance._get_conn()
+        conn.execute(
+            "INSERT INTO documents (path, title, doc_type, content_hash) VALUES (?, ?, ?, ?)",
+            ("meetings/test.md", "Meeting Doc", "notes", "abc123"),
+        )
+        conn.commit()
+        with pytest.raises(ValueError, match="Not a memory note"):
+            kb_instance.edit_note("meetings/test.md", body="New")
+
+    def test_edit_note_without_frontmatter(self, kb_instance, project_root):
+        notes_dir = project_root / "memory" / "notes"
+        notes_dir.mkdir(parents=True, exist_ok=True)
+        note_path = notes_dir / "bare-note.md"
+        note_path.write_text("Just plain content.\n")
+
+        from kb.indexer import index_all
+
+        index_all(kb_instance._db, None, project_root, memory_only=True, skip_seed=True)
+
+        edit_result = kb_instance.edit_note("memory/notes/bare-note.md", tags=["new-tag"])
+        assert edit_result["status"] == "ok"
+        content = note_path.read_text()
+        assert "new-tag" in content
+
+    def test_edit_note_pin_on_bare_file(self, kb_instance, project_root):
+        notes_dir = project_root / "memory" / "notes"
+        notes_dir.mkdir(parents=True, exist_ok=True)
+        note_path = notes_dir / "pin-bare.md"
+        note_path.write_text("Plain text only.\n")
+
+        from kb.indexer import index_all
+
+        index_all(kb_instance._db, None, project_root, memory_only=True, skip_seed=True)
+
+        edit_result = kb_instance.edit_note("memory/notes/pin-bare.md", pin=True)
+        assert edit_result["pinned"] is True
+        content = note_path.read_text()
+        assert "pinned: true" in content
+
+
 class TestListFacts:
     """KnowledgeBase.list_facts: query facts with optional recency filter."""
 
