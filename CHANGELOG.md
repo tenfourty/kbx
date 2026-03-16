@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.56](https://github.com/tenfourty/kbx/compare/kbx-v0.1.55...kbx-v0.1.56) (2026-03-16)
+
+
+### Bug Fixes
+
+* **mcp:** persist facts to entity markdown files via write-through ([8d4abc4](https://github.com/tenfourty/kbx/commit/8d4abc4a4ecbfaef2268765f6e6ccb8f6fb2dfe1))
+
 ## [0.1.55](https://github.com/tenfourty/kbx/compare/kbx-v0.1.54...kbx-v0.1.55) (2026-03-16)
 
 
