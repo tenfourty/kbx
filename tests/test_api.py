@@ -1134,6 +1134,30 @@ class TestEditNote:
             kb_instance.edit_note(result["path"])
 
 
+class TestListFacts:
+    """KnowledgeBase.list_facts: query facts with optional recency filter."""
+
+    def test_list_facts_empty(self, kb_instance):
+        result = kb_instance.list_facts()
+        assert result == []
+
+    def test_list_facts_returns_added(self, kb_instance, project_root):
+        from kb.crud import create_entity
+        from kb.entities import seed_entities
+
+        create_entity(kb_instance._db, project_root, "person", "Nikola Tesla")
+        seed_entities(kb_instance._db, project_root)
+
+        kb_instance.add_fact("Nikola Tesla", "Invented AC", date="2026-01-01")
+        kb_instance.add_fact("Nikola Tesla", "Loved pigeons", date="2026-02-01")
+
+        facts = kb_instance.list_facts()
+        assert len(facts) == 2
+        texts = [f["fact_text"] for f in facts]
+        assert "Invented AC" in texts
+        assert "Loved pigeons" in texts
+
+
 class TestIndex:
     def test_index_with_glossary(self, kb_instance):
         # project_root fixture creates memory/glossary.md, so indexer finds it

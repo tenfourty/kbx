@@ -582,7 +582,7 @@ def handle_kb_person_create(
                 "reports_to": reports_to,
                 "company": company,
             }.items()
-            if v
+            if v is not None
         }
         alias_list = [a.strip() for a in aliases.split(",") if a.strip()] if aliases else []
 
@@ -605,11 +605,25 @@ def handle_kb_person_create(
 
 
 def _parse_meta_string(meta: str | None) -> dict[str, str]:
-    """Parse a comma-separated 'key=value,key2=value2' or single 'key=value' string."""
+    """Parse a semicolon-separated 'key=value; key2=value2' metadata string.
+
+    Semicolons delimit pairs; commas are allowed in values.
+    Falls back to comma-delimited parsing when no semicolons are present
+    and only one key=value pair exists (backward compat for simple cases).
+    """
     if not meta:
         return {}
     result: dict[str, str] = {}
-    for pair in meta.split(","):
+    # Use semicolons as the primary delimiter (supports commas in values)
+    if ";" in meta:
+        pairs = meta.split(";")
+    elif meta.count("=") == 1:
+        # Single key=value with no semicolons — treat the whole string as one pair
+        pairs = [meta]
+    else:
+        # Multiple key=value pairs with no semicolons — fall back to comma split
+        pairs = meta.split(",")
+    for pair in pairs:
         if "=" not in pair:
             continue
         key, _, value = pair.partition("=")
@@ -681,7 +695,7 @@ def handle_kb_project_create(
                 "lead": lead,
                 "started": started,
             }.items()
-            if v
+            if v is not None
         }
         alias_list = [a.strip() for a in aliases.split(",") if a.strip()] if aliases else []
 
@@ -934,89 +948,75 @@ def handle_kb_note_edit(
 
 
 def handle_kb_note_delete(db: Database, project_root: Path, target: str) -> str:
-    """Delete a memory note (file + index). Returns JSON string."""
+    """Delete a memory note. Delegates to KnowledgeBase. Returns JSON string."""
     try:
+        from kb.api import KnowledgeBase
+        from kb.config import get_data_dir
+
+        # Resolve target to path first (KnowledgeBase.delete_note takes a path)
         conn = db.get_sqlite_conn()
         doc = _find_document_by_target(conn, target)
         if doc is None:
             return json.dumps({"error": f"Note not found: {target}"})
-        if doc["doc_type"] not in ("memory_note", "memory_doc"):
+
+        kb = KnowledgeBase(project_root=project_root, data_dir=get_data_dir())
+        kb._db = db
+        kb._embedder_failed = True
+        try:
+            result = kb.delete_note(doc["path"])
             return json.dumps(
-                {"error": f"Not a memory note (doc_type={doc['doc_type']})"}
+                {"status": "ok", "path": result["path"], "title": result["title"]},
+                default=str,
+                ensure_ascii=False,
             )
-
-        doc_id = doc["id"]
-        rel_path = doc["path"]
-
-        file_path = project_root / rel_path
-        if file_path.exists():
-            file_path.unlink()
-
-        conn.execute("DELETE FROM chunks WHERE document_id = ?", (doc_id,))
-        conn.execute("DELETE FROM entity_mentions WHERE document_id = ?", (doc_id,))
-        conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
-        conn.commit()
-
-        return json.dumps(
-            {"status": "ok", "path": rel_path, "title": doc["title"]},
-            default=str,
-            ensure_ascii=False,
-        )
+        except ValueError as e:
+            return json.dumps({"error": str(e)})
+        finally:
+            kb._db = None  # type: ignore[assignment]
     except Exception as e:
         print(f"kb_note_delete error: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return json.dumps({"error": str(e)})
 
 
-def handle_kb_memory_list(db: Database, since_days: int | None = None) -> str:
-    """List recorded facts. Returns JSON string."""
+def handle_kb_memory_list(db: Database, project_root: Path, since_days: int | None = None) -> str:
+    """List recorded facts. Delegates to KnowledgeBase. Returns JSON string."""
     try:
-        conn = db.get_sqlite_conn()
-        sql = """
-            SELECT f.id, f.fact_text, f.fact_date, f.created_at, e.name as entity_name
-            FROM facts f
-            LEFT JOIN entities e ON f.entity_id = e.id
-        """
-        params: list[Any] = []
-        if since_days is not None:
-            sql += " WHERE f.created_at >= datetime('now', ?)"
-            params.append(f"-{since_days} days")
-        sql += " ORDER BY f.created_at DESC"
-        rows = conn.execute(sql, params).fetchall()
+        from kb.api import KnowledgeBase
+        from kb.config import get_data_dir
 
-        facts = [
-            {
-                "id": r["id"],
-                "entity_name": r["entity_name"],
-                "fact_text": r["fact_text"],
-                "fact_date": r["fact_date"],
-                "created_at": r["created_at"],
-            }
-            for r in rows
-        ]
-        return json.dumps(
-            {"results": facts, "meta": {"total": len(facts)}},
-            default=str,
-            ensure_ascii=False,
-        )
+        kb = KnowledgeBase(project_root=project_root, data_dir=get_data_dir())
+        kb._db = db
+        kb._embedder_failed = True
+        try:
+            facts = kb.list_facts(since_days=since_days)
+            return json.dumps(
+                {"results": facts, "meta": {"total": len(facts)}},
+                default=str,
+                ensure_ascii=False,
+            )
+        finally:
+            kb._db = None  # type: ignore[assignment]
     except Exception as e:
         print(f"kb_memory_list error: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return json.dumps({"error": str(e), "results": []})
 
 
-def handle_kb_memory_delete_fact(project_root: Path, fact_id: int) -> str:
-    """Delete a fact by ID. Returns JSON string."""
+def handle_kb_memory_delete_fact(db: Database, project_root: Path, fact_id: int) -> str:
+    """Delete a fact by ID. Delegates to KnowledgeBase. Returns JSON string."""
     try:
         from kb.api import KnowledgeBase
         from kb.config import get_data_dir
 
         kb = KnowledgeBase(project_root=project_root, data_dir=get_data_dir())
+        kb._db = db
+        kb._embedder_failed = True
         try:
             result = kb.delete_fact(fact_id)
             return json.dumps(result, default=str, ensure_ascii=False)
         finally:
-            kb.close()
+            kb._db = None  # type: ignore[assignment]
     except ValueError as e:
         return json.dumps({"error": str(e)})
     except Exception as e:
@@ -1026,12 +1026,13 @@ def handle_kb_memory_delete_fact(project_root: Path, fact_id: int) -> str:
 
 
 def handle_kb_memory_edit_fact(
+    db: Database,
     project_root: Path,
     fact_id: int,
     text: str | None = None,
     date: str | None = None,
 ) -> str:
-    """Edit a fact's text or date. Returns JSON string."""
+    """Edit a fact's text or date. Delegates to KnowledgeBase. Returns JSON string."""
     try:
         if text is None and date is None:
             return json.dumps({"error": "Specify text and/or date to edit."})
@@ -1040,11 +1041,13 @@ def handle_kb_memory_edit_fact(
         from kb.config import get_data_dir
 
         kb = KnowledgeBase(project_root=project_root, data_dir=get_data_dir())
+        kb._db = db
+        kb._embedder_failed = True
         try:
             result = kb.edit_fact(fact_id, text=text, date=date)
             return json.dumps(result, default=str, ensure_ascii=False)
         finally:
-            kb.close()
+            kb._db = None  # type: ignore[assignment]
     except ValueError as e:
         return json.dumps({"error": str(e)})
     except Exception as e:
@@ -1751,14 +1754,16 @@ def kb_memory_list(since_days: int | None = None) -> str:
     """List recorded facts, newest first.
     since_days: optional filter to only show facts from last N days."""
     db = get_db()
-    return handle_kb_memory_list(db, since_days=since_days)
+    project_root = find_project_root()
+    return handle_kb_memory_list(db, project_root, since_days=since_days)
 
 
 @mcp.tool(annotations=_DESTRUCTIVE)
 def kb_memory_delete_fact(fact_id: int) -> str:
     """Delete a fact by its ID."""
+    db = get_db()
     project_root = find_project_root()
-    return handle_kb_memory_delete_fact(project_root, fact_id)
+    return handle_kb_memory_delete_fact(db, project_root, fact_id)
 
 
 @mcp.tool(annotations=_MUTATING_IDEMPOTENT)
@@ -1769,8 +1774,9 @@ def kb_memory_edit_fact(
     fact_id: the fact ID to edit.
     text: new fact text (optional).
     date: new date in YYYY-MM-DD (optional)."""
+    db = get_db()
     project_root = find_project_root()
-    return handle_kb_memory_edit_fact(project_root, fact_id, text=text, date=date)
+    return handle_kb_memory_edit_fact(db, project_root, fact_id, text=text, date=date)
 
 
 @mcp.tool(annotations=_READ_ONLY)

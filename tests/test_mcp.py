@@ -1364,8 +1364,8 @@ class TestMcpMemoryList:
         """kb_memory_list returns empty when no facts exist."""
         from kb.mcp_server import handle_kb_memory_list
 
-        db, _ = mcp_db
-        result = json.loads(handle_kb_memory_list(db))
+        db, root = mcp_db
+        result = json.loads(handle_kb_memory_list(db, root))
         assert result["results"] == []
         assert result["meta"]["total"] == 0
 
@@ -1377,7 +1377,7 @@ class TestMcpMemoryList:
         handle_kb_memory_add(db, root, "Talia speaks French", entity="Talia")
         handle_kb_memory_add(db, root, "Talia likes Rust", entity="Talia")
 
-        result = json.loads(handle_kb_memory_list(db))
+        result = json.loads(handle_kb_memory_list(db, root))
         assert result["meta"]["total"] == 2
         texts = [f["fact_text"] for f in result["results"]]
         assert "Talia speaks French" in texts
@@ -1404,23 +1404,24 @@ class TestMcpMemoryFactOps:
         fact_id = fact_row["id"]
 
         with patch("kb.config.get_data_dir", return_value=root):
-            result = json.loads(handle_kb_memory_delete_fact(root, fact_id))
+            result = json.loads(handle_kb_memory_delete_fact(db, root, fact_id))
         assert result.get("status") == "ok" or "deleted" in str(result).lower()
 
     def test_memory_delete_fact_not_found(self, mcp_db):
         """kb_memory_delete_fact returns error for unknown fact ID."""
         from kb.mcp_server import handle_kb_memory_delete_fact
 
-        _, root = mcp_db
+        db, root = mcp_db
         with patch("kb.config.get_data_dir", return_value=root):
-            result = json.loads(handle_kb_memory_delete_fact(root, 99999))
+            result = json.loads(handle_kb_memory_delete_fact(db, root, 99999))
         assert "error" in result
 
-    def test_memory_edit_fact_no_changes(self):
+    def test_memory_edit_fact_no_changes(self, mcp_db):
         """kb_memory_edit_fact returns error when no text or date given."""
         from kb.mcp_server import handle_kb_memory_edit_fact
 
-        result = json.loads(handle_kb_memory_edit_fact(Path("/tmp"), 1))
+        db, root = mcp_db
+        result = json.loads(handle_kb_memory_edit_fact(db, root, 1))
         assert "error" in result
 
 
@@ -2392,6 +2393,54 @@ class TestEntityCreateIndexing:
         result = json.loads(handle_kb_search(db, "Apollo Program", fast=True, limit=5))
         titles = [r["title"] for r in result["results"]]
         assert any("Apollo" in t for t in titles)
+
+
+# ---------------------------------------------------------------------------
+# _parse_meta_string tests
+# ---------------------------------------------------------------------------
+
+
+class TestParseMetaString:
+    """Tests for _parse_meta_string — semicolon-delimited with comma-in-values support."""
+
+    def test_simple_key_value(self):
+        from kb.mcp_server import _parse_meta_string
+
+        assert _parse_meta_string("timezone=CET") == {"timezone": "CET"}
+
+    def test_semicolon_delimited(self):
+        from kb.mcp_server import _parse_meta_string
+
+        result = _parse_meta_string("role=Engineer; team=Platform")
+        assert result == {"role": "Engineer", "team": "Platform"}
+
+    def test_comma_in_value_preserved(self):
+        """Commas within values should not be split when using semicolons."""
+        from kb.mcp_server import _parse_meta_string
+
+        result = _parse_meta_string("description=Dr. Brown, MD; team=Medical")
+        assert result["description"] == "Dr. Brown, MD"
+        assert result["team"] == "Medical"
+
+    def test_single_pair_with_comma_in_value(self):
+        """Single key=value with no semicolons should preserve commas in value."""
+        from kb.mcp_server import _parse_meta_string
+
+        result = _parse_meta_string("description=Dr. Brown, MD")
+        assert result["description"] == "Dr. Brown, MD"
+
+    def test_empty_and_none(self):
+        from kb.mcp_server import _parse_meta_string
+
+        assert _parse_meta_string(None) == {}
+        assert _parse_meta_string("") == {}
+
+    def test_legacy_comma_delimited_multiple_pairs(self):
+        """Backward compat: comma-delimited when no semicolons and multiple = signs."""
+        from kb.mcp_server import _parse_meta_string
+
+        result = _parse_meta_string("role=Engineer,team=Platform")
+        assert result == {"role": "Engineer", "team": "Platform"}
 
 
 # ---------------------------------------------------------------------------

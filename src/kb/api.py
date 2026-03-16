@@ -446,7 +446,8 @@ class KnowledgeBase:
 
         if "## Recent Facts" in content:
             header_match = _re.search(r"^## Recent Facts\s*$", content, _re.MULTILINE)
-            assert header_match is not None
+            if header_match is None:
+                return  # pragma: no cover — defensive guard
             next_section = _re.search(r"^## ", content[header_match.end() :], _re.MULTILINE)
             if next_section:
                 insert_pos = header_match.end() + next_section.start()
@@ -1091,6 +1092,39 @@ class KnowledgeBase:
             "title": doc["title"],
             "pinned": bool(pin) if pin is not None else bool(doc["pinned"]),
         }
+
+    # ------------------------------------------------------------------
+    # Fact listing
+    # ------------------------------------------------------------------
+
+    def list_facts(self, since_days: int | None = None) -> list[dict[str, object]]:
+        """List recorded facts, optionally filtered by recency.
+
+        Returns a list of dicts with id, entity_name, fact_text, fact_date, created_at.
+        """
+        conn = self._get_conn()
+        sql = """
+            SELECT f.id, f.fact_text, f.fact_date, f.created_at, e.name as entity_name
+            FROM facts f
+            LEFT JOIN entities e ON f.entity_id = e.id
+        """
+        params: list[object] = []
+        if since_days is not None:
+            sql += " WHERE f.created_at >= datetime('now', ?)"
+            params.append(f"-{since_days} days")
+        sql += " ORDER BY f.created_at DESC"
+        rows = conn.execute(sql, params).fetchall()
+
+        return [
+            {
+                "id": r["id"],
+                "entity_name": r["entity_name"],
+                "fact_text": r["fact_text"],
+                "fact_date": r["fact_date"],
+                "created_at": r["created_at"],
+            }
+            for r in rows
+        ]
 
     # ------------------------------------------------------------------
     # Glossary

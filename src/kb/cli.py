@@ -2094,33 +2094,17 @@ def memory_list(
     since_days: int | None, fmt: str, fields: list[str] | None, jq_expr: str | None
 ) -> None:
     """List recorded facts."""
-    db = _get_db()
-    conn = db.get_sqlite_conn()
+    from kb.api import KnowledgeBase
+    from kb.config import get_data_dir
 
-    sql = """
-        SELECT f.id, f.fact_text, f.fact_date, f.created_at, e.name as entity_name
-        FROM facts f
-        LEFT JOIN entities e ON f.entity_id = e.id
-    """
-    params: list[Any] = []
-
-    if since_days is not None:
-        sql += " WHERE f.created_at >= datetime('now', ?)"
-        params.append(f"-{since_days} days")
-
-    sql += " ORDER BY f.created_at DESC"
-    rows = conn.execute(sql, params).fetchall()
-
-    facts = [
-        {
-            "id": r["id"],
-            "entity_name": r["entity_name"],
-            "fact_text": r["fact_text"],
-            "fact_date": r["fact_date"],
-            "created_at": r["created_at"],
-        }
-        for r in rows
-    ]
+    project_root = _find_project_root()
+    kb = KnowledgeBase(project_root=project_root, data_dir=get_data_dir())
+    kb._db = _get_db()
+    kb._embedder_failed = True
+    try:
+        facts = kb.list_facts(since_days=since_days)
+    finally:
+        kb._db = None  # type: ignore[assignment]
 
     if not facts and fmt == "table":
         click.echo(
