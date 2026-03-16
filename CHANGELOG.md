@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.54](https://github.com/tenfourty/kbx/compare/kbx-v0.1.53...kbx-v0.1.54) (2026-03-16)
+
+
+### Features
+
+* **mcp:** add person/project CRUD tools + refactor kb_usage to JSON ([cc5612e](https://github.com/tenfourty/kbx/commit/cc5612ed467ac985529aefb7e27db0a33aa3a8fd))
+
+
+### Documentation
+
+* add MCP server section to CLAUDE.md ([16d42c6](https://github.com/tenfourty/kbx/commit/16d42c61da62664e0f1d6b50c3ba3d745431a1be))
+
 ## [0.1.53](https://github.com/tenfourty/kbx/compare/kbx-v0.1.52...kbx-v0.1.53) (2026-03-12)
 
 
