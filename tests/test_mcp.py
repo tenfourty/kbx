@@ -872,6 +872,66 @@ class TestMcpMemoryAdd:
 
 
 # ---------------------------------------------------------------------------
+# Facts persist to entity markdown files
+# ---------------------------------------------------------------------------
+
+
+class TestFactPersistsToFile:
+    """Facts added via handle_kb_memory_add should appear in the entity's markdown file."""
+
+    def test_fact_appended_to_entity_file(self, mcp_db):
+        """Adding a fact writes it under ## Recent Facts in the entity file."""
+        from kb.mcp_server import handle_kb_memory_add, handle_kb_person_create
+
+        db, db_path = mcp_db
+        # Create entity with a real file on disk
+        handle_kb_person_create(db, db_path, "Tina Test", role="Engineer")
+
+        # Add a fact
+        result = json.loads(
+            handle_kb_memory_add(
+                db, db_path, "Tina loves TDD", entity="Tina Test", date="2026-03-16"
+            )
+        )
+        assert result["status"] == "ok"
+        assert result["type"] == "fact"
+
+        # Verify fact is in the markdown file
+        entity_file = db_path / "memory" / "people" / "tina-test.md"
+        content = entity_file.read_text(encoding="utf-8")
+        assert "## Recent Facts" in content
+        assert "[2026-03-16] Tina loves TDD" in content
+
+    def test_multiple_facts_all_appear_in_file(self, mcp_db):
+        """Multiple facts all appear under ## Recent Facts."""
+        from kb.mcp_server import handle_kb_memory_add, handle_kb_person_create
+
+        db, db_path = mcp_db
+        handle_kb_person_create(db, db_path, "Uma Unit", role="SRE")
+
+        handle_kb_memory_add(db, db_path, "Uma knows Kubernetes", entity="Uma Unit", date="2026-01-01")
+        handle_kb_memory_add(db, db_path, "Uma wrote the runbook", entity="Uma Unit", date="2026-02-01")
+
+        entity_file = db_path / "memory" / "people" / "uma-unit.md"
+        content = entity_file.read_text(encoding="utf-8")
+        assert "[2026-01-01] Uma knows Kubernetes" in content
+        assert "[2026-02-01] Uma wrote the runbook" in content
+
+    def test_fact_on_entity_without_file_still_succeeds(self, mcp_db):
+        """Fact on fixture entity (no file on disk) should still succeed in DB."""
+        from kb.mcp_server import handle_kb_memory_add
+
+        db, db_path = mcp_db
+        # Talia exists in DB (from fixture) but has no real file
+        result = json.loads(
+            handle_kb_memory_add(db, db_path, "Talia likes Python", entity="Talia")
+        )
+        # Should succeed in DB even if file doesn't exist
+        assert result["status"] == "ok"
+        assert result["type"] == "fact"
+
+
+# ---------------------------------------------------------------------------
 # handle_kb_usage — facts count coverage
 # ---------------------------------------------------------------------------
 

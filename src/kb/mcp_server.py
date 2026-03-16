@@ -300,6 +300,26 @@ def handle_kb_context(
         return json.dumps({"error": str(e)})
 
 
+def _append_fact_to_file(path: Path, fact_text: str, fact_date: str) -> None:
+    """Append a fact to a markdown file under a ## Recent Facts section."""
+    content = path.read_text(encoding="utf-8")
+    fact_line = f"- [{fact_date}] {fact_text}\n"
+
+    if "## Recent Facts" in content:
+        header_match = re.search(r"^## Recent Facts\s*$", content, re.MULTILINE)
+        assert header_match is not None
+        next_section = re.search(r"^## ", content[header_match.end() :], re.MULTILINE)
+        if next_section:
+            insert_pos = header_match.end() + next_section.start()
+            content = content[:insert_pos] + fact_line + "\n" + content[insert_pos:]
+        else:
+            content = content.rstrip("\n") + "\n" + fact_line
+    else:
+        content = content.rstrip("\n") + "\n\n## Recent Facts\n" + fact_line
+
+    path.write_text(content, encoding="utf-8")
+
+
 def handle_kb_memory_add(
     db: Database,
     project_root: Path,
@@ -336,6 +356,14 @@ def handle_kb_memory_add(
                 (entity_row["id"], text, date),
             )
             conn.commit()
+
+            # Write-through: append fact to entity markdown file (matches CLI behaviour)
+            source_path = entity_row["source_path"]
+            if source_path:
+                source_file = project_root / source_path
+                if source_file.exists():
+                    _append_fact_to_file(source_file, text, date)
+
             return json.dumps({"status": "ok", "type": "fact", "entity": entity_row["name"]})
 
         # NOTE PATH
