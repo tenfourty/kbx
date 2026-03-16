@@ -770,9 +770,7 @@ def generate_context(
 
     # Apply mention threshold (pinned entities always pass)
     if mention_threshold > 0:
-        filtered = [
-            e for e in filtered if e.pinned or e.mention_count >= mention_threshold
-        ]
+        filtered = [e for e in filtered if e.pinned or e.mention_count >= mention_threshold]
 
     # Group by type with smart filtering (only in full context, not topic mode)
     pinned_people: list[ContextEntity] = []

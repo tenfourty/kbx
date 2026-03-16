@@ -909,8 +909,12 @@ class TestFactPersistsToFile:
         db, db_path = mcp_db
         handle_kb_person_create(db, db_path, "Uma Unit", role="SRE")
 
-        handle_kb_memory_add(db, db_path, "Uma knows Kubernetes", entity="Uma Unit", date="2026-01-01")
-        handle_kb_memory_add(db, db_path, "Uma wrote the runbook", entity="Uma Unit", date="2026-02-01")
+        handle_kb_memory_add(
+            db, db_path, "Uma knows Kubernetes", entity="Uma Unit", date="2026-01-01"
+        )
+        handle_kb_memory_add(
+            db, db_path, "Uma wrote the runbook", entity="Uma Unit", date="2026-02-01"
+        )
 
         entity_file = db_path / "memory" / "people" / "uma-unit.md"
         content = entity_file.read_text(encoding="utf-8")
@@ -923,9 +927,7 @@ class TestFactPersistsToFile:
 
         db, db_path = mcp_db
         # Talia exists in DB (from fixture) but has no real file
-        result = json.loads(
-            handle_kb_memory_add(db, db_path, "Talia likes Python", entity="Talia")
-        )
+        result = json.loads(handle_kb_memory_add(db, db_path, "Talia likes Python", entity="Talia"))
         # Should succeed in DB even if file doesn't exist
         assert result["status"] == "ok"
         assert result["type"] == "fact"
@@ -1187,7 +1189,7 @@ class TestMcpNoteList:
         db, _ = mcp_db
         conn = db.get_sqlite_conn()
         for i in range(5):
-            self._insert_note(conn, f"memory/notes/{i}.md", f"Note {i}", f"2026-01-0{i+1}", [])
+            self._insert_note(conn, f"memory/notes/{i}.md", f"Note {i}", f"2026-01-0{i + 1}", [])
         conn.commit()
 
         result = json.loads(handle_kb_note_list(db, limit=2))
@@ -1521,8 +1523,9 @@ class TestMcpGranolaView:
             "google_calendar_event": {"iCalUID": "uid-123"},
         }
 
-        with patch("kb.sync.granola.GranolaClient") as mock_cls, patch(
-            "kb.sync.granola.extract_panel_markdown", return_value=""
+        with (
+            patch("kb.sync.granola.GranolaClient") as mock_cls,
+            patch("kb.sync.granola.extract_panel_markdown", return_value=""),
         ):
             mock_client = MagicMock()
             mock_client.find_document.return_value = fake_doc
@@ -1677,7 +1680,9 @@ class TestMcpCorrect:
         mem.mkdir(parents=True, exist_ok=True)
         notes = mem / "notes"
         notes.mkdir(exist_ok=True)
-        (notes / "test.md").write_text("---\ntitle: Test\n---\nQuartz Indexer is great.\nQuartz Indexer rules.\n")
+        (notes / "test.md").write_text(
+            "---\ntitle: Test\n---\nQuartz Indexer is great.\nQuartz Indexer rules.\n"
+        )
 
     def test_correct_scan(self, mcp_db):
         """kb_correct scan mode finds occurrences."""
@@ -1747,7 +1752,9 @@ class TestMcpSearchDocType:
 
         db, _ = mcp_db
         # Search for "migration" which appears in both notes and memory_person chunks
-        result = json.loads(handle_kb_search(db, "migration", fast=True, limit=10, doc_type="notes"))
+        result = json.loads(
+            handle_kb_search(db, "migration", fast=True, limit=10, doc_type="notes")
+        )
         # All results should be doc_type "notes"
         for r in result["results"]:
             assert r["doc_type"] == "notes"
@@ -1840,10 +1847,20 @@ class TestMcpTimelineFilters:
         )
         # Link both to Talia (entity_id=1)
         # doc IDs 5 and 6 (after the 4 existing docs)
-        transcript_id = conn.execute("SELECT id FROM documents WHERE path = 'meetings/2026/01/27/mfa.transcript.md'").fetchone()["id"]
-        debrief_id = conn.execute("SELECT id FROM documents WHERE path = 'meetings/2026/01/27/mfa.debrief.md'").fetchone()["id"]
-        conn.execute("INSERT INTO entity_mentions (entity_id, document_id, mention_type) VALUES (1, ?, 'discussed')", (transcript_id,))
-        conn.execute("INSERT INTO entity_mentions (entity_id, document_id, mention_type) VALUES (1, ?, 'discussed')", (debrief_id,))
+        transcript_id = conn.execute(
+            "SELECT id FROM documents WHERE path = 'meetings/2026/01/27/mfa.transcript.md'"
+        ).fetchone()["id"]
+        debrief_id = conn.execute(
+            "SELECT id FROM documents WHERE path = 'meetings/2026/01/27/mfa.debrief.md'"
+        ).fetchone()["id"]
+        conn.execute(
+            "INSERT INTO entity_mentions (entity_id, document_id, mention_type) VALUES (1, ?, 'discussed')",
+            (transcript_id,),
+        )
+        conn.execute(
+            "INSERT INTO entity_mentions (entity_id, document_id, mention_type) VALUES (1, ?, 'discussed')",
+            (debrief_id,),
+        )
         conn.commit()
 
     def test_timeline_with_doc_type_filter(self, mcp_db):
@@ -2047,25 +2064,25 @@ class TestMcpContextMentionThreshold:
             conn.execute(
                 "INSERT INTO entities (name, entity_type, aliases, metadata, pinned) "
                 "VALUES ('Wren High', 'person', '[]', "
-                "'{\"role\": \"Engineer\", \"team\": \"Platform\"}', 0)"
+                '\'{"role": "Engineer", "team": "Platform"}\', 0)'
             )
             # Person with 2 mentions (low)
             conn.execute(
                 "INSERT INTO entities (name, entity_type, aliases, metadata, pinned) "
                 "VALUES ('Soren Low', 'person', '[]', "
-                "'{\"role\": \"Intern\", \"team\": \"Platform\"}', 0)"
+                '\'{"role": "Intern", "team": "Platform"}\', 0)'
             )
             # Person with 1 mention, PINNED (should always appear)
             conn.execute(
                 "INSERT INTO entities (name, entity_type, aliases, metadata, pinned) "
                 "VALUES ('Linnea Pinned', 'person', '[]', "
-                "'{\"role\": \"CTO\", \"team\": \"Exec\"}', 1)"
+                '\'{"role": "CTO", "team": "Exec"}\', 1)'
             )
             # Project with 1 mention (low)
             conn.execute(
                 "INSERT INTO entities (name, entity_type, aliases, metadata, pinned) "
                 "VALUES ('Tiny Project', 'project', '[]', "
-                "'{\"status\": \"Active\"}', 0)"
+                '\'{"status": "Active"}\', 0)'
             )
 
             # Add mentions: Wren=10, Soren=2, Linnea=1, Tiny Project=1
@@ -2170,7 +2187,9 @@ class TestMcpNoteListTotal:
         db, _ = mcp_db
         conn = db.get_sqlite_conn()
         for i in range(10):
-            self._insert_note(conn, f"memory/notes/n{i}.md", f"Note {i}", f"2026-01-{i+1:02d}", [])
+            self._insert_note(
+                conn, f"memory/notes/n{i}.md", f"Note {i}", f"2026-01-{i + 1:02d}", []
+            )
         conn.commit()
 
         result = json.loads(handle_kb_note_list(db, limit=3))
@@ -2184,9 +2203,13 @@ class TestMcpNoteListTotal:
         db, _ = mcp_db
         conn = db.get_sqlite_conn()
         for i in range(5):
-            self._insert_note(conn, f"memory/notes/infra{i}.md", f"Infra {i}", f"2026-01-{i+1:02d}", ["infra"])
+            self._insert_note(
+                conn, f"memory/notes/infra{i}.md", f"Infra {i}", f"2026-01-{i + 1:02d}", ["infra"]
+            )
         for i in range(3):
-            self._insert_note(conn, f"memory/notes/other{i}.md", f"Other {i}", f"2026-02-{i+1:02d}", ["other"])
+            self._insert_note(
+                conn, f"memory/notes/other{i}.md", f"Other {i}", f"2026-02-{i + 1:02d}", ["other"]
+            )
         conn.commit()
 
         result = json.loads(handle_kb_note_list(db, tag="infra", limit=2))
@@ -2200,9 +2223,18 @@ class TestMcpNoteListTotal:
         db, _ = mcp_db
         conn = db.get_sqlite_conn()
         for i in range(4):
-            self._insert_note(conn, f"memory/notes/pin{i}.md", f"Pinned {i}", f"2026-01-{i+1:02d}", [], pinned=True)
+            self._insert_note(
+                conn,
+                f"memory/notes/pin{i}.md",
+                f"Pinned {i}",
+                f"2026-01-{i + 1:02d}",
+                [],
+                pinned=True,
+            )
         for i in range(6):
-            self._insert_note(conn, f"memory/notes/nopin{i}.md", f"Not {i}", f"2026-02-{i+1:02d}", [])
+            self._insert_note(
+                conn, f"memory/notes/nopin{i}.md", f"Not {i}", f"2026-02-{i + 1:02d}", []
+            )
         conn.commit()
 
         result = json.loads(handle_kb_note_list(db, pinned_only=True, limit=2))
@@ -2226,9 +2258,7 @@ class TestMcpPersonCreate:
         from kb.mcp_server import handle_kb_person_create
 
         db, db_path = mcp_db
-        result = json.loads(
-            handle_kb_person_create(db, db_path, "Wren Smith", role="SRE Lead")
-        )
+        result = json.loads(handle_kb_person_create(db, db_path, "Wren Smith", role="SRE Lead"))
         assert result["name"] == "Wren Smith"
         assert result["entity_type"] == "person"
         assert "path" in result
@@ -2281,9 +2311,7 @@ class TestMcpPersonCreate:
         handle_kb_person_create(db, db_path, "Diana Prince", role="Hero")
 
         conn = db.get_sqlite_conn()
-        row = conn.execute(
-            "SELECT * FROM entities WHERE name = ?", ("Diana Prince",)
-        ).fetchone()
+        row = conn.execute("SELECT * FROM entities WHERE name = ?", ("Diana Prince",)).fetchone()
         assert row is not None
         assert row["entity_type"] == "person"
 
@@ -2462,9 +2490,7 @@ class TestMcpPersonEdit:
 
         db, db_path = mcp_db
         self._create_person(db, db_path, "Wren Smith", role="Engineer")
-        result = json.loads(
-            handle_kb_person_edit(db, db_path, "Wren Smith", role="VP Platform")
-        )
+        result = json.loads(handle_kb_person_edit(db, db_path, "Wren Smith", role="VP Platform"))
         assert result["updated"] is True
         assert result["name"] == "Wren Smith"
 
@@ -2481,9 +2507,7 @@ class TestMcpPersonEdit:
 
         db, db_path = mcp_db
         self._create_person(db, db_path, "Soren Jones", team="Platform")
-        result = json.loads(
-            handle_kb_person_edit(db, db_path, "Soren Jones", team="Infrastructure")
-        )
+        result = json.loads(handle_kb_person_edit(db, db_path, "Soren Jones", team="Infrastructure"))
         assert result["updated"] is True
 
     def test_edit_person_with_meta(self, mcp_db):
@@ -2511,9 +2535,7 @@ class TestMcpPersonEdit:
         db, db_path = mcp_db
         self._create_person(db, db_path, "Diana Prince")
         handle_kb_person_edit(db, db_path, "Diana Prince", meta="timezone=CET")
-        result = json.loads(
-            handle_kb_person_edit(db, db_path, "Diana Prince", meta="timezone=")
-        )
+        result = json.loads(handle_kb_person_edit(db, db_path, "Diana Prince", meta="timezone="))
         assert result["updated"] is True
 
         conn = db.get_sqlite_conn()
@@ -2549,9 +2571,7 @@ class TestMcpPersonEdit:
         from kb.mcp_server import handle_kb_person_edit
 
         db, db_path = mcp_db
-        result = json.loads(
-            handle_kb_person_edit(db, db_path, "NonexistentPerson", role="CEO")
-        )
+        result = json.loads(handle_kb_person_edit(db, db_path, "NonexistentPerson", role="CEO"))
         assert "error" in result
         assert "not found" in result["error"].lower()
 
@@ -2567,9 +2587,7 @@ class TestMcpProjectCreate:
         from kb.mcp_server import handle_kb_project_create
 
         db, db_path = mcp_db
-        result = json.loads(
-            handle_kb_project_create(db, db_path, "API Redesign", status="Active")
-        )
+        result = json.loads(handle_kb_project_create(db, db_path, "API Redesign", status="Active"))
         assert result["name"] == "API Redesign"
         assert result["entity_type"] == "project"
         assert "path" in result
@@ -2616,9 +2634,7 @@ class TestMcpProjectCreate:
         handle_kb_project_create(db, db_path, "New Dashboard", status="Active")
 
         conn = db.get_sqlite_conn()
-        row = conn.execute(
-            "SELECT * FROM entities WHERE name = ?", ("New Dashboard",)
-        ).fetchone()
+        row = conn.execute("SELECT * FROM entities WHERE name = ?", ("New Dashboard",)).fetchone()
         assert row is not None
         assert row["entity_type"] == "project"
 
@@ -2661,9 +2677,7 @@ class TestMcpProjectEdit:
 
         db, db_path = mcp_db
         self._create_project(db, db_path, "API Redesign", status="In Progress")
-        result = json.loads(
-            handle_kb_project_edit(db, db_path, "API Redesign", status="Completed")
-        )
+        result = json.loads(handle_kb_project_edit(db, db_path, "API Redesign", status="Completed"))
         assert result["updated"] is True
         assert result["name"] == "API Redesign"
 
@@ -2680,9 +2694,7 @@ class TestMcpProjectEdit:
 
         db, db_path = mcp_db
         self._create_project(db, db_path, "Platform Work")
-        result = json.loads(
-            handle_kb_project_edit(db, db_path, "Platform Work", lead="Talia Ström")
-        )
+        result = json.loads(handle_kb_project_edit(db, db_path, "Platform Work", lead="Talia Ström"))
         assert result["updated"] is True
 
     def test_edit_project_with_meta(self, mcp_db):
@@ -2750,14 +2762,15 @@ class TestFindProjectRootXdgSafety:
         fake_dir.mkdir(parents=True)
 
         config_file = fake_dir / "kbx.toml"
-        config_file.write_text(
-            '[sources]\nmemory = "/some/absolute/memory"\n'
-        )
+        config_file.write_text('[sources]\nmemory = "/some/absolute/memory"\n')
 
-        with patch.dict(os.environ, {
-            "KBX_CONFIG": str(config_file),
-            "XDG_CONFIG_HOME": str(xdg_dir),
-        }):
+        with patch.dict(
+            os.environ,
+            {
+                "KBX_CONFIG": str(config_file),
+                "XDG_CONFIG_HOME": str(xdg_dir),
+            },
+        ):
             root = find_project_root()
 
         # Should return the config parent (not memory parent),

@@ -1056,7 +1056,7 @@ class KnowledgeBase:
         fm_match = _re.match(r"^---\s*\n(.*?)\n---\s*\n", content, _re.DOTALL)
         if fm_match:
             fm_block = fm_match.group(1)
-            note_body = content[fm_match.end():]
+            note_body = content[fm_match.end() :]
         else:
             fm_block = ""
             note_body = content

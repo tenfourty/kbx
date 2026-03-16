@@ -77,9 +77,11 @@ class TestLifecycle:
         kb = KnowledgeBase._from_existing(db=db, project_root=project_root)
         kb.close()
         # Verify db is still open by using it
-        tables = db.get_sqlite_conn().execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()
+        tables = (
+            db.get_sqlite_conn()
+            .execute("SELECT name FROM sqlite_master WHERE type='table'")
+            .fetchall()
+        )
         assert len(tables) > 0
         db.close()
 

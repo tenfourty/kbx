@@ -328,9 +328,7 @@ def handle_kb_memory_add(
 
             # NOTE PATH
             tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
-            result = kb.add_note(
-                text, body=body, tags=tag_list, pin=pin, entity=entity, date=date
-            )
+            result = kb.add_note(text, body=body, tags=tag_list, pin=pin, entity=entity, date=date)
             return json.dumps(result)
         finally:
             kb.close()
@@ -443,17 +441,19 @@ def handle_kb_usage(db: Database) -> str:
 
         tool_count = len(mcp._tool_manager._tools)
 
-        return json.dumps({
-            "docs": total_docs,
-            "entities": total_entities,
-            "facts": total_facts,
-            "pinned": pinned_docs,
-            "date_range": {
-                "earliest": date_range["earliest"],
-                "latest": date_range["latest"],
-            },
-            "tool_count": tool_count,
-        })
+        return json.dumps(
+            {
+                "docs": total_docs,
+                "entities": total_entities,
+                "facts": total_facts,
+                "pinned": pinned_docs,
+                "date_range": {
+                    "earliest": date_range["earliest"],
+                    "latest": date_range["latest"],
+                },
+                "tool_count": tool_count,
+            }
+        )
     except Exception as e:
         print(f"kb_usage error: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
@@ -1087,9 +1087,7 @@ def handle_kb_glossary_edit(project_root: Path, term: str, expansion: str) -> st
         return json.dumps({"error": str(e)})
 
 
-def handle_kb_granola_view(
-    calendar_uid: str, mode: str | None = None
-) -> str:
+def handle_kb_granola_view(calendar_uid: str, mode: str | None = None) -> str:
     """View meeting notes/transcript/summary by calendar UID. Returns JSON string."""
     try:
         from kb.sync.granola import (
@@ -1172,7 +1170,11 @@ def handle_kb_granola_edit(
         client.update_document_notes(doc["id"], markdown)
 
         return json.dumps(
-            {"status": "ok", "calendar_uid": calendar_uid, "action": "append" if append else "replace"},
+            {
+                "status": "ok",
+                "calendar_uid": calendar_uid,
+                "action": "append" if append else "replace",
+            },
             default=str,
             ensure_ascii=False,
         )
@@ -1304,9 +1306,7 @@ def handle_kb_correct(
         )
 
         if not matches:
-            return json.dumps(
-                {"results": [], "meta": {"term": term, "total": 0, "action": "scan"}}
-            )
+            return json.dumps({"results": [], "meta": {"term": term, "total": 0, "action": "scan"}})
 
         if replacement is None:
             enriched = enrich_matches(memory_root, matches)
@@ -1383,7 +1383,9 @@ mcp = FastMCP("kbx")
 # Tool annotation presets
 _READ_ONLY = ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True)
 _MUTATING = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False)
-_MUTATING_IDEMPOTENT = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True)
+_MUTATING_IDEMPOTENT = ToolAnnotations(
+    readOnlyHint=False, destructiveHint=False, idempotentHint=True
+)
 _DESTRUCTIVE = ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=False)
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -1472,9 +1474,7 @@ def kb_view(target: str) -> str:
 
 
 @mcp.tool(annotations=_READ_ONLY)
-def kb_context(
-    topic: str | None = None, fmt: str = "compact", mention_threshold: int = 0
-) -> str:
+def kb_context(topic: str | None = None, fmt: str = "compact", mention_threshold: int = 0) -> str:
     """Get compressed entity index — overview of all people, projects, teams, and terms.
     Optionally filter to entities relevant to a specific topic.
     fmt: 'compact' (default, pipe-delimited) or 'human' (markdown with headings).
@@ -1688,9 +1688,7 @@ def kb_project_edit(
 
 
 @mcp.tool(annotations=_READ_ONLY)
-def kb_note_list(
-    tag: str | None = None, pinned_only: bool = False, limit: int = 25
-) -> str:
+def kb_note_list(tag: str | None = None, pinned_only: bool = False, limit: int = 25) -> str:
     """Browse memory notes with optional filtering.
     tag: comma-separated tags (AND filter).
     pinned_only: only return pinned notes.
@@ -1748,9 +1746,7 @@ def kb_memory_delete_fact(fact_id: int) -> str:
 
 
 @mcp.tool(annotations=_MUTATING_IDEMPOTENT)
-def kb_memory_edit_fact(
-    fact_id: int, text: str | None = None, date: str | None = None
-) -> str:
+def kb_memory_edit_fact(fact_id: int, text: str | None = None, date: str | None = None) -> str:
     """Edit a fact's text or date.
     fact_id: the fact ID to edit.
     text: new fact text (optional).
@@ -1787,9 +1783,7 @@ def kb_glossary_edit(term: str, expansion: str) -> str:
 
 
 @mcp.tool(annotations=_READ_ONLY)
-def kb_granola_view(
-    calendar_uid: str, mode: str | None = None
-) -> str:
+def kb_granola_view(calendar_uid: str, mode: str | None = None) -> str:
     """View meeting notes, AI summary, or transcript from Granola.
     calendar_uid: Google Calendar event ID or iCalUID.
     mode: 'summary', 'transcript', 'all', or None (notes only, default)."""
@@ -1829,7 +1823,12 @@ def kb_list(
     to_date = _validate_date(to_date)
     db = get_db()
     return handle_kb_list(
-        db, doc_type=doc_type, from_date=from_date, to_date=to_date, limit=limit, since_hours=since_hours
+        db,
+        doc_type=doc_type,
+        from_date=from_date,
+        to_date=to_date,
+        limit=limit,
+        since_hours=since_hours,
     )
 
 
