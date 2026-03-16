@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.60](https://github.com/tenfourty/kbx/compare/kbx-v0.1.59...kbx-v0.1.60) (2026-03-16)
+
+
+### Features
+
+* entity-scoped fact IDs + view/list consolidation + MCP breadcrumbs ([a8d7fc0](https://github.com/tenfourty/kbx/commit/a8d7fc00d866a0d7c8ec11213ed16ab5b72fb27e))
+
 ## [0.1.59](https://github.com/tenfourty/kbx/compare/kbx-v0.1.58...kbx-v0.1.59) (2026-03-16)
 
 
