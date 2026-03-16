@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.59](https://github.com/tenfourty/kbx/compare/kbx-v0.1.58...kbx-v0.1.59) (2026-03-16)
+
+
+### Features
+
+* **mcp:** add fact IDs to entity find + entity filter on list_facts ([f006d0d](https://github.com/tenfourty/kbx/commit/f006d0db707563463261cc2a201801863f8b454f))
+
 ## [0.1.58](https://github.com/tenfourty/kbx/compare/kbx-v0.1.57...kbx-v0.1.58) (2026-03-16)
 
 
