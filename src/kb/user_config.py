@@ -132,6 +132,18 @@ def resolve_data_dir(cfg: KbxConfig, config_path: Path | None) -> Path:
     return (Path.home() / ".config" / "kbx").resolve()
 
 
+def resolve_me(name: str) -> str | None:
+    """Resolve 'me' to the configured user name, or return None if not configured."""
+    if name.lower() != "me":
+        return name
+    config_path = find_config()
+    if config_path:
+        cfg = load_config(config_path)
+        if cfg.user.name:
+            return cfg.user.name
+    return None
+
+
 def resolve_source_dir(cfg: KbxConfig, key: str, config_path: Path | None) -> Path:
     """Resolve a source directory (meetings or memory) from config.
 

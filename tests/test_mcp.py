@@ -2854,6 +2854,81 @@ class TestFindProjectRootXdgSafety:
 # ---------------------------------------------------------------------------
 
 
+class TestCrudHelpers:
+    def test_snake_to_title(self):
+        from kb.crud import _snake_to_title
+
+        assert _snake_to_title("preferred_lang") == "Preferred Lang"
+
+    def test_title_to_snake(self):
+        from kb.crud import _title_to_snake
+
+        assert _title_to_snake("Reports to") == "reports_to"
+
+    def test_ambiguous_document_error(self):
+        from kb.crud import AmbiguousDocumentError
+
+        err = AmbiguousDocumentError("test", ["a.md", "b.md"])
+        assert err.target == "test"
+        assert err.matches == ["a.md", "b.md"]
+
+
+class TestPinWritethrough:
+    """Pin/unpin should write to frontmatter for memory notes."""
+
+    def test_pin_writes_frontmatter(self, mcp_db):
+        from kb.mcp_server import handle_kb_memory_add, handle_kb_pin
+
+        db, root = mcp_db
+        add_result = json.loads(
+            handle_kb_memory_add(db, root, "Pin test", body="Content", date="2026-01-01")
+        )
+        path = add_result["path"]
+
+        result = json.loads(handle_kb_pin(db, path, root))
+        assert result["pinned"] is True
+
+        content = (root / path).read_text()
+        assert "pinned: true" in content
+
+    def test_pin_bare_note_creates_frontmatter(self, mcp_db):
+        """Pin on a note without frontmatter should create it."""
+        from kb.mcp_server import handle_kb_pin
+
+        db, root = mcp_db
+        # Create a bare note file with no frontmatter
+        notes_dir = root / "memory" / "notes"
+        notes_dir.mkdir(parents=True, exist_ok=True)
+        bare = notes_dir / "bare.md"
+        bare.write_text("Just text.\n")
+
+        # Index it
+        from kb.indexer import index_all
+
+        index_all(db, None, root, memory_only=True, skip_seed=True)
+
+        result = json.loads(handle_kb_pin(db, "memory/notes/bare.md", root))
+        assert result["pinned"] is True
+        content = bare.read_text()
+        assert "pinned: true" in content
+
+    def test_unpin_writes_frontmatter(self, mcp_db):
+        from kb.mcp_server import handle_kb_memory_add, handle_kb_pin, handle_kb_unpin
+
+        db, root = mcp_db
+        add_result = json.loads(
+            handle_kb_memory_add(db, root, "Unpin test", body="Content", date="2026-01-01")
+        )
+        path = add_result["path"]
+
+        handle_kb_pin(db, path, root)
+        result = json.loads(handle_kb_unpin(db, path, root))
+        assert result["pinned"] is False
+
+        content = (root / path).read_text()
+        assert "pinned: false" in content
+
+
 class TestMcpProjectFindCoverage:
     def test_project_find_success(self, mcp_db):
         from kb.mcp_server import handle_kb_project_find

@@ -291,3 +291,88 @@ def delete_entity(
     conn.commit()
 
     return {"name": row["name"], "entity_type": row["entity_type"], "deleted": True}
+
+
+# ---------------------------------------------------------------------------
+# Document resolution
+# ---------------------------------------------------------------------------
+
+
+class AmbiguousDocumentError(Exception):
+    """Raised when a document target matches multiple documents."""
+
+    def __init__(self, target: str, matches: list[str]) -> None:
+        self.target = target
+        self.matches = matches
+        super().__init__(f"Ambiguous target '{target}'. Matches: {matches}")
+
+
+def find_document_by_target(
+    conn: Any, target: str, *, strict: bool = False
+) -> dict[str, Any] | None:
+    """Resolve a document by path, content hash, title, glob, or filename substring.
+
+    Returns a dict of the document row, or None if not found.
+    When strict=True, raises AmbiguousDocumentError for ambiguous matches.
+    """
+    import fnmatch
+    import unicodedata
+
+    from kb.db import normalize_path
+
+    # Content hash lookup: #abc123
+    if target.startswith("#"):
+        row = conn.execute(
+            "SELECT * FROM documents WHERE content_hash LIKE ?", (target[1:] + "%",)
+        ).fetchone()
+        return dict(row) if row else None
+
+    path_nfc = normalize_path(target)
+    path_nfd = unicodedata.normalize("NFD", target)
+
+    # Exact path match (try both NFC and NFD)
+    row = conn.execute(
+        "SELECT * FROM documents WHERE path = ? OR path = ?", (path_nfc, path_nfd)
+    ).fetchone()
+    if row:
+        return dict(row)
+
+    # Suffix match
+    rows = conn.execute(
+        "SELECT * FROM documents WHERE path LIKE ? OR path LIKE ?",
+        ("%" + path_nfc, "%" + path_nfd),
+    ).fetchall()
+    # Deduplicate by ID (NFC/NFD can match the same row twice)
+    seen: set[int] = set()
+    unique: list[Any] = []
+    for r in rows:
+        if r["id"] not in seen:
+            seen.add(r["id"])
+            unique.append(r)
+    if len(unique) == 1:
+        return dict(unique[0])
+    if strict and len(unique) > 1:
+        raise AmbiguousDocumentError(target, [r["path"] for r in unique])
+
+    # Title match
+    rows = conn.execute(
+        "SELECT * FROM documents WHERE title = ? COLLATE NOCASE", (target,)
+    ).fetchall()
+    if len(rows) == 1:
+        return dict(rows[0])
+    if strict and len(rows) > 1:
+        raise AmbiguousDocumentError(target, [r["path"] for r in rows])
+
+    # Glob / substring
+    all_paths = [r["path"] for r in conn.execute("SELECT path FROM documents").fetchall()]
+    if "*" in target or "?" in target:
+        matches = [p for p in all_paths if fnmatch.fnmatch(p, target)]
+    else:
+        matches = [p for p in all_paths if target in p.rsplit("/", 1)[-1]]
+    if len(matches) == 1:
+        row = conn.execute("SELECT * FROM documents WHERE path = ?", (matches[0],)).fetchone()
+        return dict(row) if row else None
+    if strict and len(matches) > 1:
+        raise AmbiguousDocumentError(target, matches)
+
+    return None

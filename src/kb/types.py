@@ -257,6 +257,8 @@ class TimelineEntry(StrictFrozen):
     title: str
     date: str | None
     path: str
+    doc_type: str | None = None
+    mention_type: str | None = None
 
 
 class EntityPinResult(StrictFrozen):

@@ -379,8 +379,16 @@ class KnowledgeBase:
             for r in rows
         ]
 
-    def get_entity_timeline(self, name: str, limit: int = 10) -> list[TimelineEntry]:
-        """Return recent documents mentioning an entity.
+    def get_entity_timeline(
+        self,
+        name: str,
+        limit: int | None = 10,
+        *,
+        from_date: str | None = None,
+        to_date: str | None = None,
+        doc_type: str | None = None,
+    ) -> list[TimelineEntry]:
+        """Return documents mentioning an entity, newest first.
 
         Resolves *name* via alias/partial matching. Returns empty list if not found.
         """
@@ -391,17 +399,42 @@ class KnowledgeBase:
         if entity is None:
             return []
 
-        rows = conn.execute(
-            "SELECT DISTINCT d.title, d.doc_date AS date, d.path"
+        sql = (
+            "SELECT d.title, d.doc_date AS date, d.path, d.doc_type,"
+            " GROUP_CONCAT(DISTINCT em.mention_type) AS mention_type"
             " FROM entity_mentions em"
             " JOIN documents d ON d.id = em.document_id"
             " WHERE em.entity_id = ?"
-            " ORDER BY d.doc_date DESC"
-            " LIMIT ?",
-            (entity["id"], limit),
-        ).fetchall()
+        )
+        params: list[Any] = [entity["id"]]
 
-        return [TimelineEntry(title=r["title"], date=r["date"], path=r["path"]) for r in rows]
+        if from_date:
+            sql += " AND d.doc_date >= ?"
+            params.append(from_date)
+        if to_date:
+            sql += " AND d.doc_date <= ?"
+            params.append(to_date)
+        if doc_type:
+            sql += " AND d.doc_type = ?"
+            params.append(doc_type)
+
+        sql += " GROUP BY d.id ORDER BY d.doc_date DESC"
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit)
+
+        rows = conn.execute(sql, params).fetchall()
+
+        return [
+            TimelineEntry(
+                title=r["title"],
+                date=r["date"],
+                path=r["path"],
+                doc_type=r["doc_type"],
+                mention_type=r["mention_type"],
+            )
+            for r in rows
+        ]
 
     def toggle_entity_pin(self, name: str) -> EntityPinResult:
         """Toggle an entity's pinned state. Raises ValueError if not found.
@@ -914,6 +947,73 @@ class KnowledgeBase:
 
         return _scan(mem_dir)
 
+    def list_notes(
+        self,
+        tag: str | None = None,
+        pinned_only: bool = False,
+        limit: int = 25,
+    ) -> tuple[list[dict[str, object]], int]:
+        """List memory notes with optional tag/pin filters.
+
+        Returns (results, total) where total is the full count before limiting.
+        """
+        conn = self._get_conn()
+
+        where = "doc_type IN ('memory_note', 'memory_doc')"
+        params: list[object] = []
+        if pinned_only:
+            where += " AND pinned = 1"
+
+        required_tags: list[str] = []
+        if tag:
+            required_tags = [t.strip().lower() for t in tag.split(",") if t.strip()]
+
+        if required_tags:
+            all_rows = conn.execute(
+                f"SELECT id, path, title, doc_date, tags, pinned FROM documents "
+                f"WHERE {where} ORDER BY doc_date DESC, id DESC",
+                params,
+            ).fetchall()
+
+            matching: list[dict[str, object]] = []
+            for r in all_rows:
+                doc_tags: list[str] = json.loads(r["tags"]) if r["tags"] else []
+                lower_tags = [t.lower() for t in doc_tags]
+                if all(rt in lower_tags for rt in required_tags):
+                    matching.append(
+                        {
+                            "path": r["path"],
+                            "title": r["title"],
+                            "date": r["doc_date"],
+                            "tags": doc_tags,
+                            "pinned": bool(r["pinned"]),
+                        }
+                    )
+            return matching[:limit], len(matching)
+
+        total_row = conn.execute(
+            f"SELECT COUNT(*) as cnt FROM documents WHERE {where}", params
+        ).fetchone()
+        total = int(total_row["cnt"])
+
+        rows = conn.execute(
+            f"SELECT id, path, title, doc_date, tags, pinned FROM documents "
+            f"WHERE {where} ORDER BY doc_date DESC, id DESC LIMIT ?",
+            [*params, limit],
+        ).fetchall()
+
+        results = [
+            {
+                "path": r["path"],
+                "title": r["title"],
+                "date": r["doc_date"],
+                "tags": json.loads(r["tags"]) if r["tags"] else [],
+                "pinned": bool(r["pinned"]),
+            }
+            for r in rows
+        ]
+        return results, total
+
     def delete_note(self, path: str) -> dict[str, object]:
         """Delete a memory note by path. Removes file + all DB records.
 
@@ -1045,47 +1145,11 @@ class KnowledgeBase:
         """
         import re as _re
 
+        from kb.crud import find_document_by_target
         from kb.db import normalize_path
 
         conn = self._get_conn()
-
-        import fnmatch
-        import unicodedata
-
-        from kb.db import normalize_path as _normalize_path
-
-        # Resolve target to a document — try exact path, suffix, title, glob
-        path_nfc = _normalize_path(target)
-        path_nfd = unicodedata.normalize("NFD", target)
-        doc = conn.execute(
-            "SELECT * FROM documents WHERE path = ? OR path = ?", (path_nfc, path_nfd)
-        ).fetchone()
-        if doc is None:
-            # Suffix match
-            rows = conn.execute(
-                "SELECT * FROM documents WHERE path LIKE ? OR path LIKE ?",
-                ("%" + path_nfc, "%" + path_nfd),
-            ).fetchall()
-            if len(rows) == 1:
-                doc = rows[0]
-        if doc is None:
-            # Title match
-            rows = conn.execute(
-                "SELECT * FROM documents WHERE title = ? COLLATE NOCASE", (target,)
-            ).fetchall()
-            if len(rows) == 1:
-                doc = rows[0]
-        if doc is None:
-            # Glob / substring
-            all_paths = [r["path"] for r in conn.execute("SELECT path FROM documents").fetchall()]
-            if "*" in target or "?" in target:
-                matches = [p for p in all_paths if fnmatch.fnmatch(p, target)]
-            else:
-                matches = [p for p in all_paths if target in p.rsplit("/", 1)[-1]]
-            if len(matches) == 1:
-                doc = conn.execute(
-                    "SELECT * FROM documents WHERE path = ?", (matches[0],)
-                ).fetchone()
+        doc = find_document_by_target(conn, target)
         if doc is None:
             raise ValueError(f"Note not found: {target}")
         if doc["doc_type"] not in ("memory_note", "memory_doc"):
@@ -1208,6 +1272,46 @@ class KnowledgeBase:
             }
             for r in rows
         ]
+
+    # ------------------------------------------------------------------
+    # Index stats
+    # ------------------------------------------------------------------
+
+    def get_index_stats(self) -> dict[str, object]:
+        """Return database health stats: counts, date range, doc types."""
+        conn = self._get_conn()
+        total_docs = conn.execute("SELECT COUNT(*) as c FROM documents").fetchone()["c"]
+        total_entities = conn.execute("SELECT COUNT(*) as c FROM entities").fetchone()["c"]
+        total_facts = conn.execute("SELECT COUNT(*) as c FROM facts").fetchone()["c"]
+        pinned_docs = conn.execute(
+            "SELECT COUNT(*) as c FROM documents WHERE pinned = 1"
+        ).fetchone()["c"]
+        chunk_count = conn.execute("SELECT COUNT(*) as c FROM chunks").fetchone()["c"]
+        last_indexed = conn.execute("SELECT MAX(indexed_at) as ts FROM documents").fetchone()["ts"]
+
+        date_range = conn.execute(
+            "SELECT MIN(doc_date) as earliest, MAX(doc_date) as latest "
+            "FROM documents WHERE doc_date IS NOT NULL"
+        ).fetchone()
+
+        type_rows = conn.execute(
+            "SELECT doc_type, COUNT(*) as cnt FROM documents GROUP BY doc_type ORDER BY cnt DESC"
+        ).fetchall()
+        doc_counts = {r["doc_type"]: r["cnt"] for r in type_rows}
+
+        return {
+            "documents": total_docs,
+            "documents_by_type": doc_counts,
+            "entities": total_entities,
+            "facts": total_facts,
+            "pinned": pinned_docs,
+            "chunks": chunk_count,
+            "last_indexed": last_indexed,
+            "date_range": {
+                "earliest": date_range["earliest"] if date_range else None,
+                "latest": date_range["latest"] if date_range else None,
+            },
+        }
 
     # ------------------------------------------------------------------
     # Glossary

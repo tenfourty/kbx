@@ -655,85 +655,15 @@ def _slugify(text: str) -> str:
 def _find_document_by_target(conn: sqlite3.Connection, target: str) -> dict[str, Any] | None:
     """Resolve a document by path, content hash, title, glob, or substring.
 
-    Returns document dict or None. Raises SystemExit(2) for ambiguous matches.
+    Raises SystemExit(2) for ambiguous matches (CLI-specific error handling).
     """
-    # Content-hash lookup: #abc123
-    if target.startswith("#"):
-        hash_prefix = target[1:]
-        row = conn.execute(
-            "SELECT * FROM documents WHERE content_hash LIKE ?",
-            (hash_prefix + "%",),
-        ).fetchone()
-        if row:
-            return dict(row)
-        return None
+    from kb.crud import AmbiguousDocumentError, find_document_by_target
 
-    import fnmatch
-    import unicodedata
-
-    from kb.db import normalize_path
-
-    path_nfc = normalize_path(target)
-    path_nfd = unicodedata.normalize("NFD", target)
-
-    # Exact path match (try both NFC and NFD)
-    row = conn.execute(
-        "SELECT * FROM documents WHERE path = ? OR path = ?",
-        (path_nfc, path_nfd),
-    ).fetchone()
-    if row:
-        return dict(row)
-
-    # Suffix match
-    rows = conn.execute(
-        "SELECT * FROM documents WHERE path LIKE ? OR path LIKE ?",
-        ("%" + path_nfc, "%" + path_nfd),
-    ).fetchall()
-    seen_ids: set[int] = set()
-    unique_rows: list[sqlite3.Row] = []
-    for r in rows:
-        if r["id"] not in seen_ids:
-            seen_ids.add(r["id"])
-            unique_rows.append(r)
-    if len(unique_rows) == 1:
-        return dict(unique_rows[0])
-    if len(unique_rows) > 1:
-        paths = [r["path"] for r in unique_rows]
-        click.echo(f"Ambiguous path. Matches: {paths}", err=True)
-        raise SystemExit(2)
-
-    # Title match
-    title_rows = conn.execute(
-        "SELECT * FROM documents WHERE title = ? COLLATE NOCASE",
-        (target,),
-    ).fetchall()
-    if len(title_rows) == 1:
-        return dict(title_rows[0])
-    if len(title_rows) > 1:
-        paths = [r["path"] for r in title_rows]
-        click.echo(f"Ambiguous title. Matches: {paths}", err=True)
-        raise SystemExit(2)
-
-    # Glob / substring matching
-    all_rows = conn.execute("SELECT path FROM documents").fetchall()
-    all_paths = [r["path"] for r in all_rows]
-
-    if "*" in target or "?" in target:
-        matches = [p for p in all_paths if fnmatch.fnmatch(p, target)]
-    else:
-        matches = [p for p in all_paths if target in p.rsplit("/", 1)[-1]]
-
-    if len(matches) == 1:
-        row = conn.execute("SELECT * FROM documents WHERE path = ?", (matches[0],)).fetchone()
-        if row:
-            return dict(row)
-    elif len(matches) > 1:
-        click.echo("Ambiguous path. Matches:", err=True)
-        for m in matches:
-            click.echo(f"  {m}", err=True)
-        raise SystemExit(2)
-
-    return None
+    try:
+        return find_document_by_target(conn, target, strict=True)
+    except AmbiguousDocumentError as e:
+        click.echo(f"Ambiguous target. Matches: {e.matches}", err=True)
+        raise SystemExit(2) from None
 
 
 # ---------------------------------------------------------------------------
@@ -858,17 +788,13 @@ def _build_entity_result(db: Any, name: str) -> dict[str, Any]:
 
 def _resolve_me(name: str) -> str:
     """Resolve 'me' to the configured user name."""
-    if name.lower() != "me":
-        return name
-    from kb.user_config import find_config, load_config
+    from kb.user_config import resolve_me
 
-    config_path = find_config()
-    if config_path:
-        cfg = load_config(config_path)
-        if cfg.user.name:
-            return cfg.user.name
-    click.echo("'me' requires [user] name in kbx.toml or ~/.config/kbx/config.toml", err=True)
-    raise SystemExit(1)
+    result = resolve_me(name)
+    if result is None:
+        click.echo("'me' requires [user] name in kbx.toml or ~/.config/kbx/config.toml", err=True)
+        raise SystemExit(1)
+    return result
 
 
 def _format_entity_profile(entity: dict[str, Any]) -> str:

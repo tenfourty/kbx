@@ -12,6 +12,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
 from kb.config import find_entity, find_project_root, get_db
+from kb.crud import find_document_by_target as _find_document_by_target
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -59,16 +60,10 @@ def handle_kb_search(
 
 def _resolve_me(name: str) -> str:
     """Resolve 'me' to the configured user name."""
-    if name.lower() != "me":
-        return name
-    from kb.user_config import find_config, load_config
+    from kb.user_config import resolve_me
 
-    config_path = find_config()
-    if config_path:
-        cfg = load_config(config_path)
-        if cfg.user.name:
-            return cfg.user.name
-    return name  # fall through — let find_entity handle "me" as a literal name
+    result = resolve_me(name)
+    return result if result is not None else name
 
 
 def handle_kb_person_find(db: Database, name: str) -> str:
@@ -90,48 +85,36 @@ def handle_kb_person_timeline(
     doc_type: str | None = None,
     limit: int | None = None,
 ) -> str:
-    """Chronological docs mentioning a person. Returns JSON string."""
+    """Chronological docs mentioning a person. Delegates to KnowledgeBase. Returns JSON string."""
     try:
+        from pathlib import Path as _Path
+
+        from kb.api import KnowledgeBase
+
         name = _resolve_me(name)
-        conn = db.get_sqlite_conn()
-        entity_row = find_entity(conn, name)
-        if entity_row is None:
+        kb = KnowledgeBase._from_existing(db=db, project_root=_Path("."))
+        entity = kb.get_entity(name)
+        if entity is None:
+            kb.close()
             return json.dumps({"error": f"Entity not found: {name}"})
 
-        sql = """SELECT d.id, d.path, d.title, d.doc_date, d.doc_type, em.mention_type
-                 FROM documents d
-                 JOIN entity_mentions em ON d.id = em.document_id
-                 WHERE em.entity_id = ?"""
-        params: list[Any] = [entity_row["id"]]
-
-        if from_date:
-            sql += " AND d.doc_date >= ?"
-            params.append(from_date)
-        if to_date:
-            sql += " AND d.doc_date <= ?"
-            params.append(to_date)
-        if doc_type:
-            sql += " AND d.doc_type = ?"
-            params.append(doc_type)
-
-        sql += " ORDER BY d.doc_date ASC"
-        if limit is not None:
-            sql += " LIMIT ?"
-            params.append(limit)
-        docs = conn.execute(sql, params).fetchall()
+        entries = kb.get_entity_timeline(
+            name, limit=limit, from_date=from_date, to_date=to_date, doc_type=doc_type
+        )
+        kb.close()
 
         result = {
-            "name": entity_row["name"],
-            "entity_type": entity_row["entity_type"],
+            "name": entity.name,
+            "entity_type": entity.entity_type,
             "documents": [
                 {
-                    "path": d["path"],
-                    "title": d["title"],
-                    "date": d["doc_date"],
-                    "doc_type": d["doc_type"],
-                    "mention_type": d["mention_type"],
+                    "path": e.path,
+                    "title": e.title,
+                    "date": e.date,
+                    "doc_type": e.doc_type,
+                    "mention_type": e.mention_type,
                 }
-                for d in docs
+                for e in entries
             ],
         }
         return json.dumps(result, default=str, ensure_ascii=False)
@@ -285,7 +268,43 @@ def handle_kb_memory_add(
         return json.dumps({"error": str(e)})
 
 
-def handle_kb_pin(db: Database, target: str) -> str:
+def _set_pin_frontmatter(project_root: Path, doc_path: str, pinned: bool) -> None:
+    """Write pinned: true/false to a memory note's YAML frontmatter."""
+    file_path = project_root / doc_path
+    if not file_path.exists():
+        return
+    content = file_path.read_text(encoding="utf-8")
+    pinned_val = "true" if pinned else "false"
+    pinned_line = f"pinned: {pinned_val}"
+
+    fm_match = re.match(r"^---\s*\n(.*?)\n---\s*\n", content, re.DOTALL)
+    if fm_match:
+        fm_block = fm_match.group(1)
+        if re.search(r"^pinned:\s", fm_block, re.MULTILINE):
+            fm_block = re.sub(r"^pinned:\s.*$", pinned_line, fm_block, count=1, flags=re.MULTILINE)
+        else:
+            fm_block = fm_block.rstrip("\n") + f"\n{pinned_line}"
+        new_content = f"---\n{fm_block}\n---\n{content[fm_match.end() :]}"
+    else:
+        new_content = f"---\n{pinned_line}\n---\n{content}"
+
+    import os
+    import tempfile
+
+    fd, tmp = tempfile.mkstemp(dir=str(file_path.parent), suffix=".md.tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(new_content)
+        os.replace(tmp, str(file_path))
+    except BaseException:
+        import contextlib
+
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+
+
+def handle_kb_pin(db: Database, target: str, project_root: Path | None = None) -> str:
     """Pin a document to context. Returns JSON string."""
     try:
         conn = db.get_sqlite_conn()
@@ -294,6 +313,11 @@ def handle_kb_pin(db: Database, target: str) -> str:
             return json.dumps({"error": f"Document not found: {target}"})
         conn.execute("UPDATE documents SET pinned = 1 WHERE id = ?", (doc["id"],))
         conn.commit()
+
+        # Write-through: update frontmatter for memory notes
+        if project_root and doc.get("doc_type", "").startswith("memory"):
+            _set_pin_frontmatter(project_root, doc["path"], True)
+
         return json.dumps({"status": "ok", "path": doc["path"], "pinned": True})
     except Exception as e:
         print(f"kb_pin error: {e}", file=sys.stderr)
@@ -301,7 +325,7 @@ def handle_kb_pin(db: Database, target: str) -> str:
         return json.dumps({"error": str(e)})
 
 
-def handle_kb_unpin(db: Database, target: str) -> str:
+def handle_kb_unpin(db: Database, target: str, project_root: Path | None = None) -> str:
     """Unpin a document from context. Returns JSON string."""
     try:
         conn = db.get_sqlite_conn()
@@ -310,6 +334,11 @@ def handle_kb_unpin(db: Database, target: str) -> str:
             return json.dumps({"error": f"Document not found: {target}"})
         conn.execute("UPDATE documents SET pinned = 0 WHERE id = ?", (doc["id"],))
         conn.commit()
+
+        # Write-through: update frontmatter for memory notes
+        if project_root and doc.get("doc_type", "").startswith("memory"):
+            _set_pin_frontmatter(project_root, doc["path"], False)
+
         return json.dumps({"status": "ok", "path": doc["path"], "pinned": False})
     except Exception as e:
         print(f"kb_unpin error: {e}", file=sys.stderr)
@@ -317,87 +346,27 @@ def handle_kb_unpin(db: Database, target: str) -> str:
         return json.dumps({"error": str(e)})
 
 
-def _find_document_by_target(conn: Any, target: str) -> dict[str, Any] | None:
-    """Resolve a document by path, title, glob, or content hash. For MCP handlers."""
-    import fnmatch
-    import unicodedata
-
-    from kb.db import normalize_path
-
-    # Content hash
-    if target.startswith("#"):
-        row = conn.execute(
-            "SELECT * FROM documents WHERE content_hash LIKE ?", (target[1:] + "%",)
-        ).fetchone()
-        return dict(row) if row else None
-
-    path_nfc = normalize_path(target)
-    path_nfd = unicodedata.normalize("NFD", target)
-
-    # Exact path
-    row = conn.execute(
-        "SELECT * FROM documents WHERE path = ? OR path = ?", (path_nfc, path_nfd)
-    ).fetchone()
-    if row:
-        return dict(row)
-
-    # Suffix
-    rows = conn.execute(
-        "SELECT * FROM documents WHERE path LIKE ? OR path LIKE ?",
-        ("%" + path_nfc, "%" + path_nfd),
-    ).fetchall()
-    if len(rows) == 1:
-        return dict(rows[0])
-
-    # Title
-    rows = conn.execute(
-        "SELECT * FROM documents WHERE title = ? COLLATE NOCASE", (target,)
-    ).fetchall()
-    if len(rows) == 1:
-        return dict(rows[0])
-
-    # Glob / substring
-    all_paths = [r["path"] for r in conn.execute("SELECT path FROM documents").fetchall()]
-    if "*" in target or "?" in target:
-        matches = [p for p in all_paths if fnmatch.fnmatch(p, target)]
-    else:
-        matches = [p for p in all_paths if target in p.rsplit("/", 1)[-1]]
-    if len(matches) == 1:
-        row = conn.execute("SELECT * FROM documents WHERE path = ?", (matches[0],)).fetchone()
-        return dict(row) if row else None
-
-    return None
-
-
 def handle_kb_usage(db: Database) -> str:
-    """Get index health stats as structured JSON."""
+    """Get index health stats as structured JSON. Delegates to KnowledgeBase."""
     try:
-        conn = db.get_sqlite_conn()
+        from pathlib import Path as _Path
 
-        total_docs = conn.execute("SELECT COUNT(*) as c FROM documents").fetchone()["c"]
-        total_entities = conn.execute("SELECT COUNT(*) as c FROM entities").fetchone()["c"]
-        total_facts = conn.execute("SELECT COUNT(*) as c FROM facts").fetchone()["c"]
-        pinned_docs = conn.execute(
-            "SELECT COUNT(*) as c FROM documents WHERE pinned = 1"
-        ).fetchone()["c"]
+        from kb.api import KnowledgeBase
 
-        date_range = conn.execute(
-            "SELECT MIN(doc_date) as earliest, MAX(doc_date) as latest "
-            "FROM documents WHERE doc_date IS NOT NULL"
-        ).fetchone()
+        kb = KnowledgeBase._from_existing(db=db, project_root=_Path("."))
+        stats = kb.get_index_stats()
+        kb.close()
 
+        # Add MCP-specific tool_count
         tool_count = len(mcp._tool_manager._tools)
 
         return json.dumps(
             {
-                "docs": total_docs,
-                "entities": total_entities,
-                "facts": total_facts,
-                "pinned": pinned_docs,
-                "date_range": {
-                    "earliest": date_range["earliest"],
-                    "latest": date_range["latest"],
-                },
+                "docs": stats["documents"],
+                "entities": stats["entities"],
+                "facts": stats["facts"],
+                "pinned": stats["pinned"],
+                "date_range": stats["date_range"],
                 "tool_count": tool_count,
             }
         )
@@ -412,45 +381,15 @@ def handle_kb_entity_stale(
     days: int = 30,
     entity_type: str | None = None,
 ) -> str:
-    """Return entities not updated or mentioned within *days*. Returns JSON string."""
+    """Return entities not updated or mentioned within *days*. Delegates to KnowledgeBase."""
     try:
-        from datetime import date, timedelta
+        from pathlib import Path as _Path
 
-        cutoff = (date.today() - timedelta(days=days)).isoformat()
-        conn = db.get_sqlite_conn()
+        from kb.api import KnowledgeBase
 
-        query = """
-            SELECT id, name, entity_type, metadata, updated_at, last_mentioned_at, pinned
-            FROM entities
-            WHERE (updated_at IS NULL OR updated_at < ?)
-              AND (last_mentioned_at IS NULL OR last_mentioned_at < ?)
-        """
-        params: list[object] = [cutoff, cutoff]
-        if entity_type:
-            query += " AND entity_type = ?"
-            params.append(entity_type)
-        query += " ORDER BY COALESCE(last_mentioned_at, updated_at, '') ASC"
-
-        rows = conn.execute(query, params).fetchall()
-        results: list[dict[str, object]] = []
-        for r in rows:
-            meta = json.loads(r["metadata"]) if r["metadata"] else {}
-            most_recent = max(r["updated_at"] or "", r["last_mentioned_at"] or "")
-            age_days = (
-                (date.today() - date.fromisoformat(most_recent)).days if most_recent else None
-            )
-            results.append(
-                {
-                    "name": r["name"],
-                    "entity_type": r["entity_type"],
-                    "role": meta.get("role"),
-                    "team": meta.get("team"),
-                    "updated_at": r["updated_at"],
-                    "last_mentioned_at": r["last_mentioned_at"],
-                    "age_days": age_days,
-                    "pinned": bool(r["pinned"]),
-                }
-            )
+        kb = KnowledgeBase._from_existing(db=db, project_root=_Path("."))
+        results = kb.get_stale_entities(days=days, entity_type=entity_type)
+        kb.close()
         return json.dumps(
             {"results": results, "meta": {"count": len(results), "threshold_days": days}},
             default=str,
@@ -698,29 +637,25 @@ def handle_kb_project_edit(
 
 
 def _entity_list(db: Database, entity_type: str, limit: int = 50, offset: int = 0) -> str:
-    """Shared: list entities of a given type with pagination."""
-    conn = db.get_sqlite_conn()
+    """List entities via KnowledgeBase.list_entities(). Returns JSON string."""
+    from pathlib import Path as _Path
 
-    # Get total count first
-    total = conn.execute(
-        "SELECT COUNT(*) as cnt FROM entities WHERE entity_type = ?",
-        (entity_type,),
-    ).fetchone()["cnt"]
+    from kb.api import KnowledgeBase
 
-    rows = conn.execute(
-        "SELECT id, name, entity_type, aliases, metadata, source_path FROM entities "
-        "WHERE entity_type = ? ORDER BY name LIMIT ? OFFSET ?",
-        (entity_type, limit, offset),
-    ).fetchall()
+    kb = KnowledgeBase._from_existing(db=db, project_root=_Path("."))
+    all_entities = kb.list_entities(entity_type=entity_type)
+    kb.close()
+    total = len(all_entities)
+    page = all_entities[offset : offset + limit]
     entities = [
         {
-            "id": r["id"],
-            "name": r["name"],
-            "entity_type": r["entity_type"],
-            "aliases": json.loads(r["aliases"]) if r["aliases"] else [],
-            "metadata": json.loads(r["metadata"]) if r["metadata"] else {},
+            "id": e.id,
+            "name": e.name,
+            "entity_type": e.entity_type,
+            "aliases": e.aliases,
+            "metadata": e.metadata,
         }
-        for r in rows
+        for e in page
     ]
     return json.dumps(
         {"results": entities, "meta": {"total": total, "limit": limit, "offset": offset}},
@@ -749,71 +684,15 @@ def handle_kb_note_list(
     pinned_only: bool = False,
     limit: int = 25,
 ) -> str:
-    """List notes with optional tag/pin filters. Returns JSON string."""
+    """List notes with optional tag/pin filters. Delegates to KnowledgeBase. Returns JSON string."""
     try:
-        conn = db.get_sqlite_conn()
+        from pathlib import Path as _Path
 
-        # Build WHERE clause with optional filters
-        where = "doc_type IN ('memory_note', 'memory_doc')"
-        params: list[Any] = []
+        from kb.api import KnowledgeBase
 
-        if pinned_only:
-            where += " AND pinned = 1"
-
-        # Tag filtering requires post-fetch check (JSON array in SQLite),
-        # but we can still get the true total by counting all matches.
-        required_tags: list[str] = []
-        if tag:
-            required_tags = [t.strip().lower() for t in tag.split(",") if t.strip()]
-
-        if required_tags:
-            # Tags are stored as JSON arrays — filter in Python, count all matches
-            all_rows = conn.execute(
-                f"SELECT id, path, title, doc_date, tags, pinned FROM documents "
-                f"WHERE {where} ORDER BY doc_date DESC, id DESC",
-                params,
-            ).fetchall()
-
-            matching: list[dict[str, Any]] = []
-            for r in all_rows:
-                doc_tags: list[str] = json.loads(r["tags"]) if r["tags"] else []
-                lower_tags = [t.lower() for t in doc_tags]
-                if all(rt in lower_tags for rt in required_tags):
-                    matching.append(
-                        {
-                            "path": r["path"],
-                            "title": r["title"],
-                            "date": r["doc_date"],
-                            "tags": doc_tags,
-                            "pinned": bool(r["pinned"]),
-                        }
-                    )
-            total = len(matching)
-            results = matching[:limit]
-        else:
-            # No tag filter — use SQL COUNT + LIMIT
-            total = conn.execute(
-                f"SELECT COUNT(*) as cnt FROM documents WHERE {where}",
-                params,
-            ).fetchone()["cnt"]
-
-            rows = conn.execute(
-                f"SELECT id, path, title, doc_date, tags, pinned FROM documents "
-                f"WHERE {where} ORDER BY doc_date DESC, id DESC LIMIT ?",
-                [*params, limit],
-            ).fetchall()
-
-            results = [
-                {
-                    "path": r["path"],
-                    "title": r["title"],
-                    "date": r["doc_date"],
-                    "tags": json.loads(r["tags"]) if r["tags"] else [],
-                    "pinned": bool(r["pinned"]),
-                }
-                for r in rows
-            ]
-
+        kb = KnowledgeBase._from_existing(db=db, project_root=_Path("."))
+        results, total = kb.list_notes(tag=tag, pinned_only=pinned_only, limit=limit)
+        kb.close()
         return json.dumps(
             {"results": results, "meta": {"total": total, "limit": limit}},
             default=str,
@@ -1154,39 +1033,16 @@ def handle_kb_list(
 
 
 def handle_kb_index_status(db: Database) -> str:
-    """Database health: doc counts, entity counts, freshness. Returns JSON string."""
+    """Database health: doc counts, entity counts, freshness. Delegates to KnowledgeBase."""
     try:
-        conn = db.get_sqlite_conn()
+        from pathlib import Path as _Path
 
-        type_rows = conn.execute(
-            "SELECT doc_type, COUNT(*) as count FROM documents GROUP BY doc_type"
-        ).fetchall()
-        doc_counts = {r["doc_type"]: r["count"] for r in type_rows}
-        total_docs = sum(doc_counts.values())
+        from kb.api import KnowledgeBase
 
-        chunk_count = conn.execute("SELECT COUNT(*) as count FROM chunks").fetchone()["count"]
-        entity_count = conn.execute("SELECT COUNT(*) as count FROM entities").fetchone()["count"]
-        fact_count = conn.execute("SELECT COUNT(*) as count FROM facts").fetchone()["count"]
-        last_indexed = conn.execute("SELECT MAX(indexed_at) as ts FROM documents").fetchone()["ts"]
-
-        date_range = conn.execute(
-            "SELECT MIN(doc_date) as earliest, MAX(doc_date) as latest "
-            "FROM documents WHERE doc_date IS NOT NULL"
-        ).fetchone()
-
-        status = {
-            "documents": total_docs,
-            "documents_by_type": doc_counts,
-            "chunks": chunk_count,
-            "entities": entity_count,
-            "facts": fact_count,
-            "last_indexed": last_indexed,
-            "date_range": {
-                "earliest": date_range["earliest"],
-                "latest": date_range["latest"],
-            },
-        }
-        return json.dumps(status, default=str, ensure_ascii=False)
+        kb = KnowledgeBase._from_existing(db=db, project_root=_Path("."))
+        stats = kb.get_index_stats()
+        kb.close()
+        return json.dumps(stats, default=str, ensure_ascii=False)
     except Exception as e:
         print(f"kb_index_status error: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
@@ -1436,7 +1292,8 @@ def kb_pin(target: str) -> str:
     """Pin a document to context so it appears in kb_context output.
     Accepts path, title, or glob pattern."""
     db = get_db()
-    return handle_kb_pin(db, target)
+    project_root = find_project_root()
+    return handle_kb_pin(db, target, project_root)
 
 
 @mcp.tool(annotations=_MUTATING_IDEMPOTENT)
@@ -1444,7 +1301,8 @@ def kb_unpin(target: str) -> str:
     """Unpin a document from context.
     Accepts path, title, or glob pattern."""
     db = get_db()
-    return handle_kb_unpin(db, target)
+    project_root = find_project_root()
+    return handle_kb_unpin(db, target, project_root)
 
 
 @mcp.tool(annotations=_READ_ONLY)
