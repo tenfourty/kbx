@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.61](https://github.com/tenfourty/kbx/compare/kbx-v0.1.60...kbx-v0.1.61) (2026-03-16)
+
+
+### Bug Fixes
+
+* cleanup — dead code, view ambiguity, facts round-trip E2E test ([8c364d3](https://github.com/tenfourty/kbx/commit/8c364d3f7ac3648162da8e4d4605d237b3316eca))
+
 ## [0.1.60](https://github.com/tenfourty/kbx/compare/kbx-v0.1.59...kbx-v0.1.60) (2026-03-16)
 
 
