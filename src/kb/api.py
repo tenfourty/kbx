@@ -77,11 +77,29 @@ class KnowledgeBase:
         self._thread_safe = thread_safe
         self._embedder: Embedder | None = None
         self._embedder_failed = False
+        self._owns_db = True
 
         self._db = Database(data_dir)
 
         if thread_safe:
             self._replace_conn_thread_safe()
+
+    @classmethod
+    def _from_existing(cls, *, db: Database, project_root: Path) -> KnowledgeBase:
+        """Create a KnowledgeBase that reuses an existing Database instance.
+
+        The caller retains ownership of the db — close() will NOT close it.
+        Embedder is disabled (text-only indexing).
+        """
+        inst = object.__new__(cls)
+        inst._project_root = project_root
+        inst._data_dir = None  # type: ignore[assignment]
+        inst._thread_safe = False
+        inst._embedder = None
+        inst._embedder_failed = True  # skip embedder in shared-db context
+        inst._owns_db = False
+        inst._db = db
+        return inst
 
     def _replace_conn_thread_safe(self) -> None:
         """Replace the DB connection with a thread-safe one."""
@@ -153,10 +171,14 @@ class KnowledgeBase:
             return None
 
     def close(self) -> None:
-        """Release all resources (DB connection, embedder GPU memory)."""
+        """Release all resources (DB connection, embedder GPU memory).
+
+        When created via _from_existing(), the DB is not owned and won't be closed.
+        """
         if self._embedder is not None:
             self._embedder.release_gpu_memory()
-        self._db.close()
+        if self._owns_db:
+            self._db.close()
         self._embedder = None
         self._embedder_failed = False
 

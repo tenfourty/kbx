@@ -2046,12 +2046,9 @@ def memory_add(
       everything else                        → note file in memory/notes/
     """
     from kb.api import KnowledgeBase
-    from kb.config import get_data_dir
 
     project_root = _find_project_root()
-    kb = KnowledgeBase(project_root=project_root, data_dir=get_data_dir())
-    kb._db = _get_db()  # reuse the CLI's DB instance
-    kb._embedder_failed = True  # text-only indexing, embeddings on next index run
+    kb = KnowledgeBase._from_existing(db=_get_db(), project_root=project_root)
 
     try:
         is_note = body is not None or tags_str is not None or pin_flag or entity_name is None
@@ -2084,7 +2081,7 @@ def memory_add(
         if pin_flag:
             click.echo("Pinned to context.", err=True)
     finally:
-        kb._db = None  # type: ignore[assignment]  # don't close shared DB
+        kb.close()
 
 
 @memory.command("list")
@@ -2095,16 +2092,13 @@ def memory_list(
 ) -> None:
     """List recorded facts."""
     from kb.api import KnowledgeBase
-    from kb.config import get_data_dir
 
     project_root = _find_project_root()
-    kb = KnowledgeBase(project_root=project_root, data_dir=get_data_dir())
-    kb._db = _get_db()
-    kb._embedder_failed = True
+    kb = KnowledgeBase._from_existing(db=_get_db(), project_root=project_root)
     try:
         facts = kb.list_facts(since_days=since_days)
     finally:
-        kb._db = None  # type: ignore[assignment]
+        kb.close()
 
     if not facts and fmt == "table":
         click.echo(
@@ -2312,13 +2306,10 @@ def note_edit(
 ) -> None:
     """Edit an existing memory note (body, tags, pin status)."""
     from kb.api import KnowledgeBase
-    from kb.config import get_data_dir
 
     project_root = _find_project_root()
     db = _get_db()
-    kb = KnowledgeBase(project_root=project_root, data_dir=get_data_dir())
-    kb._db = db
-    kb._embedder_failed = True
+    kb = KnowledgeBase._from_existing(db=db, project_root=project_root)
 
     try:
         tag_list = [t.strip() for t in tags_str.split(",") if t.strip()] if tags_str else None
@@ -2348,7 +2339,7 @@ def note_edit(
         click.echo(str(e), err=True)
         raise SystemExit(1)
     finally:
-        kb._db = None  # type: ignore[assignment]
+        kb.close()
 
 
 @note.command("delete")

@@ -313,11 +313,8 @@ def handle_kb_memory_add(
     """Create a note or record a fact. Delegates to KnowledgeBase. Returns JSON string."""
     try:
         from kb.api import KnowledgeBase
-        from kb.config import get_data_dir
 
-        kb = KnowledgeBase(project_root=project_root, data_dir=get_data_dir())
-        kb._db = db  # reuse the existing DB instance
-        kb._embedder_failed = True  # text-only indexing in MCP context
+        kb = KnowledgeBase._from_existing(db=db, project_root=project_root)
         try:
             is_note = body is not None or tags is not None or pin or entity is None
 
@@ -336,8 +333,7 @@ def handle_kb_memory_add(
             )
             return json.dumps(result)
         finally:
-            # Don't close db — it's shared
-            kb._db = None  # type: ignore[assignment]
+            kb.close()
     except Exception as e:
         print(f"kb_memory_add error: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
@@ -928,11 +924,8 @@ def handle_kb_note_edit(
     """Edit a note's body, tags, or pin status. Delegates to KnowledgeBase. Returns JSON string."""
     try:
         from kb.api import KnowledgeBase
-        from kb.config import get_data_dir
 
-        kb = KnowledgeBase(project_root=project_root, data_dir=get_data_dir())
-        kb._db = db  # reuse the existing DB instance
-        kb._embedder_failed = True
+        kb = KnowledgeBase._from_existing(db=db, project_root=project_root)
         try:
             tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
             result = kb.edit_note(target, body=body, append=append, tags=tag_list, pin=pin)
@@ -940,7 +933,7 @@ def handle_kb_note_edit(
         except ValueError as e:
             return json.dumps({"error": str(e)})
         finally:
-            kb._db = None  # type: ignore[assignment]
+            kb.close()
     except Exception as e:
         print(f"kb_note_edit error: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
@@ -951,7 +944,6 @@ def handle_kb_note_delete(db: Database, project_root: Path, target: str) -> str:
     """Delete a memory note. Delegates to KnowledgeBase. Returns JSON string."""
     try:
         from kb.api import KnowledgeBase
-        from kb.config import get_data_dir
 
         # Resolve target to path first (KnowledgeBase.delete_note takes a path)
         conn = db.get_sqlite_conn()
@@ -959,9 +951,7 @@ def handle_kb_note_delete(db: Database, project_root: Path, target: str) -> str:
         if doc is None:
             return json.dumps({"error": f"Note not found: {target}"})
 
-        kb = KnowledgeBase(project_root=project_root, data_dir=get_data_dir())
-        kb._db = db
-        kb._embedder_failed = True
+        kb = KnowledgeBase._from_existing(db=db, project_root=project_root)
         try:
             result = kb.delete_note(doc["path"])
             return json.dumps(
@@ -972,7 +962,7 @@ def handle_kb_note_delete(db: Database, project_root: Path, target: str) -> str:
         except ValueError as e:
             return json.dumps({"error": str(e)})
         finally:
-            kb._db = None  # type: ignore[assignment]
+            kb.close()
     except Exception as e:
         print(f"kb_note_delete error: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
@@ -983,11 +973,8 @@ def handle_kb_memory_list(db: Database, project_root: Path, since_days: int | No
     """List recorded facts. Delegates to KnowledgeBase. Returns JSON string."""
     try:
         from kb.api import KnowledgeBase
-        from kb.config import get_data_dir
 
-        kb = KnowledgeBase(project_root=project_root, data_dir=get_data_dir())
-        kb._db = db
-        kb._embedder_failed = True
+        kb = KnowledgeBase._from_existing(db=db, project_root=project_root)
         try:
             facts = kb.list_facts(since_days=since_days)
             return json.dumps(
@@ -996,7 +983,7 @@ def handle_kb_memory_list(db: Database, project_root: Path, since_days: int | No
                 ensure_ascii=False,
             )
         finally:
-            kb._db = None  # type: ignore[assignment]
+            kb.close()
     except Exception as e:
         print(f"kb_memory_list error: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
@@ -1007,16 +994,13 @@ def handle_kb_memory_delete_fact(db: Database, project_root: Path, fact_id: int)
     """Delete a fact by ID. Delegates to KnowledgeBase. Returns JSON string."""
     try:
         from kb.api import KnowledgeBase
-        from kb.config import get_data_dir
 
-        kb = KnowledgeBase(project_root=project_root, data_dir=get_data_dir())
-        kb._db = db
-        kb._embedder_failed = True
+        kb = KnowledgeBase._from_existing(db=db, project_root=project_root)
         try:
             result = kb.delete_fact(fact_id)
             return json.dumps(result, default=str, ensure_ascii=False)
         finally:
-            kb._db = None  # type: ignore[assignment]
+            kb.close()
     except ValueError as e:
         return json.dumps({"error": str(e)})
     except Exception as e:
@@ -1038,16 +1022,13 @@ def handle_kb_memory_edit_fact(
             return json.dumps({"error": "Specify text and/or date to edit."})
 
         from kb.api import KnowledgeBase
-        from kb.config import get_data_dir
 
-        kb = KnowledgeBase(project_root=project_root, data_dir=get_data_dir())
-        kb._db = db
-        kb._embedder_failed = True
+        kb = KnowledgeBase._from_existing(db=db, project_root=project_root)
         try:
             result = kb.edit_fact(fact_id, text=text, date=date)
             return json.dumps(result, default=str, ensure_ascii=False)
         finally:
-            kb._db = None  # type: ignore[assignment]
+            kb.close()
     except ValueError as e:
         return json.dumps({"error": str(e)})
     except Exception as e:

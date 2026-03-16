@@ -48,6 +48,41 @@ class TestLifecycle:
         # After exit, db should be closed (no error on double-close)
         kb.close()
 
+    def test_from_existing_reuses_db(self, tmp_path, project_root):
+        """_from_existing skips Database creation and reuses the provided db."""
+        from kb.api import KnowledgeBase
+        from kb.db import Database
+
+        data_dir = tmp_path / "data"
+        db = Database(data_dir)
+        kb = KnowledgeBase._from_existing(db=db, project_root=project_root)
+        # Should reuse the same db object, not create a new one
+        assert kb._db is db
+        assert kb._project_root == project_root
+        assert kb._owns_db is False
+        # close() should NOT close the shared db
+        kb.close()
+        # DB should still be usable
+        conn = db.get_sqlite_conn()
+        conn.execute("SELECT 1").fetchone()
+        db.close()
+
+    def test_from_existing_close_does_not_close_db(self, tmp_path, project_root):
+        """Closing a _from_existing KB should not close the shared db."""
+        from kb.api import KnowledgeBase
+        from kb.db import Database
+
+        data_dir = tmp_path / "data"
+        db = Database(data_dir)
+        kb = KnowledgeBase._from_existing(db=db, project_root=project_root)
+        kb.close()
+        # Verify db is still open by using it
+        tables = db.get_sqlite_conn().execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+        assert len(tables) > 0
+        db.close()
+
     def test_thread_safe_mode(self, tmp_path, project_root):
         from kb.api import KnowledgeBase
 
