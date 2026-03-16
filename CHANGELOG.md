@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.62](https://github.com/tenfourty/kbx/compare/kbx-v0.1.61...kbx-v0.1.62) (2026-03-16)
+
+
+### Bug Fixes
+
+* migration 012 idempotency + seed_facts unique constraint ([324e7a5](https://github.com/tenfourty/kbx/commit/324e7a5fba89f3e09136dd75a5ae46d5db390d0d))
+
 ## [0.1.61](https://github.com/tenfourty/kbx/compare/kbx-v0.1.60...kbx-v0.1.61) (2026-03-16)
 
 
