@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.58](https://github.com/tenfourty/kbx/compare/kbx-v0.1.57...kbx-v0.1.58) (2026-03-16)
+
+
+### Bug Fixes
+
+* resolve CI lint failures (B904, RUF100) ([44a259b](https://github.com/tenfourty/kbx/commit/44a259be9f020ae47e45672092eeb0c707775994))
+
 ## [0.1.57](https://github.com/tenfourty/kbx/compare/kbx-v0.1.56...kbx-v0.1.57) (2026-03-16)
 
 
