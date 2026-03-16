@@ -2254,6 +2254,87 @@ class TestMcpPersonCreate:
 
 
 # ---------------------------------------------------------------------------
+# Entity create → index + pin integration tests
+# ---------------------------------------------------------------------------
+
+
+class TestEntityCreateIndexing:
+    """Newly created entities should be immediately searchable and pinnable."""
+
+    def test_person_create_indexed_in_documents(self, mcp_db):
+        """After kb_person_create, the person file should appear in the documents table."""
+        from kb.mcp_server import handle_kb_person_create
+
+        db, db_path = mcp_db
+        handle_kb_person_create(db, db_path, "Grace Hopper", role="Admiral")
+
+        conn = db.get_sqlite_conn()
+        row = conn.execute(
+            "SELECT * FROM documents WHERE path = ?", ("memory/people/grace-hopper.md",)
+        ).fetchone()
+        assert row is not None
+        assert row["doc_type"] == "memory_person"
+
+    def test_person_create_searchable_via_fts(self, mcp_db):
+        """After kb_person_create, the person should be findable via kb_search."""
+        from kb.mcp_server import handle_kb_person_create, handle_kb_search
+
+        db, db_path = mcp_db
+        handle_kb_person_create(db, db_path, "Grace Hopper", role="Admiral")
+
+        result = json.loads(handle_kb_search(db, "Grace Hopper", fast=True, limit=5))
+        titles = [r["title"] for r in result["results"]]
+        assert any("Grace Hopper" in t for t in titles)
+
+    def test_person_create_pinnable(self, mcp_db):
+        """After kb_person_create, kb_pin should be able to pin the person file."""
+        from kb.mcp_server import handle_kb_person_create, handle_kb_pin
+
+        db, db_path = mcp_db
+        handle_kb_person_create(db, db_path, "Grace Hopper", role="Admiral")
+
+        result = json.loads(handle_kb_pin(db, "memory/people/grace-hopper.md"))
+        assert result.get("status") == "ok"
+        assert result["pinned"] is True
+
+    def test_person_create_pinnable_by_name(self, mcp_db):
+        """After kb_person_create, kb_pin should find by title (person name)."""
+        from kb.mcp_server import handle_kb_person_create, handle_kb_pin
+
+        db, db_path = mcp_db
+        handle_kb_person_create(db, db_path, "Grace Hopper", role="Admiral")
+
+        result = json.loads(handle_kb_pin(db, "Grace Hopper"))
+        assert result.get("status") == "ok"
+        assert result["pinned"] is True
+
+    def test_project_create_indexed_in_documents(self, mcp_db):
+        """After kb_project_create, the project file should appear in the documents table."""
+        from kb.mcp_server import handle_kb_project_create
+
+        db, db_path = mcp_db
+        handle_kb_project_create(db, db_path, "Apollo Program", status="Active")
+
+        conn = db.get_sqlite_conn()
+        row = conn.execute(
+            "SELECT * FROM documents WHERE path = ?", ("memory/projects/apollo-program.md",)
+        ).fetchone()
+        assert row is not None
+        assert row["doc_type"] == "memory_project"
+
+    def test_project_create_searchable_via_fts(self, mcp_db):
+        """After kb_project_create, the project should be findable via kb_search."""
+        from kb.mcp_server import handle_kb_project_create, handle_kb_search
+
+        db, db_path = mcp_db
+        handle_kb_project_create(db, db_path, "Apollo Program", status="Active")
+
+        result = json.loads(handle_kb_search(db, "Apollo Program", fast=True, limit=5))
+        titles = [r["title"] for r in result["results"]]
+        assert any("Apollo" in t for t in titles)
+
+
+# ---------------------------------------------------------------------------
 # handle_kb_person_edit tests
 # ---------------------------------------------------------------------------
 

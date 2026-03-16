@@ -642,6 +642,12 @@ def handle_kb_person_create(
         result = create_entity(
             db, project_root, "person", name, metadata=metadata, aliases=alias_list
         )
+
+        # Index the new file so it's immediately searchable and pinnable
+        from kb.indexer import index_all
+
+        index_all(db, None, project_root, memory_only=True, skip_seed=True)
+
         return json.dumps(result)
     except EntityExistsError as e:
         return json.dumps({"error": str(e)})
@@ -735,6 +741,12 @@ def handle_kb_project_create(
         result = create_entity(
             db, project_root, "project", name, metadata=metadata, aliases=alias_list
         )
+
+        # Index the new file so it's immediately searchable and pinnable
+        from kb.indexer import index_all
+
+        index_all(db, None, project_root, memory_only=True, skip_seed=True)
+
         return json.dumps(result)
     except EntityExistsError as e:
         return json.dumps({"error": str(e)})
