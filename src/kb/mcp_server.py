@@ -482,7 +482,7 @@ def _find_document_by_target(conn: Any, target: str) -> dict[str, Any] | None:
 
 
 def handle_kb_usage(db: Database) -> str:
-    """Get kb usage instructions and index status. Returns plain text."""
+    """Get index health stats as structured JSON."""
     try:
         conn = db.get_sqlite_conn()
 
@@ -497,62 +497,24 @@ def handle_kb_usage(db: Database) -> str:
             "SELECT MIN(doc_date) as earliest, MAX(doc_date) as latest "
             "FROM documents WHERE doc_date IS NOT NULL"
         ).fetchone()
-        earliest = date_range["earliest"] or "N/A"
-        latest = date_range["latest"] or "N/A"
 
-        return f"""# kb — Agent Playbook
+        tool_count = len(mcp._tool_manager._tools)  # noqa: SLF001
 
-## 1. Quick Start
-  kb_context()           # orient: pinned docs + entity index
-  kb_search("topic")     # keyword search (~instant)
-  kb_view("path")        # read a full document
-
-## 2. Index Status
-  {total_docs} docs | {total_entities} entities | {total_facts} facts | {pinned_docs} pinned | dates {earliest} to {latest}
-
-## 3. Taking Notes
-  kb_memory_add("title", body="markdown content", tags="t1,t2", pin=True)
-  kb_memory_add("Quick note")                  # one-liner, no body
-  kb_memory_add("fact", entity="Name")         # fact appended to entity file
-  kb_memory_add("title", body="...", entity="Name")  # note linked to entity
-
-## 4. When to Pin
-  kb_pin("path or title or glob")     # pin any doc to context
-  kb_unpin("path or title or glob")   # remove from context
-  kb_memory_add("title", pin=True)    # create + pin in one step
-
-## 5. Browsing Notes
-  Use kb_search with tag filter, or CLI: kb note list --json
-
-## 6. Finding Things
-  kb_search("query")                           # keyword (FTS, instant)
-  kb_search("query", fast=False, limit=10)     # hybrid (semantic + FTS, ~2s)
-  kb_search("query", tag="infra")              # filter by tag
-  kb_search("query", from_date="2026-01-01", to_date="2026-01-31")  # date range
-  kb_search("query", sort_by="date")           # newest first
-  kb_view("path or #hash")                     # full document
-
-  Score Interpretation: 0.8+ strong | 0.5-0.8 worth reading | <0.5 noise
-
-## 7. People & Projects
-  kb_person_find("Name")              # compact profile (facts, metadata, breadcrumbs)
-  kb_person_timeline("Name")          # chronological doc list
-  kb_entity_stale()                   # entities not updated/mentioned in 30+ days
-  kb_entity_stale(days=60, entity_type="person")  # custom threshold + filter
-  kb_context()                        # full entity overview
-  CLI: kb person/project create/edit/delete, kb glossary add/list/delete
-
-## 8. Context & Indexing
-  kb_context()                        # compact entity index (for agents)
-  kb_context(fmt="human")             # markdown format (for humans)
-  kb_context(topic="topic")           # filtered to a topic
-  CLI: kb index run --no-embed        # text-only index (fast)
-  CLI: kb index run --cpu             # full index with embeddings
-"""
+        return json.dumps({
+            "docs": total_docs,
+            "entities": total_entities,
+            "facts": total_facts,
+            "pinned": pinned_docs,
+            "date_range": {
+                "earliest": date_range["earliest"],
+                "latest": date_range["latest"],
+            },
+            "tool_count": tool_count,
+        })
     except Exception as e:
         print(f"kb_usage error: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
-        return f"Error getting usage: {e}"
+        return json.dumps({"error": str(e)})
 
 
 def handle_kb_entity_stale(
@@ -646,6 +608,177 @@ def handle_kb_person_list(db: Database, limit: int = 50, offset: int = 0) -> str
         print(f"kb_person_list error: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return json.dumps({"error": str(e), "results": []})
+
+
+def handle_kb_person_create(
+    db: Database,
+    project_root: Path,
+    name: str,
+    *,
+    role: str | None = None,
+    email: str | None = None,
+    team: str | None = None,
+    reports_to: str | None = None,
+    company: str | None = None,
+    aliases: str | None = None,
+) -> str:
+    """Create a new person entity. Returns JSON string."""
+    from kb.crud import EntityExistsError, create_entity
+
+    try:
+        metadata = {
+            k: v
+            for k, v in {
+                "role": role,
+                "email": email,
+                "team": team,
+                "reports_to": reports_to,
+                "company": company,
+            }.items()
+            if v
+        }
+        alias_list = [a.strip() for a in aliases.split(",") if a.strip()] if aliases else []
+
+        result = create_entity(
+            db, project_root, "person", name, metadata=metadata, aliases=alias_list
+        )
+        return json.dumps(result)
+    except EntityExistsError as e:
+        return json.dumps({"error": str(e)})
+    except Exception as e:
+        print(f"kb_person_create error: {e}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        return json.dumps({"error": str(e)})
+
+
+def _parse_meta_string(meta: str | None) -> dict[str, str]:
+    """Parse a comma-separated 'key=value,key2=value2' or single 'key=value' string."""
+    if not meta:
+        return {}
+    result: dict[str, str] = {}
+    for pair in meta.split(","):
+        if "=" not in pair:
+            continue
+        key, _, value = pair.partition("=")
+        key = key.strip()
+        if key:
+            result[key] = value.strip()
+    return result
+
+
+def handle_kb_person_edit(
+    db: Database,
+    project_root: Path,
+    name: str,
+    *,
+    role: str | None = None,
+    email: str | None = None,
+    team: str | None = None,
+    reports_to: str | None = None,
+    company: str | None = None,
+    aliases: str | None = None,
+    meta: str | None = None,
+) -> str:
+    """Edit an existing person's metadata. Returns JSON string."""
+    from kb.crud import EntityNotFoundError, edit_entity
+
+    try:
+        metadata: dict[str, Any] = {
+            k: v
+            for k, v in {
+                "role": role,
+                "email": email,
+                "team": team,
+                "reports_to": reports_to,
+                "company": company,
+            }.items()
+            if v is not None
+        }
+        metadata.update(_parse_meta_string(meta))
+        alias_list = [a.strip() for a in aliases.split(",") if a.strip()] if aliases else None
+
+        result = edit_entity(db, project_root, name, metadata=metadata or None, aliases=alias_list)
+        return json.dumps(result)
+    except EntityNotFoundError as e:
+        return json.dumps({"error": str(e)})
+    except Exception as e:
+        print(f"kb_person_edit error: {e}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        return json.dumps({"error": str(e)})
+
+
+def handle_kb_project_create(
+    db: Database,
+    project_root: Path,
+    name: str,
+    *,
+    status: str | None = None,
+    lead: str | None = None,
+    started: str | None = None,
+    aliases: str | None = None,
+) -> str:
+    """Create a new project entity. Returns JSON string."""
+    from kb.crud import EntityExistsError, create_entity
+
+    try:
+        metadata = {
+            k: v
+            for k, v in {
+                "status": status,
+                "lead": lead,
+                "started": started,
+            }.items()
+            if v
+        }
+        alias_list = [a.strip() for a in aliases.split(",") if a.strip()] if aliases else []
+
+        result = create_entity(
+            db, project_root, "project", name, metadata=metadata, aliases=alias_list
+        )
+        return json.dumps(result)
+    except EntityExistsError as e:
+        return json.dumps({"error": str(e)})
+    except Exception as e:
+        print(f"kb_project_create error: {e}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        return json.dumps({"error": str(e)})
+
+
+def handle_kb_project_edit(
+    db: Database,
+    project_root: Path,
+    name: str,
+    *,
+    status: str | None = None,
+    lead: str | None = None,
+    started: str | None = None,
+    aliases: str | None = None,
+    meta: str | None = None,
+) -> str:
+    """Edit an existing project's metadata. Returns JSON string."""
+    from kb.crud import EntityNotFoundError, edit_entity
+
+    try:
+        metadata: dict[str, Any] = {
+            k: v
+            for k, v in {
+                "status": status,
+                "lead": lead,
+                "started": started,
+            }.items()
+            if v is not None
+        }
+        metadata.update(_parse_meta_string(meta))
+        alias_list = [a.strip() for a in aliases.split(",") if a.strip()] if aliases else None
+
+        result = edit_entity(db, project_root, name, metadata=metadata or None, aliases=alias_list)
+        return json.dumps(result)
+    except EntityNotFoundError as e:
+        return json.dumps({"error": str(e)})
+    except Exception as e:
+        print(f"kb_project_edit error: {e}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        return json.dumps({"error": str(e)})
 
 
 def _entity_list(db: Database, entity_type: str, limit: int = 50, offset: int = 0) -> str:
@@ -1491,7 +1624,8 @@ def kb_context(
 
 @mcp.tool(annotations=_READ_ONLY)
 def kb_usage() -> str:
-    """Get kb usage instructions and current index status (document/entity counts, date range)."""
+    """Get index health stats: document/entity/fact/pinned counts, date range, and tool count.
+    Returns structured JSON — use individual tool docstrings for usage reference."""
     db = get_db()
     return handle_kb_usage(db)
 
@@ -1569,6 +1703,122 @@ def kb_person_list(limit: int = 50, offset: int = 0) -> str:
     limit = max(1, min(limit, 500))
     db = get_db()
     return handle_kb_person_list(db, limit=limit, offset=offset)
+
+
+@mcp.tool(annotations=_MUTATING)
+def kb_person_create(
+    name: str,
+    role: str | None = None,
+    email: str | None = None,
+    team: str | None = None,
+    reports_to: str | None = None,
+    company: str | None = None,
+    aliases: str | None = None,
+) -> str:
+    """Create a new person entity with a markdown file in memory/people/.
+    name: full name (e.g. 'Jane Doe').
+    role, email, team, reports_to, company: optional metadata fields.
+    aliases: comma-separated alternative names (e.g. 'Jane,JD')."""
+    db = get_db()
+    project_root = find_project_root()
+    return handle_kb_person_create(
+        db,
+        project_root,
+        name,
+        role=role,
+        email=email,
+        team=team,
+        reports_to=reports_to,
+        company=company,
+        aliases=aliases,
+    )
+
+
+@mcp.tool(annotations=_MUTATING_IDEMPOTENT)
+def kb_person_edit(
+    name: str,
+    role: str | None = None,
+    email: str | None = None,
+    team: str | None = None,
+    reports_to: str | None = None,
+    company: str | None = None,
+    aliases: str | None = None,
+    meta: str | None = None,
+) -> str:
+    """Edit an existing person's metadata. Preserves freeform content.
+    name: person to edit (exact name, alias, or partial match).
+    role, email, team, reports_to, company: standard fields (set to update).
+    aliases: comma-separated names to add (e.g. 'Jane,JD').
+    meta: comma-separated key=value pairs for arbitrary metadata (e.g. 'timezone=CET,lang=FR').
+    Set a value to empty string to remove a key (e.g. 'timezone=')."""
+    db = get_db()
+    project_root = find_project_root()
+    return handle_kb_person_edit(
+        db,
+        project_root,
+        name,
+        role=role,
+        email=email,
+        team=team,
+        reports_to=reports_to,
+        company=company,
+        aliases=aliases,
+        meta=meta,
+    )
+
+
+@mcp.tool(annotations=_MUTATING)
+def kb_project_create(
+    name: str,
+    status: str | None = None,
+    lead: str | None = None,
+    started: str | None = None,
+    aliases: str | None = None,
+) -> str:
+    """Create a new project entity with a markdown file in memory/projects/.
+    name: project name (e.g. 'API Redesign').
+    status, lead, started: optional metadata fields.
+    aliases: comma-separated alternative names (e.g. 'api-v2,redesign')."""
+    db = get_db()
+    project_root = find_project_root()
+    return handle_kb_project_create(
+        db,
+        project_root,
+        name,
+        status=status,
+        lead=lead,
+        started=started,
+        aliases=aliases,
+    )
+
+
+@mcp.tool(annotations=_MUTATING_IDEMPOTENT)
+def kb_project_edit(
+    name: str,
+    status: str | None = None,
+    lead: str | None = None,
+    started: str | None = None,
+    aliases: str | None = None,
+    meta: str | None = None,
+) -> str:
+    """Edit an existing project's metadata. Preserves freeform content.
+    name: project to edit (exact name, alias, or partial match).
+    status, lead, started: standard fields (set to update).
+    aliases: comma-separated names to add (e.g. 'api-v2,redesign').
+    meta: comma-separated key=value pairs for arbitrary metadata (e.g. 'priority=High').
+    Set a value to empty string to remove a key (e.g. 'priority=')."""
+    db = get_db()
+    project_root = find_project_root()
+    return handle_kb_project_edit(
+        db,
+        project_root,
+        name,
+        status=status,
+        lead=lead,
+        started=started,
+        aliases=aliases,
+        meta=meta,
+    )
 
 
 @mcp.tool(annotations=_READ_ONLY)

@@ -2135,6 +2135,7 @@ class TestMcpHandlerErrors:
         assert "error" in result
 
     def test_usage_handles_exception(self):
+        import json as _json
         from unittest.mock import MagicMock
 
         from kb.mcp_server import handle_kb_usage
@@ -2142,7 +2143,8 @@ class TestMcpHandlerErrors:
         mock_db = MagicMock()
         mock_db.get_sqlite_conn.side_effect = RuntimeError("DB error")
         result = handle_kb_usage(mock_db)
-        assert "Error" in result
+        data = _json.loads(result)
+        assert "error" in data
 
     def test_memory_add_handles_exception(self):
         from unittest.mock import MagicMock

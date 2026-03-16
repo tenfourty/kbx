@@ -450,14 +450,41 @@ class TestMcpContextFmt:
 
 
 class TestMcpUsage:
-    def test_usage_returns_string(self, mcp_db):
-        """kb_usage should return usage text with stats."""
+    def test_usage_returns_json(self, mcp_db):
+        """kb_usage should return structured JSON with index stats."""
         from kb.mcp_server import handle_kb_usage
 
         db, _ = mcp_db
-        result = handle_kb_usage(db)
-        assert "kb_search" in result
-        assert "documents" in result.lower() or "entities" in result.lower()
+        data = json.loads(handle_kb_usage(db))
+        assert "docs" in data
+        assert "entities" in data
+        assert "facts" in data
+        assert "pinned" in data
+        assert "date_range" in data
+        assert "tool_count" in data
+        assert isinstance(data["docs"], int)
+        assert isinstance(data["entities"], int)
+        assert isinstance(data["tool_count"], int)
+
+    def test_usage_stats_reflect_fixture_data(self, mcp_db):
+        """kb_usage stats should match the fixture's known data."""
+        from kb.mcp_server import handle_kb_usage
+
+        db, _ = mcp_db
+        data = json.loads(handle_kb_usage(db))
+        assert data["docs"] == 4  # 3 meetings + 1 person doc in fixture
+        assert data["entities"] == 2  # Talia Ström + Helix Refactor
+        assert data["pinned"] == 0  # no pinned docs in fixture
+        assert data["date_range"]["earliest"] == "2026-01-20"
+        assert data["date_range"]["latest"] == "2026-02-01"
+
+    def test_usage_tool_count_positive(self, mcp_db):
+        """kb_usage tool_count should be a positive integer."""
+        from kb.mcp_server import handle_kb_usage
+
+        db, _ = mcp_db
+        data = json.loads(handle_kb_usage(db))
+        assert data["tool_count"] >= 28  # at least our known tools
 
 
 # ---------------------------------------------------------------------------
@@ -851,16 +878,15 @@ class TestMcpMemoryAdd:
 
 class TestMcpUsageFacts:
     def test_usage_includes_facts_count(self, mcp_db):
-        """kb_usage output includes facts count."""
+        """kb_usage facts field reflects actual fact count."""
         from kb.mcp_server import handle_kb_memory_add, handle_kb_usage
 
         db, db_path = mcp_db
         # Add a fact first
         handle_kb_memory_add(db, db_path, "Talia knows Rust", entity="Talia")
 
-        result = handle_kb_usage(db)
-        # Should include "1 facts" in the output
-        assert "1 facts" in result
+        data = json.loads(handle_kb_usage(db))
+        assert data["facts"] == 1
 
 
 # ---------------------------------------------------------------------------
@@ -2126,6 +2152,398 @@ class TestMcpNoteListTotal:
 # ---------------------------------------------------------------------------
 # Fix: find_project_root XDG check should use is_relative_to, not startswith
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# handle_kb_person_create tests
+# ---------------------------------------------------------------------------
+
+
+class TestMcpPersonCreate:
+    def test_create_person_returns_json(self, mcp_db):
+        """kb_person_create should return valid JSON with name, path, entity_type."""
+        from kb.mcp_server import handle_kb_person_create
+
+        db, db_path = mcp_db
+        result = json.loads(
+            handle_kb_person_create(db, db_path, "Wren Smith", role="SRE Lead")
+        )
+        assert result["name"] == "Wren Smith"
+        assert result["entity_type"] == "person"
+        assert "path" in result
+        assert result["path"].endswith("alice-smith.md")
+
+    def test_create_person_writes_file(self, mcp_db):
+        """kb_person_create should create a markdown file in memory/people/."""
+        from kb.mcp_server import handle_kb_person_create
+
+        db, db_path = mcp_db
+        handle_kb_person_create(db, db_path, "Soren Jones", role="Engineer", team="Platform")
+
+        filepath = db_path / "memory" / "people" / "bob-jones.md"
+        assert filepath.exists()
+        content = filepath.read_text()
+        assert "# Soren Jones" in content
+        assert "role: Engineer" in content
+        assert "team:" in content
+
+    def test_create_person_with_all_fields(self, mcp_db):
+        """kb_person_create should accept role, email, team, reports_to, company, aliases."""
+        from kb.mcp_server import handle_kb_person_create
+
+        db, db_path = mcp_db
+        result = json.loads(
+            handle_kb_person_create(
+                db,
+                db_path,
+                "Charlie Davis",
+                role="VP Eng",
+                email="charlie@example.com",
+                team="Engineering",
+                reports_to="CEO",
+                company="Lattice",
+                aliases="Charlie,CD",
+            )
+        )
+        assert result["name"] == "Charlie Davis"
+
+        filepath = db_path / "memory" / "people" / "charlie-davis.md"
+        content = filepath.read_text()
+        assert "charlie@example.com" in content
+        assert "VP Eng" in content
+
+    def test_create_person_seeds_entity_in_db(self, mcp_db):
+        """kb_person_create should seed the entity into SQLite."""
+        from kb.mcp_server import handle_kb_person_create
+
+        db, db_path = mcp_db
+        handle_kb_person_create(db, db_path, "Diana Prince", role="Hero")
+
+        conn = db.get_sqlite_conn()
+        row = conn.execute(
+            "SELECT * FROM entities WHERE name = ?", ("Diana Prince",)
+        ).fetchone()
+        assert row is not None
+        assert row["entity_type"] == "person"
+
+    def test_create_person_duplicate_returns_error(self, mcp_db):
+        """kb_person_create should return error JSON when person already exists."""
+        from kb.mcp_server import handle_kb_person_create
+
+        db, db_path = mcp_db
+        # First create should succeed
+        handle_kb_person_create(db, db_path, "Talia Ström")
+        # Second create should return error (Talia Ström already exists in fixture)
+        result = json.loads(handle_kb_person_create(db, db_path, "Talia Ström"))
+        assert "error" in result
+        assert "exists" in result["error"].lower()
+
+    def test_create_person_no_metadata(self, mcp_db):
+        """kb_person_create with just a name (no optional fields) should work."""
+        from kb.mcp_server import handle_kb_person_create
+
+        db, db_path = mcp_db
+        result = json.loads(handle_kb_person_create(db, db_path, "Anders Castle"))
+        assert result["name"] == "Anders Castle"
+        assert result["entity_type"] == "person"
+
+        filepath = db_path / "memory" / "people" / "frank-castle.md"
+        assert filepath.exists()
+        content = filepath.read_text()
+        assert "# Anders Castle" in content
+
+
+# ---------------------------------------------------------------------------
+# handle_kb_person_edit tests
+# ---------------------------------------------------------------------------
+
+
+class TestMcpPersonEdit:
+    """Tests for person edit — create a person first so the file exists on disk."""
+
+    def _create_person(self, db, db_path, name="Test Person", **kwargs):
+        from kb.mcp_server import handle_kb_person_create
+
+        return json.loads(handle_kb_person_create(db, db_path, name, **kwargs))
+
+    def test_edit_person_updates_role(self, mcp_db):
+        """kb_person_edit should update role metadata."""
+        from kb.mcp_server import handle_kb_person_edit
+
+        db, db_path = mcp_db
+        self._create_person(db, db_path, "Wren Smith", role="Engineer")
+        result = json.loads(
+            handle_kb_person_edit(db, db_path, "Wren Smith", role="VP Platform")
+        )
+        assert result["updated"] is True
+        assert result["name"] == "Wren Smith"
+
+        conn = db.get_sqlite_conn()
+        row = conn.execute(
+            "SELECT metadata FROM entities WHERE name = ?", ("Wren Smith",)
+        ).fetchone()
+        meta = json.loads(row["metadata"])
+        assert meta["role"] == "VP Platform"
+
+    def test_edit_person_updates_team(self, mcp_db):
+        """kb_person_edit should update team metadata."""
+        from kb.mcp_server import handle_kb_person_edit
+
+        db, db_path = mcp_db
+        self._create_person(db, db_path, "Soren Jones", team="Platform")
+        result = json.loads(
+            handle_kb_person_edit(db, db_path, "Soren Jones", team="Infrastructure")
+        )
+        assert result["updated"] is True
+
+    def test_edit_person_with_meta(self, mcp_db):
+        """kb_person_edit should accept arbitrary key=value metadata."""
+        from kb.mcp_server import handle_kb_person_edit
+
+        db, db_path = mcp_db
+        self._create_person(db, db_path, "Charlie Davis")
+        result = json.loads(
+            handle_kb_person_edit(db, db_path, "Charlie Davis", meta="timezone=CET")
+        )
+        assert result["updated"] is True
+
+        conn = db.get_sqlite_conn()
+        row = conn.execute(
+            "SELECT metadata FROM entities WHERE name = ?", ("Charlie Davis",)
+        ).fetchone()
+        meta = json.loads(row["metadata"])
+        assert meta["timezone"] == "CET"
+
+    def test_edit_person_meta_remove(self, mcp_db):
+        """kb_person_edit with empty value should remove a metadata key."""
+        from kb.mcp_server import handle_kb_person_edit
+
+        db, db_path = mcp_db
+        self._create_person(db, db_path, "Diana Prince")
+        handle_kb_person_edit(db, db_path, "Diana Prince", meta="timezone=CET")
+        result = json.loads(
+            handle_kb_person_edit(db, db_path, "Diana Prince", meta="timezone=")
+        )
+        assert result["updated"] is True
+
+        conn = db.get_sqlite_conn()
+        row = conn.execute(
+            "SELECT metadata FROM entities WHERE name = ?", ("Diana Prince",)
+        ).fetchone()
+        meta = json.loads(row["metadata"])
+        assert "timezone" not in meta
+
+    def test_edit_person_adds_aliases(self, mcp_db):
+        """kb_person_edit should add aliases."""
+        from kb.mcp_server import handle_kb_person_edit
+
+        db, db_path = mcp_db
+        self._create_person(db, db_path, "Anders Castle")
+        # Note: single-word first-name aliases are auto-filtered by _derive_aliases,
+        # so use multi-word or non-obvious aliases.
+        result = json.loads(
+            handle_kb_person_edit(db, db_path, "Anders Castle", aliases="Punisher,FC")
+        )
+        assert result["updated"] is True
+
+        conn = db.get_sqlite_conn()
+        row = conn.execute(
+            "SELECT aliases FROM entities WHERE name = ?", ("Anders Castle",)
+        ).fetchone()
+        alias_list = json.loads(row["aliases"])
+        assert "Punisher" in alias_list
+        assert "FC" in alias_list
+
+    def test_edit_person_not_found_returns_error(self, mcp_db):
+        """kb_person_edit for unknown person returns error JSON."""
+        from kb.mcp_server import handle_kb_person_edit
+
+        db, db_path = mcp_db
+        result = json.loads(
+            handle_kb_person_edit(db, db_path, "NonexistentPerson", role="CEO")
+        )
+        assert "error" in result
+        assert "not found" in result["error"].lower()
+
+
+# ---------------------------------------------------------------------------
+# handle_kb_project_create tests
+# ---------------------------------------------------------------------------
+
+
+class TestMcpProjectCreate:
+    def test_create_project_returns_json(self, mcp_db):
+        """kb_project_create should return valid JSON with name, path, entity_type."""
+        from kb.mcp_server import handle_kb_project_create
+
+        db, db_path = mcp_db
+        result = json.loads(
+            handle_kb_project_create(db, db_path, "API Redesign", status="Active")
+        )
+        assert result["name"] == "API Redesign"
+        assert result["entity_type"] == "project"
+        assert "path" in result
+        assert result["path"].endswith("api-redesign.md")
+
+    def test_create_project_writes_file(self, mcp_db):
+        """kb_project_create should create a markdown file in memory/projects/."""
+        from kb.mcp_server import handle_kb_project_create
+
+        db, db_path = mcp_db
+        handle_kb_project_create(
+            db, db_path, "Platform Migration", status="In Progress", lead="Talia Ström"
+        )
+
+        filepath = db_path / "memory" / "projects" / "platform-migration.md"
+        assert filepath.exists()
+        content = filepath.read_text()
+        assert "# Platform Migration" in content
+        assert "status: In Progress" in content
+
+    def test_create_project_with_all_fields(self, mcp_db):
+        """kb_project_create should accept status, lead, started, aliases."""
+        from kb.mcp_server import handle_kb_project_create
+
+        db, db_path = mcp_db
+        result = json.loads(
+            handle_kb_project_create(
+                db,
+                db_path,
+                "Infra Overhaul",
+                status="Planning",
+                lead="Talia Ström",
+                started="2026-01",
+                aliases="infra-v2,IO",
+            )
+        )
+        assert result["name"] == "Infra Overhaul"
+
+    def test_create_project_seeds_entity_in_db(self, mcp_db):
+        """kb_project_create should seed the entity into SQLite."""
+        from kb.mcp_server import handle_kb_project_create
+
+        db, db_path = mcp_db
+        handle_kb_project_create(db, db_path, "New Dashboard", status="Active")
+
+        conn = db.get_sqlite_conn()
+        row = conn.execute(
+            "SELECT * FROM entities WHERE name = ?", ("New Dashboard",)
+        ).fetchone()
+        assert row is not None
+        assert row["entity_type"] == "project"
+
+    def test_create_project_duplicate_returns_error(self, mcp_db):
+        """kb_project_create should return error JSON when project already exists."""
+        from kb.mcp_server import handle_kb_project_create
+
+        db, db_path = mcp_db
+        handle_kb_project_create(db, db_path, "Duplicate Project")
+        result = json.loads(handle_kb_project_create(db, db_path, "Duplicate Project"))
+        assert "error" in result
+        assert "exists" in result["error"].lower()
+
+    def test_create_project_no_metadata(self, mcp_db):
+        """kb_project_create with just a name should work."""
+        from kb.mcp_server import handle_kb_project_create
+
+        db, db_path = mcp_db
+        result = json.loads(handle_kb_project_create(db, db_path, "Bare Project"))
+        assert result["name"] == "Bare Project"
+        assert result["entity_type"] == "project"
+
+
+# ---------------------------------------------------------------------------
+# handle_kb_project_edit tests
+# ---------------------------------------------------------------------------
+
+
+class TestMcpProjectEdit:
+    """Tests for project edit — create a project first so the file exists on disk."""
+
+    def _create_project(self, db, db_path, name="Test Project", **kwargs):
+        from kb.mcp_server import handle_kb_project_create
+
+        return json.loads(handle_kb_project_create(db, db_path, name, **kwargs))
+
+    def test_edit_project_updates_status(self, mcp_db):
+        """kb_project_edit should update status metadata."""
+        from kb.mcp_server import handle_kb_project_edit
+
+        db, db_path = mcp_db
+        self._create_project(db, db_path, "API Redesign", status="In Progress")
+        result = json.loads(
+            handle_kb_project_edit(db, db_path, "API Redesign", status="Completed")
+        )
+        assert result["updated"] is True
+        assert result["name"] == "API Redesign"
+
+        conn = db.get_sqlite_conn()
+        row = conn.execute(
+            "SELECT metadata FROM entities WHERE name = ?", ("API Redesign",)
+        ).fetchone()
+        meta = json.loads(row["metadata"])
+        assert meta["status"] == "Completed"
+
+    def test_edit_project_updates_lead(self, mcp_db):
+        """kb_project_edit should update lead metadata."""
+        from kb.mcp_server import handle_kb_project_edit
+
+        db, db_path = mcp_db
+        self._create_project(db, db_path, "Platform Work")
+        result = json.loads(
+            handle_kb_project_edit(db, db_path, "Platform Work", lead="Talia Ström")
+        )
+        assert result["updated"] is True
+
+    def test_edit_project_with_meta(self, mcp_db):
+        """kb_project_edit should accept arbitrary key=value metadata."""
+        from kb.mcp_server import handle_kb_project_edit
+
+        db, db_path = mcp_db
+        self._create_project(db, db_path, "Infra Overhaul")
+        result = json.loads(
+            handle_kb_project_edit(db, db_path, "Infra Overhaul", meta="priority=High")
+        )
+        assert result["updated"] is True
+
+        conn = db.get_sqlite_conn()
+        row = conn.execute(
+            "SELECT metadata FROM entities WHERE name = ?", ("Infra Overhaul",)
+        ).fetchone()
+        meta = json.loads(row["metadata"])
+        assert meta["priority"] == "High"
+
+    def test_edit_project_adds_aliases(self, mcp_db):
+        """kb_project_edit should add aliases."""
+        from kb.mcp_server import handle_kb_project_edit
+
+        db, db_path = mcp_db
+        self._create_project(db, db_path, "Dashboard V2")
+        # Note: lowercase-with-hyphens aliases are filtered by _derive_aliases
+        # (treated as auto-generated file stems), so use non-hyphenated aliases.
+        result = json.loads(
+            handle_kb_project_edit(db, db_path, "Dashboard V2", aliases="DashV2,DV2")
+        )
+        assert result["updated"] is True
+
+        conn = db.get_sqlite_conn()
+        row = conn.execute(
+            "SELECT aliases FROM entities WHERE name = ?", ("Dashboard V2",)
+        ).fetchone()
+        alias_list = json.loads(row["aliases"])
+        assert "DashV2" in alias_list
+        assert "DV2" in alias_list
+
+    def test_edit_project_not_found_returns_error(self, mcp_db):
+        """kb_project_edit for unknown project returns error JSON."""
+        from kb.mcp_server import handle_kb_project_edit
+
+        db, db_path = mcp_db
+        result = json.loads(
+            handle_kb_project_edit(db, db_path, "Nonexistent Project", status="Done")
+        )
+        assert "error" in result
+        assert "not found" in result["error"].lower()
 
 
 class TestFindProjectRootXdgSafety:
