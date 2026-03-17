@@ -81,7 +81,7 @@ docs/|root: ./docs
 |testing.md — test strategy, fixtures, markers
 
 src/kb/|root: ./src/kb
-|api.py — KnowledgeBase service class (public Python API for external consumers)
+|api.py — KnowledgeBase service class (public Python API — all write operations live here)
 |cli.py — Click commands, all output via kb_output()
 |config.py — project root detection, get_db() singleton
 |types.py — Pydantic v2 strict models (ParsedDocument, SearchResult, Entity…)
@@ -94,7 +94,7 @@ src/kb/|root: ./src/kb
 |chunker.py — markdown-aware chunking (notes by ##, transcripts by ¶)
 |context.py — compressed entity index for AI agents
 |output.py — render pipeline (table/json/jsonl/csv + fields + jq)
-|crud.py — entity CRUD with markdown file sync
+|crud.py — entity CRUD with markdown file sync + find_document_by_target() shared resolver
 |writeback.py — DB → markdown file sync (atomic writes)
 |staleness.py — auto-reindex changed memory files on next search
 |glossary.py — glossary term CRUD (memory/glossary.md)
@@ -136,14 +136,33 @@ The Claude Code sandbox injects SOCKS proxy env vars (`ALL_PROXY=socks5h://local
 
 Scripts in `.claude/hooks/` read stdin JSON for `tool_input.file_path` and `cwd`.
 
+## KnowledgeBase API (`api.py`)
+
+All write operations go through `KnowledgeBase` methods. CLI and MCP are thin wrappers — zero duplicated business logic.
+
+- **Construction**: `KnowledgeBase(project_root=..., data_dir=...)` for fresh DB, or `KnowledgeBase._from_existing(db=db, project_root=...)` to reuse an existing `Database` instance (no throwaway connection). `_from_existing` sets `_owns_db=False` so `close()` won't close the shared DB.
+- **Entity profiles**: `get_entity_profile(name)` returns facts (with entity-scoped `seq` IDs), timestamps, doc count, CLI breadcrumbs, and MCP breadcrumbs (tool + params).
+- **Facts**: `add_fact(entity, text, date)` assigns next `seq` per entity. `edit_fact(entity, seq, ...)` and `delete_fact(entity, seq)` address facts by `(entity_name, seq)`. Facts are entity-scoped (deterministic on DB rebuild from files).
+- **Notes**: `add_note()`, `edit_note()`, `delete_note()`, `list_notes(tag, pinned_only, limit)`.
+- **Documents**: `view_document(target)` (resolves by path/hash/title/glob), `list_documents(doc_type, from_date, to_date, limit, since_hours)`.
+- **Listings**: `list_entities()`, `get_entity_timeline(name, from_date, to_date, doc_type, limit)`, `list_facts(since_days, entity)`, `get_stale_entities()`, `get_index_stats()`.
+- **Corrections**: `correct_term(term, replacement, apply, scope, file_type, word_boundary, ignore_case)` — scan/dry-run/apply modes.
+- **Write-through principle**: All fact/note/entity writes go to markdown files first, then DB. `_append_fact_to_file()` + `_set_pin_frontmatter()` handle file-level writes.
+- **Facts round-trip**: `_seed_facts_from_files()` in `entities.py` parses `## Recent Facts` from entity markdown files during `seed_entities()`, inserting missing facts with next available `seq`. Ensures facts survive DB deletion + rebuild.
+
 ## MCP Server
 
-- **27 tools** with full MCP tool annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`)
-- **Handler pattern**: testable `handle_*` functions (take `db`/`project_root` directly) + thin MCP wrappers (call `get_db()`/`find_project_root()` then delegate)
+- **31 tools** with full MCP tool annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`)
+- **Handler pattern**: thin `handle_*` wrappers that create `KnowledgeBase._from_existing(db, project_root)` and delegate to API methods. MCP tool functions call `get_db()`/`find_project_root()` then pass to handlers.
+- **Entity CRUD tools**: `kb_person_create`, `kb_person_edit`, `kb_project_create`, `kb_project_edit` — metadata via named params + `meta` string (semicolon-delimited `key=value` pairs).
+- **Fact tools**: `kb_memory_add` (fact or note), `kb_memory_edit_fact(entity, fact_seq, ...)`, `kb_memory_delete_fact(entity, fact_seq)` — entity-scoped seq IDs.
+- **Entity find**: `kb_person_find` / `kb_project_find` return facts with `seq` IDs + `mcp_breadcrumbs` (tool + params for agents) alongside CLI breadcrumbs.
+- **`kb_usage`**: Structured JSON stats (docs, entities, facts, pinned, date_range, tool_count).
 - **Error shape**: `{"error": str, "suggestion": str | null}` — all tools
 - **List shape**: `{"results": [...], "meta": {"total": N, "limit": N}}` — all list tools. `total` is the true count, not capped by limit.
-- **Tool annotations**: 16 read-only, 6 mutating-idempotent, 3 mutating, 2 destructive. Defined as `_READ_ONLY`, `_MUTATING`, `_MUTATING_IDEMPOTENT`, `_DESTRUCTIVE` presets.
-- **`find_project_root()` with global config**: When XDG config has absolute memory path, derives project root from `memory_path.parent`. Uses `Path.is_relative_to()` for safe XDG detection.
+- **Tool annotations**: Defined as `_READ_ONLY`, `_MUTATING`, `_MUTATING_IDEMPOTENT`, `_DESTRUCTIVE` presets.
+- **Document resolution**: Shared `crud.find_document_by_target()` — path, hash, title, glob, substring. CLI uses `strict=True` (raises `AmbiguousDocumentError`), MCP uses `strict=False` (returns None).
+- **Pin/unpin writeback**: `kb_pin`/`kb_unpin` write `pinned: true/false` to YAML frontmatter for memory notes (survives reindex).
 - **Tag filtering**: Only works on memory notes (`memory_note`, `memory_doc`). Meeting docs don't have tags — use `doc_type` filter instead.
 
 ## Gotchas
