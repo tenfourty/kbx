@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.63](https://github.com/tenfourty/kbx/compare/kbx-v0.1.62...kbx-v0.1.63) (2026-03-17)
+
+
+### Documentation
+
+* update CLAUDE.md with API layer, entity-scoped facts, MCP tools ([9c4ab7e](https://github.com/tenfourty/kbx/commit/9c4ab7ee3a02d011a25fb832bc3ac8c4517135b2))
+
 ## [0.1.62](https://github.com/tenfourty/kbx/compare/kbx-v0.1.61...kbx-v0.1.62) (2026-03-16)
 
 
