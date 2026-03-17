@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: write
+  pull-requests: write
+
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -35,3 +39,46 @@ jobs:
 
       - name: Test
         run: uv run pytest -x -q --cov --cov-fail-under=90 -m "not slow"
+
+  release-please:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@v4.4.0
+        id: release
+        with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+
+      - name: Enable auto-merge on release PR
+        if: steps.release.outputs.pr
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          PR_JSON: ${{ steps.release.outputs.pr }}
+        run: |
+          PR_NUMBER=$(echo "$PR_JSON" | jq -r '.number')
+          gh pr merge "$PR_NUMBER" --auto --squash --repo "${{ github.repository }}"
+
+  publish:
+    needs: [check, release-please]
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+
+      - name: Build
+        run: uv build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
