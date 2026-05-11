@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.64](https://github.com/tenfourty/kbx/compare/kbx-v0.1.63...kbx-v0.1.64) (2026-05-11)
+
+
+### Bug Fixes
+
+* **meetings:** coerce null attendee fields in frontmatter ([7c72b90](https://github.com/tenfourty/kbx/commit/7c72b9033d839c84e06416bb40062acb853b1b98))
+
+
+### Documentation
+
+* **plans:** commit context-people-tiers and FTS improvements plans ([520a85a](https://github.com/tenfourty/kbx/commit/520a85ac57882c404a704b9e85c62128b253ae59))
+
 ## [0.1.63](https://github.com/tenfourty/kbx/compare/kbx-v0.1.62...kbx-v0.1.63) (2026-03-17)
 
 
