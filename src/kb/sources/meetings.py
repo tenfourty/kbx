@@ -57,7 +57,12 @@ def walk_meetings(
         granola_id = fm.get("granola_id", "")
         notion_page_id = fm.get("notion_page_id", "")
         tags = fm.get("tags", [])
-        attendees = fm.get("attendees", [])
+        raw_attendees = fm.get("attendees", []) or []
+        attendees: list[dict[str, str]] = []
+        for att in raw_attendees:
+            if not isinstance(att, dict):
+                continue
+            attendees.append({k: ("" if v is None else str(v)) for k, v in att.items()})
 
         # Detect source system from frontmatter or filename
         source_field = fm.get("source", "")

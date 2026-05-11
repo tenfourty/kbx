@@ -485,6 +485,38 @@ class TestMeetingWalker:
         assert "Debrief:" in debriefs[0].title
         assert debriefs[0].path.endswith(".debrief.md")
 
+    def test_walk_meetings_tolerates_null_attendee_email(self, tmp_path):
+        """Frontmatter with ``email: null`` must not crash ParsedDocument validation."""
+        from kb.sources.meetings import walk_meetings
+
+        base = tmp_path / "memory" / "meetings" / "2026" / "04" / "02"
+        base.mkdir(parents=True)
+        (base / "xxx_Meeting.prep.md").write_text(
+            "---\n"
+            "title: 'Prep: Meeting with null email'\n"
+            "date: '2026-04-02'\n"
+            "type: prep\n"
+            "source: cos-agent\n"
+            "calendar_uid: xxx\n"
+            "attendees:\n"
+            "- name: Has Email\n"
+            "  email: a@example.com\n"
+            "- name: No Email Group\n"
+            "  email: null\n"
+            "- name: Missing Name\n"
+            "  email: null\n"
+            "---\n\n## Agenda\n\nDiscuss.\n"
+        )
+
+        docs = list(walk_meetings(tmp_path))
+        assert len(docs) == 1
+        attendees = docs[0].attendees
+        assert len(attendees) == 3
+        for att in attendees:
+            for v in att.values():
+                assert isinstance(v, str)
+        assert attendees[1]["email"] == ""
+
     def test_prep_debrief_source_system(self, meetings_root):
         """Prep/debrief files with source: cos-agent get that as source_system."""
         from kb.sources.meetings import walk_meetings
