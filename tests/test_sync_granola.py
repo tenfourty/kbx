@@ -1650,6 +1650,23 @@ class TestPagination:
 
         assert docs == []
 
+    def test_list_documents_raises_on_unsupported_client(self, supabase_json):
+        """Granola rejecting our client (200 + ``{message: ...}``, no ``docs``) must raise."""
+        import pytest
+
+        from kb.sync.granola import GranolaAPIError, GranolaClient
+
+        client = GranolaClient(token_path=supabase_json)
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"message": "Unsupported client"}
+        mock_response.raise_for_status = MagicMock()
+
+        with patch.object(client, "_request", return_value=mock_response):
+            with pytest.raises(GranolaAPIError, match="Unsupported client"):
+                client.list_documents()
+
 
 # ---------------------------------------------------------------------------
 # Markdown → ProseMirror converter

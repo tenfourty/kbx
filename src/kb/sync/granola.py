@@ -39,6 +39,15 @@ BATCH_DELAY = 0.5  # seconds between batches
 # ---------------------------------------------------------------------------
 
 
+class GranolaAPIError(RuntimeError):
+    """Granola API returned an unexpected shape (e.g. ``Unsupported client``).
+
+    Raised when ``/v2/get-documents`` responds 200 OK but the body lacks the
+    ``docs`` key — typically Granola has rejected our client identity. Treating
+    that as "0 documents" silently masked a multi-day sync gap; surface it loudly.
+    """
+
+
 class GranolaClient:
     """Client for Granola's internal API."""
 
@@ -223,7 +232,18 @@ class GranolaClient:
 
             response = self._request("POST", "/v2/get-documents", json_data=payload)
             data = response.json()
-            docs = data.get("docs", [])
+
+            if "docs" not in data:
+                # API responded 200 but rejected us — e.g. {"message": "Unsupported client"}.
+                # Silently returning [] hid a multi-day sync gap in 2026-05; never again.
+                msg = data.get("message") or data.get("error") or repr(data)[:200]
+                raise GranolaAPIError(
+                    f"Granola /v2/get-documents returned no 'docs' field: {msg}. "
+                    "Likely USER_AGENT or auth token rejected — check Granola desktop "
+                    "app version and update USER_AGENT in kb/sync/granola.py."
+                )
+
+            docs = data["docs"]
 
             if not docs:
                 break
