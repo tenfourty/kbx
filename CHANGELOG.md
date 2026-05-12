@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.65](https://github.com/tenfourty/kbx/compare/kbx-v0.1.64...kbx-v0.1.65) (2026-05-12)
+
+
+### Bug Fixes
+
+* **sync:** raise GranolaAPIError when API returns no docs field ([309742b](https://github.com/tenfourty/kbx/commit/309742b0d45476612f6c4e0530911c04fe9297f0))
+
 ## [0.1.64](https://github.com/tenfourty/kbx/compare/kbx-v0.1.63...kbx-v0.1.64) (2026-05-11)
 
 
