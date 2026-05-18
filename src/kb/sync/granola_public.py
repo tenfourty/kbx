@@ -16,6 +16,7 @@ import os
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -50,6 +51,31 @@ REQUEST_DELAY = 0.25  # seconds — keeps us well under the 5 req/sec sustained 
 
 class GranolaPublicAPIError(RuntimeError):
     """Raised when the public Granola API rejects a request or no key is available."""
+
+
+def _parse_iso(ts: str) -> datetime | None:
+    """Parse an ISO-8601 timestamp to a UTC-aware datetime.
+
+    Accepts ``Z``-suffixed, offset-aware, and naive (assumed UTC) strings.
+    Returns ``None`` on empty or unparseable input — callers use that as
+    "treat as oldest possible" without crashing the sync.
+    """
+    if not ts:
+        return None
+    try:
+        # ``fromisoformat`` accepts offsets natively from Python 3.11+, and
+        # tolerates the ``Z`` suffix from 3.11 — we normalise it for safety.
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _redact(key: str) -> str:
+    """Return a key prefix safe for log/error messages (first 8 chars)."""
+    return (key[:8] + "…") if len(key) > 8 else "<short>"
 
 
 # ---------------------------------------------------------------------------
@@ -139,6 +165,12 @@ class GranolaPublicClient:
                 f"Regenerate via Granola desktop Settings → Connectors → API keys, "
                 f"then update the {KEYCHAIN_SERVICE} Keychain entry."
             )
+        if response.status_code == 403:
+            raise GranolaPublicAPIError(
+                "Granola public API forbidden (403). The key is valid but lacks scope "
+                "for this resource — check your plan tier (Personal API key requires "
+                "Business or Enterprise) and whether the workspace owner has revoked access."
+            )
         if response.status_code == 429:
             raise GranolaPublicAPIError(
                 "Granola public API rate limit (429). Sustained limit is 5 req/sec; "
@@ -156,7 +188,10 @@ class GranolaPublicClient:
     ) -> Iterator[dict[str, Any]]:
         """Yield every NoteSummary updated after ``updated_after`` (inclusive).
 
-        Pagination is cursor-based; advances until ``hasMore`` is false.
+        Pagination is cursor-based; advances until ``hasMore`` is false. Raises
+        ``GranolaPublicAPIError`` if the cursor fails to advance (defends against
+        a server-side bug returning the same cursor) or if the response is missing
+        the ``hasMore`` field entirely (defends against a future field rename).
         """
         cursor: str | None = None
         while True:
@@ -167,14 +202,35 @@ class GranolaPublicClient:
                 params["cursor"] = cursor
 
             data = self._request("GET", "/notes", params=params)
-            for note in data.get("notes", []):
-                yield note
+            yield from data.get("notes", [])
 
-            if not data.get("hasMore"):
+            if "hasMore" not in data:
+                raise GranolaPublicAPIError(
+                    "Granola /v1/notes response missing 'hasMore' field "
+                    f"(keys={sorted(data.keys())}). The API contract may have changed; "
+                    "review the public OpenAPI spec and adjust list_notes accordingly."
+                )
+
+            if not data["hasMore"]:
                 break
-            cursor = data.get("cursor")
-            if not cursor:
+
+            next_cursor = data.get("cursor")
+            if not next_cursor:
+                # hasMore=true but no cursor — server bug or end-of-data signalling
+                # via cursor=null. Treat as end-of-data, log a warning so it surfaces.
+                print(
+                    "WARN: Granola /v1/notes returned hasMore=true with no cursor; "
+                    "treating as end-of-data.",
+                    file=sys.stderr,
+                )
                 break
+            if next_cursor == cursor:
+                raise GranolaPublicAPIError(
+                    f"Granola /v1/notes cursor failed to advance ({next_cursor!r}); "
+                    "aborting to avoid an infinite loop. Retry the sync; if it persists, "
+                    "report to Granola support."
+                )
+            cursor = next_cursor
             time.sleep(REQUEST_DELAY)
 
     def get_note(self, note_id: str, include_transcript: bool = True) -> dict[str, Any]:
@@ -282,11 +338,11 @@ def sync_granola_public(
     state_path = data_dir / ".granola_sync_state.json"
     state = load_sync_state(state_path)
 
-    effective_since = since
-    if not effective_since and state.get("last_sync"):
-        effective_since = state["last_sync"][:10]
-
-    # Public API expects a full ISO timestamp; promote bare dates to start-of-day UTC.
+    # ``since`` may arrive as a bare date (YYYY-MM-DD) or full ISO. ``last_sync``
+    # is always a full ISO timestamp (we save it that way below); use it verbatim
+    # rather than slicing the date prefix, so the next run picks up exactly where
+    # the previous one stopped and we don't re-pull a whole day's notes.
+    effective_since = since or state.get("last_sync") or None
     updated_after: str | None = None
     if effective_since:
         updated_after = (
@@ -297,10 +353,12 @@ def sync_granola_public(
         f"Fetching notes{' updated since ' + effective_since if effective_since else ' (full sync)'}..."
     )
 
-    summaries = list(client.list_notes(updated_after=updated_after))
-    _log(f"Found {len(summaries)} notes.")
+    # Iterate lazily — full sync may yield hundreds of summaries.
+    note_iter = client.list_notes(updated_after=updated_after)
 
     if dry_run:
+        summaries = list(note_iter)
+        _log(f"Found {len(summaries)} notes.")
         _log("Dry run — not writing files.")
         return {
             "total": len(summaries),
@@ -313,54 +371,70 @@ def sync_granola_public(
     created = 0
     updated = 0
     skipped = 0
-    latest_updated_at = state.get("last_sync", "") or ""
+    total = 0
+    latest_dt = _parse_iso(state.get("last_sync", "") or "")
 
-    for i, summary in enumerate(summaries):
-        note_id = summary["id"]
-        title = summary.get("title") or "Untitled"
-        _log(f"[{i + 1}/{len(summaries)}] {title}")
+    state_save_interval = 10  # checkpoint every N notes so a mid-loop crash keeps progress
 
-        note = client.get_note(note_id, include_transcript=True)
-        doc = _note_to_internal_doc(note)
+    def _persist_state() -> None:
+        if latest_dt is not None:
+            save_sync_state(
+                state_path,
+                last_sync=latest_dt.isoformat().replace("+00:00", "Z"),
+            )
 
-        notes_md = note.get("summary_markdown") or note.get("summary_text") or ""
-        transcript_segments = _transform_transcript(note.get("transcript") or [])
-        transcript_md = transcript_to_markdown(transcript_segments)
+    try:
+        for summary in note_iter:
+            total += 1
+            note_id = summary["id"]
+            title = summary.get("title") or "Untitled"
+            _log(f"[{total}] {title}")
 
-        fm = build_frontmatter(doc, {}, summary=note.get("summary_text"))
-        # Mark provenance so downstream tools can distinguish the public-API path
-        # from the legacy internal one.
-        fm["source"] = "granola-public-api"
+            note = client.get_note(note_id, include_transcript=True)
+            doc = _note_to_internal_doc(note)
 
-        result = write_meeting(
-            doc,
-            fm,
-            notes_md,
-            transcript_md,
-            project_root,
-            force=force,
-            summary_md=notes_md,
-            variant=None,
-        )
+            notes_md = note.get("summary_markdown") or note.get("summary_text") or ""
+            transcript_segments = _transform_transcript(note.get("transcript") or [])
+            transcript_md = transcript_to_markdown(transcript_segments)
 
-        if result["status"] == "created":
-            created += 1
-        elif result["status"] == "updated":
-            updated += 1
-        else:
-            skipped += 1
+            fm = build_frontmatter(doc, {}, summary=note.get("summary_text"))
+            # Keep ``source: granola-api`` for parity with legacy-written files so a
+            # one-off churn doesn't rewrite every meeting. Provenance of the API
+            # path is recorded in a separate field that older readers ignore.
+            fm["source"] = "granola-api"
+            fm["granola_api"] = "public"
 
-        new_updated = note.get("updated_at", "")
-        if new_updated > latest_updated_at:
-            latest_updated_at = new_updated
+            result = write_meeting(
+                doc,
+                fm,
+                notes_md,
+                transcript_md,
+                project_root,
+                force=force,
+                summary_md=notes_md,
+                variant=None,
+            )
 
-        time.sleep(REQUEST_DELAY)
+            if result["status"] == "created":
+                created += 1
+            elif result["status"] == "updated":
+                updated += 1
+            else:
+                skipped += 1
 
-    if latest_updated_at:
-        save_sync_state(state_path, last_sync=latest_updated_at)
+            note_dt = _parse_iso(note.get("updated_at", ""))
+            if note_dt is not None and (latest_dt is None or note_dt > latest_dt):
+                latest_dt = note_dt
+
+            if total % state_save_interval == 0:
+                _persist_state()
+
+            time.sleep(REQUEST_DELAY)
+    finally:
+        _persist_state()
 
     return {
-        "total": len(summaries),
+        "total": total,
         "created": created,
         "updated": updated,
         "skipped": skipped,

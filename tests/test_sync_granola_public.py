@@ -193,6 +193,79 @@ class TestGranolaPublicClient:
             with pytest.raises(GranolaPublicAPIError, match="429"):
                 client._request("GET", "/notes")
 
+    def test_request_raises_on_403_with_plan_hint(self):
+        from kb.sync.granola_public import GranolaPublicAPIError, GranolaPublicClient
+
+        client = GranolaPublicClient(api_key="grn_test")
+        mock_response = MagicMock(status_code=403)
+        with patch("httpx.request", return_value=mock_response):
+            with pytest.raises(GranolaPublicAPIError, match="forbidden|Business or Enterprise"):
+                client._request("GET", "/notes")
+
+    def test_request_raises_on_404(self):
+        from kb.sync.granola_public import GranolaPublicAPIError, GranolaPublicClient
+
+        client = GranolaPublicClient(api_key="grn_test")
+        mock_response = MagicMock(status_code=404)
+        with patch("httpx.request", return_value=mock_response):
+            with pytest.raises(GranolaPublicAPIError, match="not found"):
+                client._request("GET", "/notes/missing")
+
+    def test_request_sends_bearer_authorization_header(self):
+        """Authorization header is set correctly and the key is sent over the wire."""
+        from kb.sync.granola_public import GranolaPublicClient
+
+        client = GranolaPublicClient(api_key="grn_supersecret_value")
+        mock_response = MagicMock(status_code=200)
+        mock_response.json.return_value = {"notes": [], "hasMore": False, "cursor": None}
+        with patch("httpx.request", return_value=mock_response) as mock_req:
+            client._request("GET", "/notes")
+
+        headers = mock_req.call_args.kwargs["headers"]
+        assert headers["Authorization"] == "Bearer grn_supersecret_value"
+        assert headers["Accept"] == "application/json"
+
+    @pytest.mark.parametrize("status", [401, 403, 404, 429])
+    def test_request_error_messages_do_not_leak_key(self, status):
+        """No HTTP-error path puts the bearer key into the raised exception text."""
+        from kb.sync.granola_public import GranolaPublicAPIError, GranolaPublicClient
+
+        secret = "grn_DEADBEEF_secret_value_should_never_appear"
+        client = GranolaPublicClient(api_key=secret)
+        mock_response = MagicMock(status_code=status)
+        with patch("httpx.request", return_value=mock_response):
+            with pytest.raises(GranolaPublicAPIError) as exc:
+                client._request("GET", "/notes")
+        assert secret not in str(exc.value)
+
+    def test_list_notes_raises_when_hasmore_missing(self):
+        from kb.sync.granola_public import GranolaPublicAPIError, GranolaPublicClient
+
+        client = GranolaPublicClient(api_key="grn_test")
+        with patch.object(client, "_request", return_value={"notes": [{"id": "n1"}]}):
+            with pytest.raises(GranolaPublicAPIError, match="hasMore"):
+                list(client.list_notes())
+
+    def test_list_notes_raises_when_cursor_does_not_advance(self):
+        from kb.sync.granola_public import GranolaPublicAPIError, GranolaPublicClient
+
+        client = GranolaPublicClient(api_key="grn_test")
+        stuck = {"notes": [{"id": "n1"}], "hasMore": True, "cursor": "same"}
+        with patch.object(client, "_request", return_value=stuck):
+            with pytest.raises(GranolaPublicAPIError, match="cursor failed to advance"):
+                list(client.list_notes())
+
+    def test_list_notes_treats_missing_cursor_as_end(self, capsys):
+        """hasMore=true with null cursor → break + warn, not infinite loop."""
+        from kb.sync.granola_public import GranolaPublicClient
+
+        client = GranolaPublicClient(api_key="grn_test")
+        weird = {"notes": [{"id": "n1"}], "hasMore": True, "cursor": None}
+        with patch.object(client, "_request", return_value=weird):
+            notes = list(client.list_notes())
+        assert [n["id"] for n in notes] == ["n1"]
+        assert "no cursor" in capsys.readouterr().err
+
 
 # ---------------------------------------------------------------------------
 # Transformations
@@ -316,7 +389,10 @@ class TestSyncGranolaPublic:
         assert len(meetings) == 1
         notes_path = meetings[0]
         content = notes_path.read_text()
-        assert "source: granola-public-api" in content
+        # Provenance: ``source`` matches legacy files to avoid one-off file churn;
+        # the path is recorded in a separate field.
+        assert "source: granola-api" in content
+        assert "granola_api: public" in content
         assert "granola_id: not_abc123def456" in content
         assert "calendar_uid: evt_xyz789_20260515T153000Z" in content
         # Date directory derives from calendar_event start, not created_at
@@ -383,3 +459,142 @@ class TestSyncGranolaPublic:
 
         mock.list_notes.assert_called_once()
         assert mock.list_notes.call_args.kwargs["updated_after"] == "2026-05-01T00:00:00Z"
+
+    def test_uses_full_iso_from_last_sync_state(
+        self, project_root, data_dir, sample_note_summary, sample_note_full
+    ):
+        """``last_sync`` stored as full ISO must be passed verbatim, not date-truncated."""
+        import json
+
+        from kb.sync.granola_public import sync_granola_public
+
+        (data_dir / ".granola_sync_state.json").write_text(
+            json.dumps({"last_sync": "2026-05-14T09:30:00Z"})
+        )
+
+        with patch("kb.sync.granola_public.GranolaPublicClient") as MockClient:
+            mock = MockClient.return_value
+            mock.list_notes.return_value = iter([])
+            sync_granola_public(
+                project_root=project_root, data_dir=data_dir, api_key="grn_test"
+            )
+
+        assert mock.list_notes.call_args.kwargs["updated_after"] == "2026-05-14T09:30:00Z"
+
+    def test_state_persisted_in_finally_after_exception(
+        self, project_root, data_dir, sample_note_summary, sample_note_full
+    ):
+        """A 429 mid-loop should still leave the latest seen updated_at in state."""
+        import json
+
+        from kb.sync.granola_public import GranolaPublicAPIError, sync_granola_public
+
+        first = {**sample_note_summary, "id": "not_first", "updated_at": "2026-05-15T10:00:00Z"}
+        second = {**sample_note_summary, "id": "not_second", "updated_at": "2026-05-15T11:00:00Z"}
+
+        with patch("kb.sync.granola_public.GranolaPublicClient") as MockClient:
+            mock = MockClient.return_value
+            mock.list_notes.return_value = iter([first, second])
+
+            def _get(note_id, **_):
+                if note_id == "not_first":
+                    return {**sample_note_full, "id": "not_first",
+                            "updated_at": "2026-05-15T10:00:00Z"}
+                raise GranolaPublicAPIError("simulated 429")
+
+            mock.get_note.side_effect = _get
+
+            with pytest.raises(GranolaPublicAPIError):
+                sync_granola_public(
+                    project_root=project_root, data_dir=data_dir, api_key="grn_test"
+                )
+
+        state = json.loads((data_dir / ".granola_sync_state.json").read_text())
+        assert state["last_sync"].startswith("2026-05-15T10:00:00")
+
+    def test_frontmatter_parity_with_legacy_path(
+        self, sample_note_full
+    ):
+        """build_frontmatter output must match what legacy granola.py would produce
+        from a functionally identical internal-doc.
+        """
+        from kb.sync.granola import build_frontmatter
+        from kb.sync.granola_public import _note_to_internal_doc
+
+        doc = _note_to_internal_doc(sample_note_full)
+        public_fm = build_frontmatter(doc, {}, summary=sample_note_full.get("summary_text"))
+
+        # Equivalent doc shape a legacy sync would receive for the same meeting.
+        legacy_doc = {
+            "id": "not_abc123def456",
+            "title": "Quarterly yoghurt budget review",
+            "created_at": "2026-05-15T15:30:00Z",
+            "updated_at": "2026-05-15T16:45:00Z",
+            "notes_markdown": "## Summary\n\nSpent $100k, made $150k.\n",
+            "people": {
+                "creator": {"name": "Idris Kalmar", "email": "idris@example.com"},
+                "attendees": [
+                    {"name": "Idris Kalmar", "email": "idris@example.com"},
+                    {"name": "Wren Kasper", "email": "alice@example.com"},
+                ],
+            },
+            "google_calendar_event": {
+                "summary": "Quarterly yoghurt budget review",
+                "organizer": {"email": "idris@example.com"},
+                "start": {"dateTime": "2026-05-15T15:30:00Z"},
+                "end": {"dateTime": "2026-05-15T16:30:00Z"},
+                "iCalUID": "evt_xyz789_20260515T153000Z",
+            },
+        }
+        legacy_fm = build_frontmatter(legacy_doc, {}, summary="Spent $100k, made $150k.")
+
+        for key in (
+            "title",
+            "date",
+            "type",
+            "granola_id",
+            "granola_updated_at",
+            "tags",
+            "attendees",
+            "calendar_uid",
+            "calendar_event",
+            "granola_summary",
+        ):
+            assert public_fm.get(key) == legacy_fm.get(key), f"mismatch on {key}"
+
+
+# ---------------------------------------------------------------------------
+# ISO parsing helper
+# ---------------------------------------------------------------------------
+
+
+class TestParseISO:
+    @pytest.mark.parametrize(
+        "ts,expected_iso",
+        [
+            ("2026-05-15T15:30:00Z", "2026-05-15T15:30:00+00:00"),
+            ("2026-05-15T15:30:00+00:00", "2026-05-15T15:30:00+00:00"),
+            ("2026-05-15T17:30:00+02:00", "2026-05-15T15:30:00+00:00"),
+            ("2026-05-15T15:30:00", "2026-05-15T15:30:00+00:00"),  # naive → UTC
+        ],
+    )
+    def test_normalises_to_utc(self, ts, expected_iso):
+        from kb.sync.granola_public import _parse_iso
+
+        dt = _parse_iso(ts)
+        assert dt is not None
+        assert dt.isoformat() == expected_iso
+
+    @pytest.mark.parametrize("bad", ["", "not-a-date", "2026-13-40T99:99:99Z"])
+    def test_returns_none_on_unparseable(self, bad):
+        from kb.sync.granola_public import _parse_iso
+
+        assert _parse_iso(bad) is None
+
+    def test_ordering_handles_mixed_offsets(self):
+        from kb.sync.granola_public import _parse_iso
+
+        # 15:30Z is later than 17:30+03:00 (== 14:30Z)
+        a = _parse_iso("2026-05-15T15:30:00Z")
+        b = _parse_iso("2026-05-15T17:30:00+03:00")
+        assert a > b
