@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.67](https://github.com/tenfourty/kbx/compare/kbx-v0.1.66...kbx-v0.1.67) (2026-05-18)
+
+
+### Bug Fixes
+
+* **sync:** harden granola public-API path ([205c6f9](https://github.com/tenfourty/kbx/commit/205c6f97275ed523a46f46393b5bc19862f06dcc))
+
 ## [0.1.66](https://github.com/tenfourty/kbx/compare/kbx-v0.1.65...kbx-v0.1.66) (2026-05-18)
 
 
