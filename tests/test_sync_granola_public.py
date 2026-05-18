@@ -180,7 +180,7 @@ class TestGranolaPublicClient:
 
         client = GranolaPublicClient(api_key="grn_bad")
         mock_response = MagicMock(status_code=401)
-        with patch("httpx.request", return_value=mock_response):
+        with patch.object(client._http, "request", return_value=mock_response):
             with pytest.raises(GranolaPublicAPIError, match="401"):
                 client._request("GET", "/notes")
 
@@ -189,7 +189,7 @@ class TestGranolaPublicClient:
 
         client = GranolaPublicClient(api_key="grn_test")
         mock_response = MagicMock(status_code=429)
-        with patch("httpx.request", return_value=mock_response):
+        with patch.object(client._http, "request", return_value=mock_response):
             with pytest.raises(GranolaPublicAPIError, match="429"):
                 client._request("GET", "/notes")
 
@@ -198,7 +198,7 @@ class TestGranolaPublicClient:
 
         client = GranolaPublicClient(api_key="grn_test")
         mock_response = MagicMock(status_code=403)
-        with patch("httpx.request", return_value=mock_response):
+        with patch.object(client._http, "request", return_value=mock_response):
             with pytest.raises(GranolaPublicAPIError, match="forbidden|Business or Enterprise"):
                 client._request("GET", "/notes")
 
@@ -207,23 +207,21 @@ class TestGranolaPublicClient:
 
         client = GranolaPublicClient(api_key="grn_test")
         mock_response = MagicMock(status_code=404)
-        with patch("httpx.request", return_value=mock_response):
+        with patch.object(client._http, "request", return_value=mock_response):
             with pytest.raises(GranolaPublicAPIError, match="not found"):
                 client._request("GET", "/notes/missing")
 
-    def test_request_sends_bearer_authorization_header(self):
-        """Authorization header is set correctly and the key is sent over the wire."""
+    def test_client_carries_bearer_authorization_header(self):
+        """The shared httpx.Client sets Authorization on every outbound request."""
         from kb.sync.granola_public import GranolaPublicClient
 
         client = GranolaPublicClient(api_key="grn_supersecret_value")
-        mock_response = MagicMock(status_code=200)
-        mock_response.json.return_value = {"notes": [], "hasMore": False, "cursor": None}
-        with patch("httpx.request", return_value=mock_response) as mock_req:
-            client._request("GET", "/notes")
-
-        headers = mock_req.call_args.kwargs["headers"]
-        assert headers["Authorization"] == "Bearer grn_supersecret_value"
-        assert headers["Accept"] == "application/json"
+        try:
+            headers = client._http.headers
+            assert headers["authorization"] == "Bearer grn_supersecret_value"
+            assert headers["accept"] == "application/json"
+        finally:
+            client.close()
 
     @pytest.mark.parametrize("status", [401, 403, 404, 429])
     def test_request_error_messages_do_not_leak_key(self, status):
@@ -233,7 +231,7 @@ class TestGranolaPublicClient:
         secret = "grn_DEADBEEF_secret_value_should_never_appear"
         client = GranolaPublicClient(api_key=secret)
         mock_response = MagicMock(status_code=status)
-        with patch("httpx.request", return_value=mock_response):
+        with patch.object(client._http, "request", return_value=mock_response):
             with pytest.raises(GranolaPublicAPIError) as exc:
                 client._request("GET", "/notes")
         assert secret not in str(exc.value)

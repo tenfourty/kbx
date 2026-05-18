@@ -8,6 +8,14 @@ long-lived Bearer key — no token refresh, no plaintext file scraping.
 Output layout (filenames, frontmatter shape, transcript markdown) is identical to the
 internal-API path so existing meeting files round-trip and downstream consumers (kbx
 indexer, prep/debrief tooling) need no changes.
+
+Known field-coverage loss vs the legacy internal API:
+  * Attendees: public ``User`` is ``{name, email}`` only. The legacy ``people.attendees``
+    carried a ``details`` blob that ``build_frontmatter`` mined for company name
+    (``details.company.name`` and ``details.person.employment.name``) and for mailing-list
+    group expansion (``details.group.members``). Files synced via the public API will not
+    carry the per-attendee ``company`` tag nor expand group invitees. Existing legacy
+    files retain whatever they captured at the time of their last sync.
 """
 
 from __future__ import annotations
@@ -140,25 +148,37 @@ class GranolaPublicClient:
 
     Auth: ``Authorization: Bearer <key>``. Key sourced from ``api_key`` arg,
     else env var, else macOS Keychain — see :func:`_get_api_key`.
+
+    Holds a persistent ``httpx.Client`` so the list+get-per-note pattern reuses
+    the underlying HTTP/2 connection instead of re-handshaking per request. Use
+    as a context manager or call :meth:`close` when finished.
     """
 
     def __init__(self, api_key: str | None = None, base_url: str = API_BASE) -> None:
         self._api_key = api_key or _get_api_key()
         self._base_url = base_url.rstrip("/")
-
-    def _request(
-        self, method: str, path: str, params: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
-        response = httpx.request(
-            method,
-            f"{self._base_url}{path}",
-            params=params,
+        self._http = httpx.Client(
+            base_url=self._base_url,
             headers={
                 "Authorization": f"Bearer {self._api_key}",
                 "Accept": "application/json",
             },
             timeout=30.0,
         )
+
+    def close(self) -> None:
+        self._http.close()
+
+    def __enter__(self) -> GranolaPublicClient:
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.close()
+
+    def _request(
+        self, method: str, path: str, params: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        response = self._http.request(method, path, params=params)
         if response.status_code == 401:
             raise GranolaPublicAPIError(
                 "Granola public API rejected the key (401 Unauthorized). "
