@@ -2,7 +2,7 @@
 
 Replaces the internal `/v2/get-documents` path (see `kb.sync.granola`) which broke in
 May 2026 when Granola 7.205.0 migrated credentials to encrypted local storage. This
-module talks to the documented public API at ``https://api.granola.ai/v1`` using a
+module talks to the documented public API at ``https://public-api.granola.ai/v1`` using a
 long-lived Bearer key — no token refresh, no plaintext file scraping.
 
 Output layout (filenames, frontmatter shape, transcript markdown) is identical to the
