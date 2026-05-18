@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.68](https://github.com/tenfourty/kbx/compare/kbx-v0.1.67...kbx-v0.1.68) (2026-05-18)
+
+
+### Documentation
+
+* **sync:** fix granola_public.py module docstring URL ([f1293cb](https://github.com/tenfourty/kbx/commit/f1293cbf5f6b6abac7de79deaddde5aec63303d5))
+
 ## [0.1.67](https://github.com/tenfourty/kbx/compare/kbx-v0.1.66...kbx-v0.1.67) (2026-05-18)
 
 
