@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.66](https://github.com/tenfourty/kbx/compare/kbx-v0.1.65...kbx-v0.1.66) (2026-05-18)
+
+
+### Features
+
+* **sync:** switch granola to public API with Bearer auth ([0b0ac81](https://github.com/tenfourty/kbx/commit/0b0ac818568a32efc06843588d59c1de7550cba0))
+
 ## [0.1.65](https://github.com/tenfourty/kbx/compare/kbx-v0.1.64...kbx-v0.1.65) (2026-05-12)
 
 
