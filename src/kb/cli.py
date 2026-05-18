@@ -2349,31 +2349,67 @@ def sync(ctx: click.Context) -> None:
 @click.option("--force", is_flag=True, help="Overwrite files even if timestamps match.")
 @click.option("--no-index", is_flag=True, help="Skip indexing after sync.")
 @click.option(
-    "--token-path", default=None, type=click.Path(exists=False), help="Path to supabase.json."
+    "--token-path",
+    default=None,
+    type=click.Path(exists=False),
+    help="Legacy only: path to supabase.json (ignored unless --legacy is set).",
+)
+@click.option(
+    "--legacy",
+    is_flag=True,
+    help="Use the deprecated internal-API path (reads supabase.json). "
+    "Will be removed in a future release.",
 )
 def sync_granola(
-    since: str | None, dry_run: bool, force: bool, no_index: bool, token_path: str | None
+    since: str | None,
+    dry_run: bool,
+    force: bool,
+    no_index: bool,
+    token_path: str | None,
+    legacy: bool,
 ) -> None:
-    """Sync meetings from Granola API."""
-    from pathlib import Path as P
+    """Sync meetings from Granola.
 
+    Default path uses the public REST API at api.granola.ai/v1 with a Bearer key
+    read from GRANOLA_API_KEY env or the macOS Keychain (service: granola_api_key).
+    Pass --legacy to fall back to the internal-API path that reads supabase.json.
+    """
     from kb.dateparse import resolve_since
-    from kb.sync.granola import sync_granola as do_sync
 
     project_root = _find_project_root()
     data_dir = _get_data_dir()
 
-    tp = P(token_path) if token_path else None
+    if legacy:
+        from pathlib import Path as P
 
-    result = do_sync(
-        project_root=project_root,
-        data_dir=data_dir,
-        since=resolve_since(since),
-        dry_run=dry_run,
-        force=force,
-        token_path=tp,
-        on_progress=lambda msg: click.echo(msg, err=True),
-    )
+        from kb.sync.granola import sync_granola as do_legacy_sync
+
+        click.echo(
+            "WARN: --legacy path uses Granola's internal API and is deprecated. "
+            "It will be removed in a future release. See docs/sync.md for migration.",
+            err=True,
+        )
+        tp = P(token_path) if token_path else None
+        result = do_legacy_sync(
+            project_root=project_root,
+            data_dir=data_dir,
+            since=resolve_since(since),
+            dry_run=dry_run,
+            force=force,
+            token_path=tp,
+            on_progress=lambda msg: click.echo(msg, err=True),
+        )
+    else:
+        from kb.sync.granola_public import sync_granola_public
+
+        result = sync_granola_public(
+            project_root=project_root,
+            data_dir=data_dir,
+            since=resolve_since(since),
+            dry_run=dry_run,
+            force=force,
+            on_progress=lambda msg: click.echo(msg, err=True),
+        )
 
     click.echo(
         f"Sync complete: {result['created']} created, {result['updated']} updated, "

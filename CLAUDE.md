@@ -101,7 +101,8 @@ src/kb/|root: ./src/kb
 |dateparse.py — natural date parsing ("since January", "last 7 days")
 |mcp_server.py — MCP server mode (stdio transport)
 |sources/{meetings,memory}.py — walk meetings/ and memory/ directories
-|sync/granola.py — Granola API sync + attendee matching
+|sync/granola_public.py — Granola public-API sync (default; Bearer key from Keychain/env)
+|sync/granola.py — Granola internal-API sync (legacy, reachable via `kbx sync granola --legacy`)
 |sync/ydoc.py — ProseMirror JSON → Yjs ydoc state (pure-Python via pycrdt, no Node.js)
 ```
 

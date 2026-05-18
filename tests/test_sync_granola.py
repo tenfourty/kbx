@@ -1177,7 +1177,9 @@ class TestSyncCLI:
 
             runner = CliRunner()
             result = runner.invoke(
-                cli, ["sync", "granola", "--dry-run"], env={"KB_DATA_DIR": str(tmp_dir / "data")}
+                cli,
+                ["sync", "granola", "--legacy", "--dry-run"],
+                env={"KB_DATA_DIR": str(tmp_dir / "data")},
             )
 
         assert result.exit_code == 0
@@ -1195,7 +1197,9 @@ class TestSyncCLI:
             instance.list_documents.return_value = []
 
             runner = CliRunner()
-            result = runner.invoke(cli, ["sync", "granola", "--since", "2026-02-01", "--dry-run"])
+            result = runner.invoke(
+                cli, ["sync", "granola", "--legacy", "--since", "2026-02-01", "--dry-run"]
+            )
 
         assert result.exit_code == 0
         instance.list_documents.assert_called_once_with(since="2026-02-01")

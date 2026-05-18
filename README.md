@@ -203,7 +203,7 @@ See [entity docs](docs/entities.md) for the full linking pipeline.
 Pull meeting transcripts from external sources:
 
 ```sh
-# Granola API sync
+# Granola public-API sync (default — Bearer key)
 kbx sync granola --since 2026-01-01
 
 # Notion AI Meeting Notes sync
@@ -217,7 +217,22 @@ kbx granola view <calendar-uid>
 kbx granola edit <calendar-uid> --append "Action: follow up with Wren"
 ```
 
-Sync is incremental — only new or updated meetings are fetched. Attendees are automatically matched to existing entities. See [Granola plugin docs](docs/plugins/granola.md) for configuration.
+Sync is incremental — only new or updated meetings are fetched. Attendees are automatically matched to existing entities.
+
+### Granola authentication
+
+`kbx sync granola` calls Granola's public REST API at `api.granola.ai/v1`. Generate a
+Personal API key in the Granola desktop app (**Settings → Connectors → API keys** —
+requires a Business or Enterprise plan), then store it in the macOS Keychain:
+
+```sh
+security add-generic-password -a "$USER" -s granola_api_key -w "grn_..."
+```
+
+`GRANOLA_API_KEY` env var is checked first and overrides the Keychain entry. The
+deprecated internal-API path (reads `~/Library/Application Support/Granola/supabase.json`)
+remains reachable via `kbx sync granola --legacy` for one release window and will be
+removed once everyone is on the public API.
 
 ## Configuration
 
