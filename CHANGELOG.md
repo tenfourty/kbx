@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.69](https://github.com/tenfourty/kbx/compare/kbx-v0.1.68...kbx-v0.1.69) (2026-05-19)
+
+
+### Documentation
+
+* **claude.md:** document Granola Path D sync + meetings walker null guard ([d89e648](https://github.com/tenfourty/kbx/commit/d89e648bb4512d4053fcdbac314bad8bde8121af))
+
 ## [0.1.68](https://github.com/tenfourty/kbx/compare/kbx-v0.1.67...kbx-v0.1.68) (2026-05-18)
 
 
