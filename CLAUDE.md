@@ -166,6 +166,21 @@ All write operations go through `KnowledgeBase` methods. CLI and MCP are thin wr
 - **Pin/unpin writeback**: `kb_pin`/`kb_unpin` write `pinned: true/false` to YAML frontmatter for memory notes (survives reindex).
 - **Tag filtering**: Only works on memory notes (`memory_note`, `memory_doc`). Meeting docs don't have tags — use `doc_type` filter instead.
 
+## Granola Sync (Path D, since 2026-05-18)
+
+- **Default path** = `kb.sync.granola_public` against `https://public-api.granola.ai/v1` (note: **not** `api.granola.ai`, which is the internal API used by the desktop app and `jlokos/granola`). Bearer auth via long-lived Personal API key.
+- **Key resolution** (`_get_api_key`): `GRANOLA_API_KEY` env first, then `security find-generic-password -a $USER -s granola_api_key -w`. Never logged or included in exception text.
+- **Endpoints used**: `GET /v1/notes` (cursor pagination, max `page_size=30`, server-side `updated_after`) + `GET /v1/notes/{id}?include=transcript`. Rate limit 5 req/sec sustained, 25 burst.
+- **Schema rename when porting from legacy doc shape**: `calendar_event.calendar_event_id` → `iCalUID`; `organiser` → `organizer.email`; `scheduled_start_time` → `start.dateTime`. `_note_to_internal_doc` does this so existing `build_frontmatter` + `write_meeting` round-trip unchanged.
+- **Transcript source enum**: public uses `["microphone", "speaker"]`, internal pipeline uses `["microphone", "system"]`. `_transform_transcript` maps `speaker` → `system`. The word "speaker" in the public schema means *system audio*, not a person; `speaker.diarization_label` (when present) is what carries the real per-speaker label, promoted to the `speaker` key for `transcript_to_markdown`.
+- **No churn rule**: public-path files keep `source: granola-api` for parity with legacy writes; path provenance recorded via a separate `granola_api: public` frontmatter field. Renaming `source` would mark every legacy file as "updated" on first sync.
+- **Field-coverage loss vs legacy**: public `User` is `{name, email}` only. Per-attendee `company` tag and mailing-list `group.members` expansion (mined from `details` by `build_frontmatter`) are unavailable. Existing legacy files keep whatever they captured.
+- **Pagination**: `list_notes` raises `GranolaPublicAPIError` if (a) `hasMore` field absent from response (defensive against future rename), (b) cursor fails to advance (server-bug guard). Warns and breaks if `hasMore=true` with null cursor.
+- **Timestamp comparisons** use `_parse_iso` → UTC-aware `datetime`; never compare ISO strings directly (Z vs ±HH:MM vs naive break lex order). `last_sync` state file stores full ISO; don't slice to `[:10]`.
+- **State checkpointing**: every 10 notes + in `finally` block, so a mid-loop 429/crash keeps progress.
+- **Legacy fallback**: `kbx sync granola --legacy` still works for one release window with a stderr deprecation banner; reads `~/Library/Application Support/Granola/supabase.json`. Granola 7.205.0+ stopped maintaining that file (credentials moved to Electron `safeStorage`-encrypted `supabase.json.enc` + `storage.dek`), so `--legacy` will hard-fail on current Granola versions — kept only for rollback safety.
+- **Meeting frontmatter null guard**: `walk_meetings` (in `sources/meetings.py`) coerces `attendee.email: null` to `""` before constructing `ParsedDocument`. Required because cos-agent prep files often have group/room invitees without emails (`email: null` in YAML). Without this, Pydantic strict validation crashed the entire indexer (regression observed 2026-05-11).
+
 ## Gotchas
 
 - **MPS memory** — embedding batches: 32 on MPS, 16 on CPU; texts truncated at 8K chars. `torch.mps.empty_cache()` between batches
