@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.0](https://github.com/tenfourty/kbx/compare/kbx-v0.1.69...kbx-v0.2.0) (2026-05-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* remove kbx granola write path (push + edit + MCP tool — legacy API broken)
+
+### Features
+
+* remove kbx granola write path (push + edit + MCP tool — legacy API broken) ([1d504a9](https://github.com/tenfourty/kbx/commit/1d504a94f5078cefd47003ed968f1febec364dc4))
+
 ## [0.1.69](https://github.com/tenfourty/kbx/compare/kbx-v0.1.68...kbx-v0.1.69) (2026-05-19)
 
 
