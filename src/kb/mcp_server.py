@@ -871,52 +871,6 @@ def handle_kb_granola_view(calendar_uid: str, mode: str | None = None) -> str:
         return json.dumps({"error": str(e)})
 
 
-def handle_kb_granola_edit(
-    calendar_uid: str,
-    body: str | None = None,
-    append: str | None = None,
-) -> str:
-    """Edit meeting notes in Granola (API only). Returns JSON string."""
-    try:
-        from kb.sync.granola import GranolaClient
-
-        if body is None and append is None:
-            return json.dumps({"error": "Provide body or append."})
-        if body is not None and append is not None:
-            return json.dumps({"error": "Provide only one of body or append."})
-
-        client = GranolaClient()
-        doc = client.find_document(calendar_uid=calendar_uid)
-        if not doc:
-            return json.dumps({"error": f"No Granola document found for UID '{calendar_uid}'"})
-
-        if append is not None:
-            existing_md = doc.get("notes_markdown") or ""
-            if existing_md.strip():
-                markdown = existing_md.rstrip() + "\n\n" + append
-            else:
-                markdown = append
-        else:
-            assert body is not None
-            markdown = body
-
-        client.update_document_notes(doc["id"], markdown)
-
-        return json.dumps(
-            {
-                "status": "ok",
-                "calendar_uid": calendar_uid,
-                "action": "append" if append else "replace",
-            },
-            default=str,
-            ensure_ascii=False,
-        )
-    except Exception as e:
-        print(f"kb_granola_edit error: {e}", file=sys.stderr)
-        traceback.print_exc(file=sys.stderr)
-        return json.dumps({"error": str(e)})
-
-
 def handle_kb_list(
     db: Database,
     doc_type: str | None = None,
@@ -1428,19 +1382,6 @@ def kb_granola_view(calendar_uid: str, mode: str | None = None) -> str:
     if mode and mode not in ("summary", "transcript", "all"):
         mode = None
     return handle_kb_granola_view(calendar_uid, mode=mode)
-
-
-@mcp.tool(annotations=_MUTATING_IDEMPOTENT)
-def kb_granola_edit(
-    calendar_uid: str,
-    body: str | None = None,
-    append: str | None = None,
-) -> str:
-    """Edit meeting notes in Granola (writes to Granola API).
-    calendar_uid: Google Calendar event ID or iCalUID.
-    body: replace notes entirely.
-    append: append to existing notes."""
-    return handle_kb_granola_edit(calendar_uid, body=body, append=append)
 
 
 @mcp.tool(annotations=_READ_ONLY)

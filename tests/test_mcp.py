@@ -1567,7 +1567,7 @@ class TestMcpGlossary:
 
 
 # ---------------------------------------------------------------------------
-# handle_kb_granola_view / handle_kb_granola_edit tests
+# handle_kb_granola_view tests
 # ---------------------------------------------------------------------------
 
 
@@ -1607,56 +1607,6 @@ class TestMcpGranolaView:
             result = json.loads(handle_kb_granola_view("uid-123"))
         assert result["title"] == "Test Meeting"
         assert "Notes" in result["content"]
-
-
-class TestMcpGranolaEdit:
-    def test_granola_edit_no_args(self):
-        """kb_granola_edit returns error when neither body nor append given."""
-        from kb.mcp_server import handle_kb_granola_edit
-
-        result = json.loads(handle_kb_granola_edit("uid-123"))
-        assert "error" in result
-
-    def test_granola_edit_both_args(self):
-        """kb_granola_edit returns error when both body and append given."""
-        from kb.mcp_server import handle_kb_granola_edit
-
-        result = json.loads(handle_kb_granola_edit("uid-123", body="new", append="extra"))
-        assert "error" in result
-
-    def test_granola_edit_body(self):
-        """kb_granola_edit calls API to replace body."""
-        from kb.mcp_server import handle_kb_granola_edit
-
-        fake_doc = {"id": "doc1", "notes_markdown": "old notes"}
-
-        with patch("kb.sync.granola.GranolaClient") as mock_cls:
-            mock_client = MagicMock()
-            mock_client.find_document.return_value = fake_doc
-            mock_cls.return_value = mock_client
-
-            result = json.loads(handle_kb_granola_edit("uid-123", body="new notes"))
-        assert result["status"] == "ok"
-        assert result["action"] == "replace"
-        mock_client.update_document_notes.assert_called_once_with("doc1", "new notes")
-
-    def test_granola_edit_append(self):
-        """kb_granola_edit appends to existing notes."""
-        from kb.mcp_server import handle_kb_granola_edit
-
-        fake_doc = {"id": "doc1", "notes_markdown": "existing notes"}
-
-        with patch("kb.sync.granola.GranolaClient") as mock_cls:
-            mock_client = MagicMock()
-            mock_client.find_document.return_value = fake_doc
-            mock_cls.return_value = mock_client
-
-            result = json.loads(handle_kb_granola_edit("uid-123", append="appended text"))
-        assert result["status"] == "ok"
-        assert result["action"] == "append"
-        call_args = mock_client.update_document_notes.call_args[0]
-        assert "existing notes" in call_args[1]
-        assert "appended text" in call_args[1]
 
 
 # ---------------------------------------------------------------------------

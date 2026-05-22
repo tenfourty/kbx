@@ -29,7 +29,6 @@ dependencies = [
     "cryptography>=43.0",
     "pydantic>=2.6",
     "tomli>=2.0; python_version < '3.11'",
-    "pycrdt>=0.12.47",
 ]
 
 [project.optional-dependencies]

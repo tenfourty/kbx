@@ -103,7 +103,6 @@ src/kb/|root: ./src/kb
 |sources/{meetings,memory}.py — walk meetings/ and memory/ directories
 |sync/granola_public.py — Granola public-API sync (default; Bearer key from Keychain/env)
 |sync/granola.py — Granola internal-API sync (legacy, reachable via `kbx sync granola --legacy`)
-|sync/ydoc.py — ProseMirror JSON → Yjs ydoc state (pure-Python via pycrdt, no Node.js)
 ```
 
 ## Conventions
@@ -179,6 +178,7 @@ All write operations go through `KnowledgeBase` methods. CLI and MCP are thin wr
 - **Timestamp comparisons** use `_parse_iso` → UTC-aware `datetime`; never compare ISO strings directly (Z vs ±HH:MM vs naive break lex order). `last_sync` state file stores full ISO; don't slice to `[:10]`.
 - **State checkpointing**: every 10 notes + in `finally` block, so a mid-loop 429/crash keeps progress.
 - **Legacy fallback**: `kbx sync granola --legacy` still works for one release window with a stderr deprecation banner; reads `~/Library/Application Support/Granola/supabase.json`. Granola 7.205.0+ stopped maintaining that file (credentials moved to Electron `safeStorage`-encrypted `supabase.json.enc` + `storage.dek`), so `--legacy` will hard-fail on current Granola versions — kept only for rollback safety.
+- **Write path removed**: `kbx granola push`, `kbx granola edit`, the `kb_granola_edit` MCP tool, and `GranolaClient.update_document_notes`/`create_document` were removed in kbx 0.2.0 (see CHANGELOG). Legacy internal-API auth broke in Granola 7.205.0+, and the public API exposes no write endpoint. ProseMirror→Markdown rendering is still required for reads and is retained; Markdown→ProseMirror, the Yjs ydoc bridge (`sync/ydoc.py`), and the `pycrdt` dependency went with the write path.
 - **Meeting frontmatter null guard**: `walk_meetings` (in `sources/meetings.py`) coerces `attendee.email: null` to `""` before constructing `ParsedDocument`. Required because cos-agent prep files often have group/room invitees without emails (`email: null` in YAML). Without this, Pydantic strict validation crashed the entire indexer (regression observed 2026-05-11).
 
 ## Gotchas

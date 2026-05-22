@@ -183,14 +183,9 @@ kbx granola view <uid> --transcript        # show transcript
 kbx granola view <uid> --summary           # show AI summary
 kbx granola view <uid> --all               # notes + summary + transcript
 kbx granola view <uid> --plain             # raw markdown (no YAML header)
-
-kbx granola edit <uid> --body "markdown"   # replace notes
-kbx granola edit <uid> --append "extra"    # append to existing
-kbx granola edit <uid> --body-file notes.md
-
-kbx granola push <uid> --notes "markdown"  # push notes to Granola
-kbx granola push <uid> --notes-file prep.md
 ```
+
+Note: `kbx granola push` and `kbx granola edit` were removed in 0.2.0 — the legacy write API stopped working in Granola 7.205.0+ and the public API has no write endpoint. See `docs/plugins/granola.md`.
 
 ### ingest
 

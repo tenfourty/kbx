@@ -65,27 +65,9 @@ kbx granola view <uid> --all             # show notes + summary + transcript
 kbx granola view <uid> --plain           # raw markdown (no YAML header)
 ```
 
-### `kbx granola edit <calendar-uid>`
+## Writing Back to Granola
 
-Edit or append to meeting notes.
-
-```
-kbx granola edit <uid> --body "markdown"       # full replace
-kbx granola edit <uid> --body-file notes.md    # replace from file
-kbx granola edit <uid> --append "extra notes"  # append to existing
-```
-
-### `kbx granola push <calendar-uid>`
-
-Push prep notes back to Granola (writes to the document's notes field).
-
-```
-kbx granola push <uid> --notes "markdown"       # content to write
-kbx granola push <uid> --notes-file prep.md     # write from file (strips YAML frontmatter)
-kbx granola push <uid> --title "Meeting Title"  # title (for new docs)
-```
-
-Push is idempotent — skips if the first line is already present in existing notes.
+Not supported. The legacy `kbx granola push` and `kbx granola edit` commands were removed because Granola 7.205.0+ moved local credentials into an encrypted store (`supabase.json.enc`) and the public API (Path D) does not expose a write endpoint. Edit notes in the Granola desktop app directly, or modify the local `.granola.notes.md` file via `kbx note edit` and re-sync.
 
 ## Rate Limiting
 
