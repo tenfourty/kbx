@@ -25,7 +25,6 @@ import subprocess
 import sys
 import time
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -40,6 +39,7 @@ from kb.sync.granola import (
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -109,7 +109,7 @@ def _get_api_key() -> str:
         )
 
     try:
-        result = subprocess.run(  # noqa: S603,S607 — fixed argv, no shell
+        result = subprocess.run(
             ["security", "find-generic-password", "-a", user, "-s", KEYCHAIN_SERVICE, "-w"],
             check=True,
             capture_output=True,

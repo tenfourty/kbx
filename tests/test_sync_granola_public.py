@@ -9,7 +9,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -122,9 +121,11 @@ class TestGetAPIKey:
         monkeypatch.delenv("GRANOLA_API_KEY", raising=False)
         monkeypatch.setenv("USER", "testuser")
         err = subprocess.CalledProcessError(44, ["security"])
-        with patch("subprocess.run", side_effect=err):
-            with pytest.raises(GranolaPublicAPIError, match="not found in Keychain"):
-                _get_api_key()
+        with (
+            patch("subprocess.run", side_effect=err),
+            pytest.raises(GranolaPublicAPIError, match="not found in Keychain"),
+        ):
+            _get_api_key()
 
 
 # ---------------------------------------------------------------------------
@@ -180,36 +181,44 @@ class TestGranolaPublicClient:
 
         client = GranolaPublicClient(api_key="grn_bad")
         mock_response = MagicMock(status_code=401)
-        with patch.object(client._http, "request", return_value=mock_response):
-            with pytest.raises(GranolaPublicAPIError, match="401"):
-                client._request("GET", "/notes")
+        with (
+            patch.object(client._http, "request", return_value=mock_response),
+            pytest.raises(GranolaPublicAPIError, match="401"),
+        ):
+            client._request("GET", "/notes")
 
     def test_request_raises_on_429(self):
         from kb.sync.granola_public import GranolaPublicAPIError, GranolaPublicClient
 
         client = GranolaPublicClient(api_key="grn_test")
         mock_response = MagicMock(status_code=429)
-        with patch.object(client._http, "request", return_value=mock_response):
-            with pytest.raises(GranolaPublicAPIError, match="429"):
-                client._request("GET", "/notes")
+        with (
+            patch.object(client._http, "request", return_value=mock_response),
+            pytest.raises(GranolaPublicAPIError, match="429"),
+        ):
+            client._request("GET", "/notes")
 
     def test_request_raises_on_403_with_plan_hint(self):
         from kb.sync.granola_public import GranolaPublicAPIError, GranolaPublicClient
 
         client = GranolaPublicClient(api_key="grn_test")
         mock_response = MagicMock(status_code=403)
-        with patch.object(client._http, "request", return_value=mock_response):
-            with pytest.raises(GranolaPublicAPIError, match="forbidden|Business or Enterprise"):
-                client._request("GET", "/notes")
+        with (
+            patch.object(client._http, "request", return_value=mock_response),
+            pytest.raises(GranolaPublicAPIError, match=r"forbidden|Business or Enterprise"),
+        ):
+            client._request("GET", "/notes")
 
     def test_request_raises_on_404(self):
         from kb.sync.granola_public import GranolaPublicAPIError, GranolaPublicClient
 
         client = GranolaPublicClient(api_key="grn_test")
         mock_response = MagicMock(status_code=404)
-        with patch.object(client._http, "request", return_value=mock_response):
-            with pytest.raises(GranolaPublicAPIError, match="not found"):
-                client._request("GET", "/notes/missing")
+        with (
+            patch.object(client._http, "request", return_value=mock_response),
+            pytest.raises(GranolaPublicAPIError, match="not found"),
+        ):
+            client._request("GET", "/notes/missing")
 
     def test_client_carries_bearer_authorization_header(self):
         """The shared httpx.Client sets Authorization on every outbound request."""
@@ -231,27 +240,33 @@ class TestGranolaPublicClient:
         secret = "grn_DEADBEEF_secret_value_should_never_appear"
         client = GranolaPublicClient(api_key=secret)
         mock_response = MagicMock(status_code=status)
-        with patch.object(client._http, "request", return_value=mock_response):
-            with pytest.raises(GranolaPublicAPIError) as exc:
-                client._request("GET", "/notes")
+        with (
+            patch.object(client._http, "request", return_value=mock_response),
+            pytest.raises(GranolaPublicAPIError) as exc,
+        ):
+            client._request("GET", "/notes")
         assert secret not in str(exc.value)
 
     def test_list_notes_raises_when_hasmore_missing(self):
         from kb.sync.granola_public import GranolaPublicAPIError, GranolaPublicClient
 
         client = GranolaPublicClient(api_key="grn_test")
-        with patch.object(client, "_request", return_value={"notes": [{"id": "n1"}]}):
-            with pytest.raises(GranolaPublicAPIError, match="hasMore"):
-                list(client.list_notes())
+        with (
+            patch.object(client, "_request", return_value={"notes": [{"id": "n1"}]}),
+            pytest.raises(GranolaPublicAPIError, match="hasMore"),
+        ):
+            list(client.list_notes())
 
     def test_list_notes_raises_when_cursor_does_not_advance(self):
         from kb.sync.granola_public import GranolaPublicAPIError, GranolaPublicClient
 
         client = GranolaPublicClient(api_key="grn_test")
         stuck = {"notes": [{"id": "n1"}], "hasMore": True, "cursor": "same"}
-        with patch.object(client, "_request", return_value=stuck):
-            with pytest.raises(GranolaPublicAPIError, match="cursor failed to advance"):
-                list(client.list_notes())
+        with (
+            patch.object(client, "_request", return_value=stuck),
+            pytest.raises(GranolaPublicAPIError, match="cursor failed to advance"),
+        ):
+            list(client.list_notes())
 
     def test_list_notes_treats_missing_cursor_as_end(self, capsys):
         """hasMore=true with null cursor → break + warn, not infinite loop."""

@@ -1667,9 +1667,11 @@ class TestPagination:
         mock_response.json.return_value = {"message": "Unsupported client"}
         mock_response.raise_for_status = MagicMock()
 
-        with patch.object(client, "_request", return_value=mock_response):
-            with pytest.raises(GranolaAPIError, match="Unsupported client"):
-                client.list_documents()
+        with (
+            patch.object(client, "_request", return_value=mock_response),
+            pytest.raises(GranolaAPIError, match="Unsupported client"),
+        ):
+            client.list_documents()
 
 
 class TestGetUserId:
