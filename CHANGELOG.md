@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/tenfourty/kbx/compare/kbx-v0.2.0...kbx-v0.2.1) (2026-05-24)
+
+
+### Bug Fixes
+
+* **search:** apply --path filter to both FTS and vector pipelines ([e559b99](https://github.com/tenfourty/kbx/commit/e559b990b5ba1a4f6f84ad749059f4a261d82181))
+
 ## [0.2.0](https://github.com/tenfourty/kbx/compare/kbx-v0.1.69...kbx-v0.2.0) (2026-05-22)
 
 
