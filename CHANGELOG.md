@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/tenfourty/kbx/compare/kbx-v0.2.1...kbx-v0.2.2) (2026-05-24)
+
+
+### Features
+
+* **search:** add --explain --json score capture ([#68](https://github.com/tenfourty/kbx/issues/68) Phase 1) ([d7f2e93](https://github.com/tenfourty/kbx/commit/d7f2e93445edf73c7318358a97b97e0ab73832aa))
+
 ## [0.2.1](https://github.com/tenfourty/kbx/compare/kbx-v0.2.0...kbx-v0.2.1) (2026-05-24)
 
 
