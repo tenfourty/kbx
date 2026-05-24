@@ -339,6 +339,33 @@ class TestSearchCommand:
         for r in data["results"]:
             assert r["explain"] is None
 
+    def test_search_json_includes_abstract_field(self, runner, cli_db):
+        """JSON search results expose the `abstract` field (issue #66 Phase 1)."""
+        db, db_path = cli_db
+        # Populate abstract on one row so we can assert its presence in output.
+        conn = db.get_sqlite_conn()
+        conn.execute(
+            "UPDATE documents SET abstract = ? WHERE path = ?",
+            (
+                "Discussed Rust migration progress.",
+                "meetings/2026/01/20/rust_migration.notes.md",
+            ),
+        )
+        conn.commit()
+
+        result = invoke_cli(runner, ["search", "Rust", "--fast", "--json"], db_path)
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["results"], "expected at least one Rust hit"
+        assert all("abstract" in r for r in data["results"])
+        matches = [
+            r
+            for r in data["results"]
+            if r["path"] == "meetings/2026/01/20/rust_migration.notes.md"
+        ]
+        assert matches
+        assert matches[0]["abstract"] == "Discussed Rust migration progress."
+
 
 # ---------------------------------------------------------------------------
 # Step 2: view command

@@ -523,7 +523,8 @@ def _enrich_results(
             d.path,
             d.doc_date,
             d.doc_type,
-            d.tags
+            d.tags,
+            d.abstract
         FROM chunks c
         JOIN documents d ON c.document_id = d.id
         WHERE c.id IN ({placeholders})
@@ -558,6 +559,7 @@ def _enrich_results(
             "doc_type": row["doc_type"],
             "section": row["heading"],
             "content": row["content"],
+            "abstract": row["abstract"],
             "entities": entities_by_doc.get(doc_id, []),
             "tags": json.loads(row["tags"]) if row["tags"] else [],
         }
@@ -824,6 +826,7 @@ def search(
                 score=round(score, 4),
                 section=None if info["section"] == "__document__" else info["section"],
                 snippet=snippet,
+                abstract=info.get("abstract"),
                 content=chunk_content,
                 entities=info["entities"],
                 tags=info.get("tags", []),

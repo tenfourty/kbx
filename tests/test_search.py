@@ -1762,6 +1762,29 @@ class TestExplain:
                 assert r.explain.recency_weight is not None
                 assert 0.0 <= r.explain.recency_weight <= 1.0
 
+    def test_search_result_includes_abstract(self, path_filter_db):
+        """SearchResult exposes the indexed `abstract` field (issue #66 Phase 1)."""
+        # path_filter_db builds documents without abstracts (the fixture inserts
+        # rows directly). Populate one to confirm the field is read back.
+        conn = path_filter_db.get_sqlite_conn()
+        conn.execute(
+            "UPDATE documents SET abstract = ? WHERE path = ?",
+            ("Migration is on track for Q3.", "memory/notes/migration-plan.md"),
+        )
+        conn.commit()
+
+        results = search(
+            path_filter_db,
+            None,
+            "migration",
+            fast=True,
+            path_filter="memory/notes/",
+        )
+        assert results.results, "expected at least one note hit"
+        for r in results.results:
+            if r.path == "memory/notes/migration-plan.md":
+                assert r.abstract == "Migration is on track for Q3."
+
     def test_explain_no_results_meta_still_set(self, search_db):
         """Zero-result query still populates meta.search_mode + variants for diagnostics."""
         results = search(search_db, None, "xyznonexistent", fast=True, explain=True)

@@ -623,6 +623,56 @@ class TestDocumentLevelSummary:
 
 
 @pytest.mark.slow
+class TestAbstractIndexing:
+    """Extractive L0 abstracts populated during indexing (issue #66 Phase 1)."""
+
+    def test_abstract_populated_for_meeting_note(self, tmp_db):
+        """A meeting note gets its first body sentence stored as `documents.abstract`."""
+        from kb.indexer import index_all
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_root = Path(tmpdir)
+            meetings_dir = tmp_root / "memory" / "meetings" / "2026" / "05" / "24"
+            meetings_dir.mkdir(parents=True)
+            (meetings_dir / "ab12cd34_Sync.granola.notes.md").write_text(
+                "---\ntitle: Sync\ndate: 2026-05-24\ntype: notes\n"
+                "granola_id: ab12cd34\n---\n\n"
+                "## Overview\n\n"
+                "Migration is on track for Q3. Remaining tasks are ranked.\n"
+            )
+
+            index_all(tmp_db, None, tmp_root, full=True)
+
+            conn = tmp_db.get_sqlite_conn()
+            row = conn.execute(
+                "SELECT abstract FROM documents WHERE path LIKE '%_Sync.granola.notes.md'"
+            ).fetchone()
+            assert row is not None
+            assert row["abstract"] == "Migration is on track for Q3."
+
+    def test_abstract_falls_back_to_title_when_body_empty(self, tmp_db):
+        """A doc with only frontmatter falls back to title."""
+        from kb.indexer import index_all
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_root = Path(tmpdir)
+            people_dir = tmp_root / "memory" / "people"
+            people_dir.mkdir(parents=True)
+            (people_dir / "alice.md").write_text("# Wren Kasper\n\n**Role:** Lead\n")
+
+            index_all(tmp_db, None, tmp_root, full=True)
+
+            conn = tmp_db.get_sqlite_conn()
+            row = conn.execute(
+                "SELECT abstract FROM documents WHERE path LIKE '%alice.md'"
+            ).fetchone()
+            assert row is not None
+            # The body for an entity file is typically structured key/value lines;
+            # the abstract should be a non-empty string (either first useful
+            # sentence or title fallback).
+            assert row["abstract"]
+
+
 class TestIndexer:
     """Indexing behaviour tests — use embedder=None (text-only, no network)."""
 

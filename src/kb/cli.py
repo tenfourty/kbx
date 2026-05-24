@@ -245,6 +245,7 @@ _AGENT_PLAYBOOK = """\
   kb search "query" --fts-weight 2.0 --json   # boost FTS (keywords)
   kb search "query" --vector-weight 2.0 --json  # boost vector (semantic)
   kb search "query" --explain --json           # per-result scoring breakdown (#68 P1)
+  # JSON results include `abstract`: extractive one-sentence summary per doc (#66 P1)
   kb view <path|#hash|glob> --json            # full document
   kb view <path|#hash|glob> --plain           # raw content only (no metadata)
   kb list --type notes --from 2026-02-01      # browse by type/date

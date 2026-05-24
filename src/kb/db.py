@@ -44,7 +44,8 @@ CREATE TABLE IF NOT EXISTS documents (
     content_hash TEXT NOT NULL,
     file_mtime TEXT,
     chunk_count INTEGER DEFAULT 0,
-    indexed_at TEXT NOT NULL DEFAULT (datetime('now'))
+    indexed_at TEXT NOT NULL DEFAULT (datetime('now')),
+    abstract TEXT
 );
 
 CREATE TABLE IF NOT EXISTS chunks (
@@ -140,6 +141,7 @@ MIGRATIONS: list[tuple[str, str | None]] = [
         "ALTER TABLE chunks ADD COLUMN metadata_prefix TEXT DEFAULT ''",
     ),
     ("012_add_fact_seq", None),  # Python-based: add seq column + backfill + unique constraint
+    ("013_add_documents_abstract", "ALTER TABLE documents ADD COLUMN abstract TEXT"),
 ]
 
 

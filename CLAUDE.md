@@ -92,6 +92,7 @@ src/kb/|root: ./src/kb
 |entities.py — entity seeding from memory/ + regex-based mention linking + source-ID linking
 |matching.py — task-to-project matching (TypedDicts: TaskInput, ProjectInput) + sources extraction/formatting
 |chunker.py — markdown-aware chunking (notes by ##, transcripts by ¶)
+|abstracts.py — extractive L0 abstracts (first-sentence + title fallback, no LLM)
 |context.py — compressed entity index for AI agents
 |output.py — render pipeline (table/json/jsonl/csv + fields + jq)
 |crud.py — entity CRUD with markdown file sync + find_document_by_target() shared resolver
