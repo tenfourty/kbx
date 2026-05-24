@@ -234,6 +234,8 @@ _AGENT_PLAYBOOK = """\
   kb search "query" --fast --json             # keyword (FTS, instant)
   kb search "query" --json --limit 10         # hybrid (semantic + FTS, ~2s)
   kb search "query" --tag infra --fast --json # filter by tag
+  kb search "query" --path memory/meetings/    # scope to path prefix (FTS + vector)
+  kb search "query" --path "memory/*/2026/*"   # scope with glob (* and ? supported)
   kb search "query" --from 2026-01-01 --to 2026-01-31  # date range
   kb search "query" --sort date --json        # newest first
   kb search "query" --dedupe --json           # one result per document
@@ -388,6 +390,15 @@ def cli() -> None:
 )
 @click.option("--tag", "tag_filter", default=None, help="Filter by tag (comma-separated for AND).")
 @click.option(
+    "--path",
+    "path_filter",
+    default=None,
+    help=(
+        "Scope results to a path prefix or glob (e.g. memory/meetings/, memory/*/2026/*). "
+        "Applies to both FTS and vector search."
+    ),
+)
+@click.option(
     "--fts-weight", default=1.0, type=float, help="FTS weight for RRF fusion (default 1.0)."
 )
 @click.option(
@@ -417,6 +428,7 @@ def search(
     to_date: str | None,
     sort_by: str,
     tag_filter: str | None,
+    path_filter: str | None,
     fts_weight: float,
     vector_weight: float,
     dedupe: bool,
@@ -462,6 +474,7 @@ def search(
         from_date=from_date,
         to_date=to_date,
         tag=tag_filter,
+        path_filter=path_filter,
         sort_by=sort_by,
         fts_weight=fts_weight,
         vector_weight=vector_weight,

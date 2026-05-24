@@ -1485,3 +1485,200 @@ class TestWikilinkStripping:
         content = "[Meeting: Test | Date: 2026-01-01]\nDiscussed [[Helix Refactor]] with [[Wren]]"
         snippet = _make_snippet(content)
         assert "[[" not in snippet
+
+
+# ---------------------------------------------------------------------------
+# --path filter (issue #73)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def path_filter_db():
+    """Test DB with documents at varied paths across memory/ subtrees."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db = Database(Path(tmpdir))
+        conn = db.get_sqlite_conn()
+
+        docs = [
+            ("memory/meetings/2026/01/15/standup.md", "Migration Standup", "2026-01-15"),
+            ("memory/meetings/2026/02/20/review.md", "Migration Review", "2026-02-20"),
+            ("memory/notes/migration-plan.md", "Migration Plan Note", "2026-02-01"),
+            ("memory/people/alice.md", "Wren Migration Lead", "2026-01-01"),
+            ("memory/projects/cloud.md", "Helix Refactor Project", "2026-01-10"),
+        ]
+        for i, (path, title, date) in enumerate(docs, 1):
+            conn.execute(
+                """INSERT INTO documents
+                   (path, title, doc_date, doc_type, source_system, source_id,
+                    tags, content_hash, chunk_count)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (path, title, date, "notes", "test", f"id{i}", "[]", f"hash{i}", 1),
+            )
+            conn.execute(
+                "INSERT INTO chunks (document_id, chunk_index, heading, content) "
+                "VALUES (?, ?, ?, ?)",
+                (i, 0, "Body", f"{title}\nDiscussed migration timeline and rollout."),
+            )
+
+        conn.commit()
+        yield db
+        db.close() if hasattr(db, "close") else None
+
+
+class TestPathFilter:
+    """Issue #73 — `--path` filter must scope both FTS and vector results."""
+
+    def test_path_filter_scopes_fts_results(self, path_filter_db):
+        """Prefix filter keeps only matching paths in FTS results."""
+        results = search(
+            path_filter_db, None, "migration", fast=True, path_filter="memory/meetings/"
+        )
+        assert results.meta.total > 0
+        for r in results.results:
+            assert r.path.startswith("memory/meetings/"), (
+                f"Path {r.path!r} leaked past filter memory/meetings/"
+            )
+
+    def test_path_filter_excludes_siblings(self, path_filter_db):
+        """Filter on memory/notes/ excludes meetings, people, projects."""
+        results = search(
+            path_filter_db, None, "migration", fast=True, path_filter="memory/notes/"
+        )
+        paths = [r.path for r in results.results]
+        assert paths == ["memory/notes/migration-plan.md"], paths
+
+    def test_path_filter_no_match_returns_empty(self, path_filter_db):
+        """Filter that matches no docs returns zero results."""
+        results = search(
+            path_filter_db, None, "migration", fast=True, path_filter="memory/nonexistent/"
+        )
+        assert results.meta.total == 0
+        assert results.results == []
+
+    def test_path_filter_glob_star(self, path_filter_db):
+        """`*` glob is translated to SQL `%` wildcard."""
+        results = search(
+            path_filter_db, None, "migration", fast=True, path_filter="memory/*/2026/*"
+        )
+        paths = [r.path for r in results.results]
+        assert paths, "expected at least one match for memory/*/2026/*"
+        for p in paths:
+            assert p.startswith("memory/meetings/2026/"), p
+
+    def test_path_filter_no_filter_returns_all(self, path_filter_db):
+        """Without --path, all matching docs are returned (no regression)."""
+        results = search(path_filter_db, None, "migration", fast=True)
+        assert results.meta.total == 5
+
+
+class TestResolvePathFilter:
+    """Unit tests for the path → doc_id resolver helper."""
+
+    def test_resolve_prefix(self, path_filter_db):
+        from kb.search import _resolve_doc_ids_for_path
+
+        doc_ids = _resolve_doc_ids_for_path(path_filter_db, "memory/meetings/")
+        assert doc_ids is not None
+        # Docs 1 and 2 are under memory/meetings/
+        assert doc_ids == {1, 2}
+
+    def test_resolve_exact_path(self, path_filter_db):
+        from kb.search import _resolve_doc_ids_for_path
+
+        doc_ids = _resolve_doc_ids_for_path(path_filter_db, "memory/notes/migration-plan.md")
+        assert doc_ids == {3}
+
+    def test_resolve_glob(self, path_filter_db):
+        from kb.search import _resolve_doc_ids_for_path
+
+        doc_ids = _resolve_doc_ids_for_path(path_filter_db, "memory/*/alice.md")
+        assert doc_ids == {4}
+
+    def test_resolve_empty_match(self, path_filter_db):
+        from kb.search import _resolve_doc_ids_for_path
+
+        doc_ids = _resolve_doc_ids_for_path(path_filter_db, "memory/nope/")
+        assert doc_ids == set()
+
+    def test_resolve_none_passthrough(self, path_filter_db):
+        """Passing None returns None (no filter applied downstream)."""
+        from kb.search import _resolve_doc_ids_for_path
+
+        assert _resolve_doc_ids_for_path(path_filter_db, None) is None
+
+
+class TestVectorPathFilter:
+    """Vector search must apply the same path filter as FTS."""
+
+    def test_vector_search_uses_doc_id_filter(self):
+        """`_vector_search` passes `document_id IN (...)` to LanceDB when doc_ids given."""
+        from unittest.mock import MagicMock
+
+        from kb.search import _vector_search
+
+        # Mock LanceDB query chain: table.search(...).where(...).limit(...).to_list()
+        mock_query = MagicMock()
+        mock_query.where.return_value = mock_query
+        mock_query.limit.return_value = mock_query
+        mock_query.to_list.return_value = []
+
+        mock_table = MagicMock()
+        mock_table.search.return_value = mock_query
+
+        mock_db = MagicMock()
+        mock_db.get_lance_table.return_value = mock_table
+
+        mock_embedder = MagicMock()
+        import numpy as np
+
+        mock_embedder.embed_query.return_value = np.array([[0.1] * 1024], dtype=np.float32)
+
+        _vector_search(mock_db, mock_embedder, "query", limit=10, doc_ids={1, 2, 3})
+
+        # The where() call should have been invoked with a doc-id IN clause
+        mock_query.where.assert_called_once()
+        where_clause = mock_query.where.call_args[0][0]
+        assert "document_id IN" in where_clause
+        # All three IDs should appear (order-insensitive)
+        for did in (1, 2, 3):
+            assert str(did) in where_clause
+
+    def test_vector_search_no_filter_skips_where(self):
+        """`_vector_search` does NOT add a where() clause when doc_ids is None."""
+        from unittest.mock import MagicMock
+
+        from kb.search import _vector_search
+
+        mock_query = MagicMock()
+        mock_query.limit.return_value = mock_query
+        mock_query.to_list.return_value = []
+
+        mock_table = MagicMock()
+        mock_table.search.return_value = mock_query
+
+        mock_db = MagicMock()
+        mock_db.get_lance_table.return_value = mock_table
+
+        mock_embedder = MagicMock()
+        import numpy as np
+
+        mock_embedder.embed_query.return_value = np.array([[0.1] * 1024], dtype=np.float32)
+
+        _vector_search(mock_db, mock_embedder, "query", limit=10)
+
+        mock_query.where.assert_not_called()
+
+    def test_vector_search_empty_doc_ids_returns_empty(self):
+        """When the resolver returns an empty set, vector search short-circuits."""
+        from unittest.mock import MagicMock
+
+        from kb.search import _vector_search
+
+        mock_db = MagicMock()
+        mock_embedder = MagicMock()
+
+        results = _vector_search(mock_db, mock_embedder, "query", limit=10, doc_ids=set())
+
+        assert results == []
+        # Should not have even loaded the LanceDB table
+        mock_db.get_lance_table.assert_not_called()

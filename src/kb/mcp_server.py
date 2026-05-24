@@ -34,6 +34,7 @@ def handle_kb_search(
     tag: str | None = None,
     sort_by: str = "score",
     doc_type: str | None = None,
+    path_filter: str | None = None,
 ) -> str:
     """Search the knowledge base. Returns JSON string."""
     try:
@@ -48,6 +49,7 @@ def handle_kb_search(
             from_date=from_date,
             to_date=to_date,
             tag=tag,
+            path_filter=path_filter,
             sort_by=sort_by,
             doc_type=doc_type,
         )
@@ -994,6 +996,7 @@ def kb_search(
     tag: str | None = None,
     sort_by: str = "score",
     doc_type: str | None = None,
+    path: str | None = None,
 ) -> str:
     """Search the knowledge base. Returns JSON with matching documents, ranked by relevance.
     Use fast=True (default) for instant FTS-only search.
@@ -1001,6 +1004,8 @@ def kb_search(
     Optionally filter by tag (comma-separated for AND, e.g. 'decision,infra').
     Note: tags only work on memory notes, not meeting docs.
     doc_type: filter by document type (e.g. 'notes', 'transcript', 'memory_note').
+    path: scope results to a path prefix or glob (e.g. 'memory/meetings/', 'memory/*/2026/*').
+    Applies to both FTS and vector search consistently.
     sort_by: 'score' (default) or 'date' (newest first)."""
     limit = max(1, min(limit, 100))
     from_date = _validate_date(from_date)
@@ -1018,6 +1023,7 @@ def kb_search(
         tag=tag,
         sort_by=sort_by,
         doc_type=doc_type,
+        path_filter=path,
     )
 
 

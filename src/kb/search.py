@@ -311,27 +311,73 @@ def _build_fts_query(query: str, extra_or_terms: list[str] | None = None) -> lis
     return variants
 
 
+def _resolve_doc_ids_for_path(db: Database, path_filter: str | None) -> set[int] | None:
+    """Resolve a `--path` pattern to the matching set of document IDs.
+
+    Returns:
+        - ``None`` if ``path_filter`` is None (no filter — caller should not constrain results)
+        - A possibly-empty ``set[int]`` of matching document IDs otherwise
+
+    Pattern handling:
+        - Prefixes (no glob chars): ``memory/notes/`` → ``LIKE 'memory/notes/%'``
+        - Simple globs: ``memory/*/2026/*`` → translated to SQL ``LIKE`` (``*`` → ``%``, ``?`` → ``_``)
+        - Exact paths: matched literally.
+    """
+    if path_filter is None:
+        return None
+
+    if any(c in path_filter for c in "*?"):
+        like_pattern = path_filter.replace("*", "%").replace("?", "_")
+    elif path_filter.endswith("/"):
+        like_pattern = path_filter + "%"
+    else:
+        like_pattern = path_filter
+
+    conn = db.get_sqlite_conn()
+    rows = conn.execute(
+        "SELECT id FROM documents WHERE path LIKE ?",
+        (like_pattern,),
+    ).fetchall()
+    return {row["id"] for row in rows}
+
+
 def _fts_search(
     db: Database,
     query: str,
     limit: int = 50,
     extra_or_terms: list[str] | None = None,
+    doc_ids: set[int] | None = None,
 ) -> list[dict[str, Any]]:
     """Run FTS5 search with phrase → proximity → OR, merging results across variants.
 
     Returns list of dicts with: chunk_id, document_id, content, heading, bm25_score (normalized).
     Accumulates results across all variants, keeping the best BM25 score per chunk.
+
+    When ``doc_ids`` is an empty set, returns ``[]`` immediately. When it is a
+    non-empty set, results are restricted to chunks whose ``document_id`` is in
+    that set.
     """
+    if doc_ids is not None and not doc_ids:
+        return []
+
     conn = db.get_sqlite_conn()
     variants = _build_fts_query(query, extra_or_terms=extra_or_terms)
 
     # Accumulate best raw_bm25 per chunk across all variants
     merged: dict[int, dict[str, Any]] = {}  # chunk_id -> result dict
 
+    if doc_ids is not None:
+        doc_id_placeholders = ",".join("?" * len(doc_ids))
+        doc_id_filter_sql = f" AND c.document_id IN ({doc_id_placeholders})"
+        doc_id_params: tuple[int, ...] = tuple(sorted(doc_ids))
+    else:
+        doc_id_filter_sql = ""
+        doc_id_params = ()
+
     for fts_expr in variants:
         try:
             rows = conn.execute(
-                """
+                f"""
                 SELECT
                     c.id as chunk_id,
                     c.document_id,
@@ -340,11 +386,11 @@ def _fts_search(
                     bm25(chunks_fts, 1.0, 2.0) as raw_bm25
                 FROM chunks_fts
                 JOIN chunks c ON c.id = chunks_fts.rowid
-                WHERE chunks_fts MATCH ?
+                WHERE chunks_fts MATCH ?{doc_id_filter_sql}
                 ORDER BY bm25(chunks_fts, 1.0, 2.0)
                 LIMIT ?
                 """,
-                (fts_expr, limit),
+                (fts_expr, *doc_id_params, limit),
             ).fetchall()
 
             for row in rows:
@@ -384,14 +430,31 @@ def _vector_search(
     embedder: Embedder,
     query: str,
     limit: int = 50,
+    doc_ids: set[int] | None = None,
 ) -> list[dict[str, Any]]:
-    """Run LanceDB vector search. Returns list of dicts with chunk_id, score."""
+    """Run LanceDB vector search. Returns list of dicts with chunk_id, score.
+
+    When ``doc_ids`` is an empty set, returns ``[]`` immediately without touching
+    LanceDB. When it is a non-empty set, the LanceDB query is pre-filtered with
+    a ``document_id IN (...)`` ``where`` clause so the ANN search only scores
+    candidate chunks from the matching documents (mirrors FTS path filtering —
+    issue #73).
+    """
+    if doc_ids is not None and not doc_ids:
+        return []
+
     table = db.get_lance_table()
     if table is None:
         return []
 
     query_vec = embedder.embed_query(query)
-    results = table.search(query_vec[0].tolist()).limit(limit).to_list()
+    query_builder = table.search(query_vec[0].tolist())
+
+    if doc_ids is not None:
+        id_list = ",".join(str(did) for did in sorted(doc_ids))
+        query_builder = query_builder.where(f"document_id IN ({id_list})")
+
+    results = query_builder.limit(limit).to_list()
 
     return [
         {
@@ -519,6 +582,7 @@ def search(
     from_date: str | None = None,
     to_date: str | None = None,
     tag: str | None = None,
+    path_filter: str | None = None,
     sort_by: str = "score",
     fts_weight: float = 1.0,
     vector_weight: float = 1.0,
@@ -559,9 +623,19 @@ def search(
     except Exception:
         pass
 
+    # Resolve --path filter to a set of document IDs (issue #73).
+    # Done once so FTS and vector pipelines apply the same filter consistently.
+    path_doc_ids = _resolve_doc_ids_for_path(db, path_filter)
+
     # Step 1: FTS5 search
     hook.on_fts_start()
-    fts_results = _fts_search(db, query, limit=limit * 5, extra_or_terms=expansion_or_terms)
+    fts_results = _fts_search(
+        db,
+        query,
+        limit=limit * 5,
+        extra_or_terms=expansion_or_terms,
+        doc_ids=path_doc_ids,
+    )
     hook.on_fts_done(len(fts_results))
 
     # Step 2: Decide whether to do vector search
@@ -573,7 +647,9 @@ def search(
         table = db.get_lance_table()
         if table is not None:
             hook.on_vector_start()
-            vector_results = _vector_search(db, embedder, query, limit=limit * 5)
+            vector_results = _vector_search(
+                db, embedder, query, limit=limit * 5, doc_ids=path_doc_ids
+            )
             hook.on_vector_done(len(vector_results))
         else:
             # FTS-only fallback — no vectors available

@@ -270,6 +270,36 @@ class TestSearchCommand:
         result = invoke_cli(runner, ["search"], db_path)
         assert result.exit_code != 0
 
+    def test_search_with_path_filter_prefix(self, runner, cli_db):
+        """kb search --path scopes results to a path prefix (issue #73)."""
+        _db, db_path = cli_db
+        result = invoke_cli(
+            runner,
+            ["search", "Talia", "--fast", "--json", "--path", "memory/people/"],
+            db_path,
+        )
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        for r in data["results"]:
+            assert r["path"].startswith("memory/people/"), r["path"]
+
+    def test_search_with_path_filter_excludes_others(self, runner, cli_db):
+        """kb search --path excludes docs outside the prefix."""
+        _db, db_path = cli_db
+        # Search would normally hit both meetings/ docs for "migration",
+        # but --path memory/people/ should exclude all of them.
+        result = invoke_cli(
+            runner,
+            ["search", "migration", "--fast", "--json", "--path", "memory/people/"],
+            db_path,
+        )
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        for r in data["results"]:
+            assert not r["path"].startswith("meetings/"), (
+                f"Path {r['path']!r} leaked past --path memory/people/"
+            )
+
 
 # ---------------------------------------------------------------------------
 # Step 2: view command
