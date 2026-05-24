@@ -114,6 +114,27 @@ class IndexResult(StrictMutable):
 # ---------------------------------------------------------------------------
 
 
+class SearchExplain(StrictFrozen):
+    """Per-result scoring breakdown — populated when ``explain=True``.
+
+    Captures the component scores already computed during the search pipeline
+    so callers can debug ranking without re-running the search. Phase 1 of
+    issue #68 — covers the raw component data; human-readable formatting and
+    'why not' diagnostics ship later.
+    """
+
+    fts_score: float | None  # normalized BM25 in [0,1], None if no FTS hit
+    vector_score: float | None  # cosine similarity in [0,1], None if no vector hit
+    fused_score: float  # score after RRF fusion (pre-recency, pre-entity-boost)
+    recency_weight: float | None  # 0..1 (None when doc has no date or recency=0)
+    entity_boost_applied: bool
+    final_score: float  # post-recency, post-entity-boost — matches SearchResult.score
+    source: str  # "fts_only" | "vector_only" | "both"
+    fts_weight: float
+    vector_weight: float
+    recency: float
+
+
 class SearchResult(StrictFrozen):
     """A single search result."""
 
@@ -130,6 +151,7 @@ class SearchResult(StrictFrozen):
     entities: list[str] = []
     tags: list[str] = []
     chunk_count: int = 1  # matching chunks from this doc (populated when dedupe=True)
+    explain: SearchExplain | None = None  # populated when search(explain=True)
 
 
 class SearchMeta(StrictFrozen):
@@ -141,6 +163,16 @@ class SearchMeta(StrictFrozen):
     sort_by: str
     execution_ms: float
     expanded_terms: dict[str, str] = {}  # {original_term: expansion} for glossary UI
+
+    # Explain-mode meta — populated only when search(explain=True). All optional
+    # so the default JSON output stays unchanged for normal queries.
+    search_mode: str | None = None  # "hybrid" | "fts_only" | "vector_only" | "fast"
+    fts_variants_tried: list[str] = []
+    fts_hits: int | None = None
+    vector_hits: int | None = None
+    both_hits: int | None = None  # chunks that appeared in both pipelines
+    path_filter: str | None = None
+    path_filter_doc_count: int | None = None  # doc count the path filter resolved to
 
 
 class SearchResponse(StrictFrozen):

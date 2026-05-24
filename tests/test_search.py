@@ -1682,3 +1682,90 @@ class TestVectorPathFilter:
         assert results == []
         # Should not have even loaded the LanceDB table
         mock_db.get_lance_table.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# --explain --json (issue #68, Phase 1: score capture only)
+# ---------------------------------------------------------------------------
+
+
+class TestExplain:
+    """`search(explain=True)` exposes per-result component scores + meta diagnostics.
+
+    Phase 1 of issue #68 — score capture and JSON shape. Human-readable
+    output, 'why not' mode, and verbose chunk-level detail ship later.
+    """
+
+    def test_explain_off_by_default(self, search_db):
+        """No `explain` field populated when search(explain=False)."""
+        results = search(search_db, None, "MFA", fast=True)
+        assert results.meta.search_mode is None
+        for r in results.results:
+            assert r.explain is None
+
+    def test_explain_populates_per_result(self, search_db):
+        """search(explain=True) attaches an explain block to each result."""
+        results = search(search_db, None, "MFA", fast=True, explain=True)
+        assert results.results, "expected MFA query to return results"
+        for r in results.results:
+            assert r.explain is not None
+            # final_score on explain matches the user-visible score
+            assert r.explain.final_score == pytest.approx(r.score)
+            # FTS-only path so source must be fts_only and vector_score None
+            assert r.explain.source == "fts_only"
+            assert r.explain.vector_score is None
+            assert r.explain.fts_score is not None
+            assert 0.0 <= r.explain.fts_score <= 1.0
+            # Weights echo back the values used for this query
+            assert r.explain.fts_weight == 1.0
+            assert r.explain.vector_weight == 1.0
+
+    def test_explain_meta_has_search_mode_fast(self, search_db):
+        """fast=True reports search_mode='fast'."""
+        results = search(search_db, None, "MFA", fast=True, explain=True)
+        assert results.meta.search_mode == "fast"
+        assert results.meta.fts_hits is not None
+        assert results.meta.fts_hits >= 1
+        assert results.meta.vector_hits == 0
+        assert results.meta.both_hits == 0
+
+    def test_explain_meta_lists_fts_variants(self, search_db):
+        """meta.fts_variants_tried lists the FTS5 expression variants attempted."""
+        results = search(search_db, None, "Rust migration", fast=True, explain=True)
+        variants = results.meta.fts_variants_tried
+        assert variants, "expected at least one FTS variant for multi-word query"
+        # Multi-word query produces phrase + NEAR + AND + OR variants
+        assert any(v == '"Rust migration"' for v in variants)
+        assert any("NEAR(" in v for v in variants)
+
+    def test_explain_meta_with_path_filter(self, path_filter_db):
+        """meta reports the path filter and its resolved doc count when explain=True."""
+        results = search(
+            path_filter_db,
+            None,
+            "migration",
+            fast=True,
+            explain=True,
+            path_filter="memory/meetings/",
+        )
+        assert results.meta.path_filter == "memory/meetings/"
+        # Two docs live under memory/meetings/ in the fixture
+        assert results.meta.path_filter_doc_count == 2
+
+    def test_explain_recency_weight_captured(self, search_db):
+        """recency_weight is captured per result (when doc has a date)."""
+        results = search(search_db, None, "MFA", fast=True, explain=True, recency=0.15)
+        for r in results.results:
+            assert r.explain is not None
+            assert r.explain.recency == 0.15
+            if r.date:
+                assert r.explain.recency_weight is not None
+                assert 0.0 <= r.explain.recency_weight <= 1.0
+
+    def test_explain_no_results_meta_still_set(self, search_db):
+        """Zero-result query still populates meta.search_mode + variants for diagnostics."""
+        results = search(search_db, None, "xyznonexistent", fast=True, explain=True)
+        assert results.results == []
+        assert results.meta.search_mode == "fast"
+        assert results.meta.fts_hits == 0
+        assert results.meta.fts_variants_tried, "variants should be listed even on zero hits"

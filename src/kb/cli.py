@@ -244,6 +244,7 @@ _AGENT_PLAYBOOK = """\
   kb search "query" --snippet-chars 500 --json  # longer snippets (default 200)
   kb search "query" --fts-weight 2.0 --json   # boost FTS (keywords)
   kb search "query" --vector-weight 2.0 --json  # boost vector (semantic)
+  kb search "query" --explain --json           # per-result scoring breakdown (#68 P1)
   kb view <path|#hash|glob> --json            # full document
   kb view <path|#hash|glob> --plain           # raw content only (no metadata)
   kb list --type notes --from 2026-02-01      # browse by type/date
@@ -416,6 +417,15 @@ def cli() -> None:
     is_flag=True,
     help="With --dedupe --full-chunks, concatenate all matching chunks per document.",
 )
+@click.option(
+    "--explain",
+    is_flag=True,
+    help=(
+        "Attach scoring breakdown to each result (FTS/vector/fused/recency component "
+        "scores, source pipeline) and diagnostic meta. Issue #68 Phase 1 — JSON only "
+        "for now; human-readable explain output ships later."
+    ),
+)
 @output_options
 def search(
     query: str,
@@ -435,6 +445,7 @@ def search(
     snippet_chars: int,
     full_chunks: bool,
     merge_chunks: bool,
+    explain: bool,
     fmt: str,
     fields: list[str] | None,
     jq_expr: str | None,
@@ -483,6 +494,7 @@ def search(
         full_chunks=full_chunks,
         merge_chunks=merge_chunks,
         highlight=(fmt == "table"),
+        explain=explain,
     )
 
     kb_output(

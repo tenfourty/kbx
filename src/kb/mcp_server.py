@@ -35,6 +35,7 @@ def handle_kb_search(
     sort_by: str = "score",
     doc_type: str | None = None,
     path_filter: str | None = None,
+    explain: bool = False,
 ) -> str:
     """Search the knowledge base. Returns JSON string."""
     try:
@@ -52,6 +53,7 @@ def handle_kb_search(
             path_filter=path_filter,
             sort_by=sort_by,
             doc_type=doc_type,
+            explain=explain,
         )
         return json.dumps(results.model_dump(), default=str, ensure_ascii=False)
     except Exception as e:
@@ -997,6 +999,7 @@ def kb_search(
     sort_by: str = "score",
     doc_type: str | None = None,
     path: str | None = None,
+    explain: bool = False,
 ) -> str:
     """Search the knowledge base. Returns JSON with matching documents, ranked by relevance.
     Use fast=True (default) for instant FTS-only search.
@@ -1006,6 +1009,8 @@ def kb_search(
     doc_type: filter by document type (e.g. 'notes', 'transcript', 'memory_note').
     path: scope results to a path prefix or glob (e.g. 'memory/meetings/', 'memory/*/2026/*').
     Applies to both FTS and vector search consistently.
+    explain: attach scoring breakdown (FTS/vector/fused/recency component scores) to each
+    result and diagnostic meta. Issue #68 Phase 1 — raw data only; human-readable summary later.
     sort_by: 'score' (default) or 'date' (newest first)."""
     limit = max(1, min(limit, 100))
     from_date = _validate_date(from_date)
@@ -1024,6 +1029,7 @@ def kb_search(
         sort_by=sort_by,
         doc_type=doc_type,
         path_filter=path,
+        explain=explain,
     )
 
 

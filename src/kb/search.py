@@ -12,7 +12,7 @@ from datetime import date
 from typing import TYPE_CHECKING, Any
 
 from kb.entities import strip_wikilinks
-from kb.types import SearchMeta, SearchResponse, SearchResult
+from kb.types import SearchExplain, SearchMeta, SearchResponse, SearchResult
 
 if TYPE_CHECKING:
     from kb.db import Database
@@ -591,6 +591,7 @@ def search(
     full_chunks: bool = False,
     merge_chunks: bool = False,
     highlight: bool = False,
+    explain: bool = False,
     hook: SearchProgressHook | None = None,
 ) -> SearchResponse:
     """Hybrid search: FTS5 + vector + weighted RRF + recency.
@@ -627,6 +628,10 @@ def search(
     # Done once so FTS and vector pipelines apply the same filter consistently.
     path_doc_ids = _resolve_doc_ids_for_path(db, path_filter)
 
+    # Capture FTS variants once (pure function, same call as inside _fts_search) so
+    # explain mode can report what was actually tried — issue #68 Phase 1.
+    fts_variants = _build_fts_query(query, extra_or_terms=expansion_or_terms) if explain else []
+
     # Step 1: FTS5 search
     hook.on_fts_start()
     fts_results = _fts_search(
@@ -655,6 +660,15 @@ def search(
             # FTS-only fallback — no vectors available
             print("Warning: No vector index found. Using FTS-only search.", file=sys.stderr)
 
+    # Build per-chunk component score maps for explain output. Cheap when explain=False
+    # because we only iterate the existing result lists.
+    fts_score_map: dict[int, float] = (
+        {r["chunk_id"]: r["bm25_score"] for r in fts_results} if explain else {}
+    )
+    vector_score_map: dict[int, float] = (
+        {r["chunk_id"]: r["score"] for r in vector_results} if explain else {}
+    )
+
     # Step 3: Fuse results
     if vector_results and fts_results:
         fused = _weighted_rrf(
@@ -677,6 +691,10 @@ def search(
 
     query_words_lower = set(query.lower().split())
     scored: list[tuple[int, float]] = []
+    # Per-chunk explain data — populated only when explain=True so the normal
+    # path pays no per-chunk allocation. Captures fused score, recency weight,
+    # and the entity-boost flag observed during scoring (issue #68 Phase 1).
+    explain_per_chunk: dict[int, dict[str, Any]] = {}
     for chunk_id, base_score in fused.items():
         info = enriched.get(chunk_id)
         if info is None:
@@ -700,9 +718,10 @@ def search(
                 continue
 
         # Apply recency
+        recency_weight_value: float | None = None
         if recency > 0 and info["date"]:
-            rw = _recency_weight(info["date"])
-            final = (1 - recency) * base_score + recency * rw * base_score
+            recency_weight_value = _recency_weight(info["date"])
+            final = (1 - recency) * base_score + recency * recency_weight_value * base_score
         else:
             final = base_score
 
@@ -714,6 +733,13 @@ def search(
                 has_entity_match = True
                 break
         final = _apply_entity_boost(final, has_entity_match)
+
+        if explain:
+            explain_per_chunk[chunk_id] = {
+                "fused_score": base_score,
+                "recency_weight": recency_weight_value,
+                "entity_boost_applied": has_entity_match,
+            }
 
         scored.append((chunk_id, final))
 
@@ -762,6 +788,31 @@ def search(
                 chunk_content = "\n\n".join(c["content"] for c in chunks_sorted)
             else:
                 chunk_content = info["content"]
+
+        result_explain = None
+        if explain:
+            in_fts = chunk_id in fts_score_map
+            in_vector = chunk_id in vector_score_map
+            if in_fts and in_vector:
+                source = "both"
+            elif in_fts:
+                source = "fts_only"
+            else:
+                source = "vector_only"
+            chunk_explain = explain_per_chunk.get(chunk_id, {})
+            result_explain = SearchExplain(
+                fts_score=fts_score_map.get(chunk_id),
+                vector_score=vector_score_map.get(chunk_id),
+                fused_score=chunk_explain.get("fused_score", score),
+                recency_weight=chunk_explain.get("recency_weight"),
+                entity_boost_applied=chunk_explain.get("entity_boost_applied", False),
+                final_score=round(score, 4),
+                source=source,
+                fts_weight=fts_weight,
+                vector_weight=vector_weight,
+                recency=recency,
+            )
+
         results.append(
             SearchResult(
                 chunk_id=chunk_id,
@@ -777,6 +828,7 @@ def search(
                 entities=info["entities"],
                 tags=info.get("tags", []),
                 chunk_count=doc_chunk_counts.get(doc_id, 1),
+                explain=result_explain,
             )
         )
 
@@ -786,17 +838,47 @@ def search(
 
     elapsed_ms = round((time.monotonic() - start_time) * 1000, 1)
 
-    return SearchResponse(
-        results=results,
-        meta=SearchMeta(
+    # Explain-mode meta (issue #68 Phase 1) — populated only when explain=True.
+    if explain:
+        fts_ids = set(fts_score_map.keys())
+        vector_ids = set(vector_score_map.keys())
+        both_ids = fts_ids & vector_ids
+        if fast:
+            search_mode: str | None = "fast"
+        elif fts_results and vector_results:
+            search_mode = "hybrid"
+        elif fts_results:
+            search_mode = "fts_only"
+        elif vector_results:
+            search_mode = "vector_only"
+        else:
+            search_mode = "fast" if fast else "hybrid"
+        meta = SearchMeta(
             query=query,
             total=len(results),
             limit=limit,
             sort_by=sort_by,
             execution_ms=elapsed_ms,
             expanded_terms=expanded_terms,
-        ),
-    )
+            search_mode=search_mode,
+            fts_variants_tried=fts_variants,
+            fts_hits=len(fts_ids),
+            vector_hits=len(vector_ids),
+            both_hits=len(both_ids),
+            path_filter=path_filter,
+            path_filter_doc_count=(len(path_doc_ids) if path_doc_ids is not None else None),
+        )
+    else:
+        meta = SearchMeta(
+            query=query,
+            total=len(results),
+            limit=limit,
+            sort_by=sort_by,
+            execution_ms=elapsed_ms,
+            expanded_terms=expanded_terms,
+        )
+
+    return SearchResponse(results=results, meta=meta)
 
 
 # ---------------------------------------------------------------------------

@@ -300,6 +300,45 @@ class TestSearchCommand:
                 f"Path {r['path']!r} leaked past --path memory/people/"
             )
 
+    def test_search_with_explain_json(self, runner, cli_db):
+        """kb search --explain --json attaches explain block + meta diagnostics (#68 P1)."""
+        _db, db_path = cli_db
+        result = invoke_cli(
+            runner,
+            ["search", "Rust", "--fast", "--json", "--explain"],
+            db_path,
+        )
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+
+        # Meta gains diagnostic fields
+        assert data["meta"]["search_mode"] == "fast"
+        assert isinstance(data["meta"]["fts_variants_tried"], list)
+        assert data["meta"]["fts_hits"] is not None
+
+        # Each result has explain populated
+        assert data["results"], "expected at least one result for 'Rust'"
+        for r in data["results"]:
+            assert r["explain"] is not None
+            ex = r["explain"]
+            assert ex["source"] == "fts_only"
+            assert ex["vector_score"] is None
+            assert ex["fts_score"] is not None
+            assert 0.0 <= ex["fts_score"] <= 1.0
+            assert ex["final_score"] == pytest.approx(r["score"])
+
+    def test_search_without_explain_omits_block(self, runner, cli_db):
+        """Default search has no explain block — backward compat."""
+        _db, db_path = cli_db
+        result = invoke_cli(
+            runner, ["search", "Rust", "--fast", "--json"], db_path
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["meta"].get("search_mode") is None
+        for r in data["results"]:
+            assert r["explain"] is None
+
 
 # ---------------------------------------------------------------------------
 # Step 2: view command
