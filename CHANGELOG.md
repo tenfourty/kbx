@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.4](https://github.com/tenfourty/kbx/compare/kbx-v0.2.3...kbx-v0.2.4) (2026-05-24)
+
+
+### Features
+
+* **search:** hotness/recency boost for frequently-accessed docs+entities ([#67](https://github.com/tenfourty/kbx/issues/67)) ([1f6396e](https://github.com/tenfourty/kbx/commit/1f6396e871a890a1ec7f3f816350f7d7b1b3549f))
+
 ## [0.2.3](https://github.com/tenfourty/kbx/compare/kbx-v0.2.2...kbx-v0.2.3) (2026-05-24)
 
 
