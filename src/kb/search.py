@@ -458,7 +458,9 @@ def _enrich_results(
             d.doc_date,
             d.doc_type,
             d.tags,
-            d.abstract
+            d.abstract,
+            d.access_count,
+            d.last_accessed_at
         FROM chunks c
         JOIN documents d ON c.document_id = d.id
         WHERE c.id IN ({placeholders})
@@ -494,6 +496,8 @@ def _enrich_results(
             "section": row["heading"],
             "content": row["content"],
             "abstract": row["abstract"],
+            "access_count": row["access_count"],
+            "last_accessed_at": row["last_accessed_at"],
             "entities": entities_by_doc.get(doc_id, []),
             "tags": json.loads(row["tags"]) if row["tags"] else [],
         }
@@ -528,6 +532,7 @@ def search(
     merge_chunks: bool = False,
     highlight: bool = False,
     explain: bool = False,
+    hotness: bool = True,
     hook: SearchProgressHook | None = None,
 ) -> SearchResponse:
     """Hybrid search: FTS5 + vector + weighted RRF + recency.
@@ -670,11 +675,35 @@ def search(
                 break
         final = _apply_entity_boost(final, has_entity_match)
 
+        # Hotness blending (issue #67). Active when `hotness=True` AND the
+        # document has any access history; otherwise the score is unchanged.
+        # Uses compose_scores from kb.scoring (issue #95) for explicit [0,1]
+        # weighted-sum composition.
+        hotness_value: float | None = None
+        pre_hotness_score = final
+        if hotness:
+            access_count_value: int = int(info.get("access_count") or 0)
+            last_accessed = info.get("last_accessed_at")
+            if access_count_value > 0 and last_accessed:
+                from kb.hotness import (
+                    DEFAULT_HOTNESS_WEIGHT,
+                    compute_hotness_score,
+                )
+
+                hotness_value = compute_hotness_score(access_count_value, last_accessed)
+                final = _scoring.compose_scores(
+                    {"search": final, "hotness": hotness_value},
+                    {"search": 1.0 - DEFAULT_HOTNESS_WEIGHT, "hotness": DEFAULT_HOTNESS_WEIGHT},
+                )
+
         if explain:
             explain_per_chunk[chunk_id] = {
                 "fused_score": base_score,
                 "recency_weight": recency_weight_value,
                 "entity_boost_applied": has_entity_match,
+                "pre_hotness_score": pre_hotness_score,
+                "hotness_score": hotness_value,
+                "access_count": int(info.get("access_count") or 0),
             }
 
         scored.append((chunk_id, final))
@@ -742,6 +771,9 @@ def search(
                 fused_score=chunk_explain.get("fused_score", score),
                 recency_weight=chunk_explain.get("recency_weight"),
                 entity_boost_applied=chunk_explain.get("entity_boost_applied", False),
+                pre_hotness_score=chunk_explain.get("pre_hotness_score"),
+                hotness_score=chunk_explain.get("hotness_score"),
+                access_count=int(chunk_explain.get("access_count") or 0),
                 final_score=round(score, 4),
                 source=source,
                 fts_weight=fts_weight,

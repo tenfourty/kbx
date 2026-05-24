@@ -245,6 +245,8 @@ _AGENT_PLAYBOOK = """\
   kb search "query" --fts-weight 2.0 --json   # boost FTS (keywords)
   kb search "query" --vector-weight 2.0 --json  # boost vector (semantic)
   kb search "query" --explain --json           # per-result scoring breakdown (#68 P1)
+  kb search "query" --no-hotness --json        # disable hotness blend (#67)
+  kb access reset                              # clear all hotness access counts
   # JSON results include `abstract`: extractive one-sentence summary per doc (#66 P1)
   kb view <path|#hash|glob> --json            # full document
   kb view <path|#hash|glob> --plain           # raw content only (no metadata)
@@ -427,6 +429,15 @@ def cli() -> None:
         "for now; human-readable explain output ships later."
     ),
 )
+@click.option(
+    "--no-hotness",
+    is_flag=True,
+    help=(
+        "Disable hotness blending (#67). By default, frequently-viewed docs surface "
+        "higher; pass --no-hotness for cold/historical queries that should ignore "
+        "access history."
+    ),
+)
 @output_options
 def search(
     query: str,
@@ -447,6 +458,7 @@ def search(
     full_chunks: bool,
     merge_chunks: bool,
     explain: bool,
+    no_hotness: bool,
     fmt: str,
     fields: list[str] | None,
     jq_expr: str | None,
@@ -496,6 +508,7 @@ def search(
         merge_chunks=merge_chunks,
         highlight=(fmt == "table"),
         explain=explain,
+        hotness=not no_hotness,
     )
 
     kb_output(
@@ -2570,4 +2583,70 @@ def granola_view(calendar_uid: str, mode: str | None, plain: bool) -> None:
     click.echo("---")
     click.echo()
     click.echo(body)
+
+
+# ---------------------------------------------------------------------------
+# access — clear hotness access history (#67)
+# ---------------------------------------------------------------------------
+
+
+@cli.group()
+def access() -> None:
+    """Hotness access-tracking management — reset history per #67."""
+
+
+@access.command("reset")
+@click.option(
+    "--entity",
+    "entity_name",
+    default=None,
+    help="Reset access history for a specific entity by name.",
+)
+@click.option(
+    "--path",
+    "doc_path",
+    default=None,
+    help="Reset access history for a specific document by path.",
+)
+@click.option("--json", "as_json", is_flag=True, help="JSON output.")
+def access_reset(entity_name: str | None, doc_path: str | None, as_json: bool) -> None:
+    """Clear hotness access counts and timestamps.
+
+    With no flags: clears ALL documents and entities. With --entity or --path:
+    clears only the matching record.
+    """
+    from kb.access import reset_document_access, reset_entity_access
+    from kb.config import find_entity
+
+    db = _get_db()
+    conn = db.get_sqlite_conn()
+
+    docs_cleared = 0
+    entities_cleared = 0
+
+    if entity_name is None and doc_path is None:
+        docs_cleared = reset_document_access(conn)
+        entities_cleared = reset_entity_access(conn)
+    else:
+        if entity_name:
+            entity = find_entity(conn, entity_name)
+            if entity is None:
+                raise click.ClickException(f"Entity not found: {entity_name}")
+            entities_cleared = reset_entity_access(conn, entity["id"])
+        if doc_path:
+            row = conn.execute("SELECT id FROM documents WHERE path = ?", (doc_path,)).fetchone()
+            if row is None:
+                raise click.ClickException(f"Document not found: {doc_path}")
+            docs_cleared = reset_document_access(conn, row["id"])
+
+    result = {"documents_cleared": docs_cleared, "entities_cleared": entities_cleared}
+    if as_json:
+        import json as _json
+
+        click.echo(_json.dumps(result))
+    else:
+        click.echo(
+            f"Reset hotness — documents: {docs_cleared}, entities: {entities_cleared}.",
+            err=True,
+        )
 

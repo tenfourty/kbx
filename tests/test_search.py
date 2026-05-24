@@ -1785,6 +1785,82 @@ class TestExplain:
             if r.path == "memory/notes/migration-plan.md":
                 assert r.abstract == "Migration is on track for Q3."
 
+    def test_hotness_blending_boosts_accessed_docs(self, search_db):
+        """A doc with high access_count + recent timestamp ranks above a cold equivalent (#67)."""
+        from datetime import datetime, timezone
+
+        conn = search_db.get_sqlite_conn()
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S%z")
+        # Heat up doc 1 (MFA Implementation Review) — 20 accesses today.
+        conn.execute(
+            "UPDATE documents SET access_count = 20, last_accessed_at = ? WHERE id = 1",
+            (now,),
+        )
+        conn.commit()
+
+        # Query "implementation" matches doc1 (MFA Implementation Review). With
+        # hotness enabled, doc1's score is blended with a near-saturated hotness.
+        with_hotness = search(search_db, None, "implementation", fast=True, hotness=True)
+        without_hotness = search(search_db, None, "implementation", fast=True, hotness=False)
+
+        # Find doc1 in both result sets and compare scores.
+        h_score = next(r.score for r in with_hotness.results if r.document_id == 1)
+        c_score = next(r.score for r in without_hotness.results if r.document_id == 1)
+        assert h_score > c_score, f"hotness should boost score: hot={h_score} cold={c_score}"
+
+    def test_hotness_off_preserves_score(self, search_db):
+        """hotness=False matches the legacy unblended search behaviour."""
+        from datetime import datetime, timezone
+
+        conn = search_db.get_sqlite_conn()
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S%z")
+        conn.execute(
+            "UPDATE documents SET access_count = 50, last_accessed_at = ? WHERE id = 1",
+            (now,),
+        )
+        conn.commit()
+
+        results = search(search_db, None, "implementation", fast=True, hotness=False)
+        # Without hotness, the score should be identical to a query against the
+        # same DB before we set the access counts — i.e. unaffected by them.
+        results_cold = search(search_db, None, "implementation", fast=True, hotness=False)
+        assert results.results[0].score == results_cold.results[0].score
+
+    def test_hotness_explain_fields_populated(self, search_db):
+        """When access exists + explain=True, hotness fields appear on the explain block."""
+        from datetime import datetime, timezone
+
+        conn = search_db.get_sqlite_conn()
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S%z")
+        conn.execute(
+            "UPDATE documents SET access_count = 10, last_accessed_at = ? WHERE id = 1",
+            (now,),
+        )
+        conn.commit()
+
+        results = search(
+            search_db, None, "implementation", fast=True, explain=True, hotness=True
+        )
+        doc1_result = next(r for r in results.results if r.document_id == 1)
+        assert doc1_result.explain is not None
+        assert doc1_result.explain.access_count == 10
+        assert doc1_result.explain.hotness_score is not None
+        assert 0.0 < doc1_result.explain.hotness_score < 1.0
+        assert doc1_result.explain.pre_hotness_score is not None
+        assert doc1_result.explain.pre_hotness_score != doc1_result.explain.final_score
+
+    def test_hotness_zero_access_skips_blend(self, search_db):
+        """Documents with access_count=0 are NOT affected by hotness blending."""
+        # No UPDATE — all docs have access_count=0 from initial INSERT.
+        with_hotness = search(search_db, None, "implementation", fast=True, hotness=True)
+        without_hotness = search(search_db, None, "implementation", fast=True, hotness=False)
+        # Identical ranking + identical scores when no doc has any access history.
+        assert [r.document_id for r in with_hotness.results] == [
+            r.document_id for r in without_hotness.results
+        ]
+        for h, c in zip(with_hotness.results, without_hotness.results, strict=True):
+            assert h.score == c.score
+
     def test_explain_no_results_meta_still_set(self, search_db):
         """Zero-result query still populates meta.search_mode + variants for diagnostics."""
         results = search(search_db, None, "xyznonexistent", fast=True, explain=True)

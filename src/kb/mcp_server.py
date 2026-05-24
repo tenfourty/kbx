@@ -36,6 +36,7 @@ def handle_kb_search(
     doc_type: str | None = None,
     path_filter: str | None = None,
     explain: bool = False,
+    hotness: bool = True,
 ) -> str:
     """Search the knowledge base. Returns JSON string."""
     try:
@@ -54,6 +55,7 @@ def handle_kb_search(
             sort_by=sort_by,
             doc_type=doc_type,
             explain=explain,
+            hotness=hotness,
         )
         return json.dumps(results.model_dump(), default=str, ensure_ascii=False)
     except Exception as e:
@@ -1000,6 +1002,7 @@ def kb_search(
     doc_type: str | None = None,
     path: str | None = None,
     explain: bool = False,
+    hotness: bool = True,
 ) -> str:
     """Search the knowledge base. Returns JSON with matching documents, ranked by relevance.
     Use fast=True (default) for instant FTS-only search.
@@ -1030,6 +1033,7 @@ def kb_search(
         doc_type=doc_type,
         path_filter=path,
         explain=explain,
+        hotness=hotness,
     )
 
 

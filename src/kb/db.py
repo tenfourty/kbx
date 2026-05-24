@@ -45,7 +45,9 @@ CREATE TABLE IF NOT EXISTS documents (
     file_mtime TEXT,
     chunk_count INTEGER DEFAULT 0,
     indexed_at TEXT NOT NULL DEFAULT (datetime('now')),
-    abstract TEXT
+    abstract TEXT,
+    access_count INTEGER NOT NULL DEFAULT 0,
+    last_accessed_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS chunks (
@@ -63,7 +65,9 @@ CREATE TABLE IF NOT EXISTS entities (
     entity_type TEXT NOT NULL,
     aliases TEXT,
     metadata TEXT,
-    source_path TEXT
+    source_path TEXT,
+    access_count INTEGER NOT NULL DEFAULT 0,
+    last_accessed_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS entity_mentions (
@@ -142,6 +146,22 @@ MIGRATIONS: list[tuple[str, str | None]] = [
     ),
     ("012_add_fact_seq", None),  # Python-based: add seq column + backfill + unique constraint
     ("013_add_documents_abstract", "ALTER TABLE documents ADD COLUMN abstract TEXT"),
+    (
+        "014_add_documents_access_tracking",
+        "ALTER TABLE documents ADD COLUMN access_count INTEGER NOT NULL DEFAULT 0",
+    ),
+    (
+        "014b_add_documents_last_accessed_at",
+        "ALTER TABLE documents ADD COLUMN last_accessed_at TEXT",
+    ),
+    (
+        "015_add_entities_access_tracking",
+        "ALTER TABLE entities ADD COLUMN access_count INTEGER NOT NULL DEFAULT 0",
+    ),
+    (
+        "015b_add_entities_last_accessed_at",
+        "ALTER TABLE entities ADD COLUMN last_accessed_at TEXT",
+    ),
 ]
 
 

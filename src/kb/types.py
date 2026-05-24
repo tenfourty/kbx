@@ -120,7 +120,7 @@ class SearchExplain(StrictFrozen):
     Captures the component scores already computed during the search pipeline
     so callers can debug ranking without re-running the search. Phase 1 of
     issue #68 — covers the raw component data; human-readable formatting and
-    'why not' diagnostics ship later.
+    'why not' diagnostics ship later. Issue #67 added the hotness fields.
     """
 
     fts_score: float | None  # normalized BM25 in [0,1], None if no FTS hit
@@ -128,7 +128,10 @@ class SearchExplain(StrictFrozen):
     fused_score: float  # score after RRF fusion (pre-recency, pre-entity-boost)
     recency_weight: float | None  # 0..1 (None when doc has no date or recency=0)
     entity_boost_applied: bool
-    final_score: float  # post-recency, post-entity-boost — matches SearchResult.score
+    pre_hotness_score: float | None = None  # score before hotness blending (#67)
+    hotness_score: float | None = None  # 0..1 hotness component (None when no access)
+    access_count: int = 0  # times this doc was viewed/accessed (#67)
+    final_score: float  # post-everything — matches SearchResult.score
     source: str  # "fts_only" | "vector_only" | "both"
     fts_weight: float
     vector_weight: float

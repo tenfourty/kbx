@@ -339,6 +339,44 @@ class TestSearchCommand:
         for r in data["results"]:
             assert r["explain"] is None
 
+    def test_search_no_hotness_flag_disables_blend(self, runner, cli_db):
+        """`kbx search --no-hotness` short-circuits hotness blending."""
+        from datetime import datetime, timezone
+
+        db, db_path = cli_db
+        conn = db.get_sqlite_conn()
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S%z")
+        conn.execute(
+            "UPDATE documents SET access_count = 50, last_accessed_at = ? "
+            "WHERE path = 'meetings/2026/01/20/rust_migration.notes.md'",
+            (now,),
+        )
+        conn.commit()
+
+        hot = invoke_cli(
+            runner, ["search", "Rust", "--fast", "--json", "--explain"], db_path
+        )
+        cold = invoke_cli(
+            runner,
+            ["search", "Rust", "--fast", "--json", "--explain", "--no-hotness"],
+            db_path,
+        )
+        hot_data = json.loads(hot.output)
+        cold_data = json.loads(cold.output)
+
+        hot_doc = next(
+            r for r in hot_data["results"]
+            if r["path"] == "meetings/2026/01/20/rust_migration.notes.md"
+        )
+        cold_doc = next(
+            r for r in cold_data["results"]
+            if r["path"] == "meetings/2026/01/20/rust_migration.notes.md"
+        )
+        # With hotness, score is blended (higher); without, it's the legacy score.
+        assert hot_doc["score"] != cold_doc["score"]
+        assert hot_doc["explain"]["hotness_score"] is not None
+        assert cold_doc["explain"]["hotness_score"] is None
+
     def test_search_json_includes_abstract_field(self, runner, cli_db):
         """JSON search results expose the `abstract` field (issue #66 Phase 1)."""
         db, db_path = cli_db
@@ -365,6 +403,65 @@ class TestSearchCommand:
         ]
         assert matches
         assert matches[0]["abstract"] == "Discussed Rust migration progress."
+
+
+class TestAccessResetCommand:
+    """`kbx access reset` clears hotness counts (#67)."""
+
+    def test_reset_all(self, runner, cli_db):
+        from datetime import datetime, timezone
+
+        db, db_path = cli_db
+        conn = db.get_sqlite_conn()
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S%z")
+        conn.execute("UPDATE documents SET access_count = 5, last_accessed_at = ?", (now,))
+        conn.execute("UPDATE entities SET access_count = 3, last_accessed_at = ?", (now,))
+        conn.commit()
+
+        result = invoke_cli(runner, ["access", "reset", "--json"], db_path)
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["documents_cleared"] >= 1
+        assert data["entities_cleared"] >= 1
+
+        # Verify the DB is actually cleared
+        rows = conn.execute(
+            "SELECT access_count, last_accessed_at FROM documents"
+        ).fetchall()
+        assert all(r["access_count"] == 0 and r["last_accessed_at"] is None for r in rows)
+
+    def test_reset_specific_path(self, runner, cli_db):
+        from datetime import datetime, timezone
+
+        db, db_path = cli_db
+        conn = db.get_sqlite_conn()
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S%z")
+        conn.execute("UPDATE documents SET access_count = 5, last_accessed_at = ?", (now,))
+        conn.commit()
+
+        result = invoke_cli(
+            runner,
+            ["access", "reset", "--path", "memory/people/eve.md", "--json"],
+            db_path,
+        )
+        assert result.exit_code == 0, result.output
+        # Only the named doc is cleared
+        row = conn.execute(
+            "SELECT access_count FROM documents WHERE path = 'memory/people/eve.md'"
+        ).fetchone()
+        assert row["access_count"] == 0
+        # Others still hot
+        other = conn.execute(
+            "SELECT access_count FROM documents WHERE path != 'memory/people/eve.md' LIMIT 1"
+        ).fetchone()
+        assert other["access_count"] == 5
+
+    def test_reset_unknown_path_errors(self, runner, cli_db):
+        _db, db_path = cli_db
+        result = invoke_cli(
+            runner, ["access", "reset", "--path", "nope/missing.md"], db_path
+        )
+        assert result.exit_code != 0
 
 
 # ---------------------------------------------------------------------------

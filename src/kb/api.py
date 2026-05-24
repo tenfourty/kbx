@@ -264,11 +264,15 @@ class KnowledgeBase:
         result = _match(project_dicts, task_inputs, min_keyword_len=min_keyword_len)
         return cast("dict[str, list[dict[str, Any]]]", result)
 
-    def get_entity(self, name: str) -> EntityDetail | None:
+    def get_entity(self, name: str, *, _track_access: bool = True) -> EntityDetail | None:
         """Get full entity detail by name (case-insensitive, supports aliases).
 
-        Returns None if not found.
+        Returns None if not found. When ``_track_access=True`` (the default for
+        external callers via API/CLI/MCP), the entity's ``access_count`` is
+        incremented for hotness scoring (#67). Internal lookups that should
+        not pollute the hotness signal pass ``_track_access=False``.
         """
+        from kb.access import touch_entity
         from kb.config import find_entity
 
         conn = self._get_conn()
@@ -277,6 +281,8 @@ class KnowledgeBase:
             return None
 
         entity_id: int = row["id"]
+        if _track_access:
+            touch_entity(conn, entity_id)
         meta = json.loads(row["metadata"]) if row["metadata"] else {}
         aliases = json.loads(row["aliases"]) if row["aliases"] else []
 
@@ -426,7 +432,9 @@ class KnowledgeBase:
         """Return documents mentioning an entity, newest first.
 
         Resolves *name* via alias/partial matching. Returns empty list if not found.
+        Increments the entity's ``access_count`` for hotness scoring (#67).
         """
+        from kb.access import touch_entity
         from kb.config import find_entity
 
         conn = self._get_conn()
@@ -434,6 +442,7 @@ class KnowledgeBase:
         if entity is None:
             return []
 
+        touch_entity(conn, entity["id"])
         sql = (
             "SELECT d.title, d.doc_date AS date, d.path, d.doc_type,"
             " GROUP_CONCAT(DISTINCT em.mention_type) AS mention_type"
@@ -853,7 +862,9 @@ class KnowledgeBase:
 
         Returns dict with title, path, date, doc_type, content_hash, chunks.
         Raises ValueError if not found. Returns dict with 'ambiguous' key if ambiguous.
+        Increments the document's ``access_count`` for hotness scoring (#67).
         """
+        from kb.access import touch_document
         from kb.crud import AmbiguousDocumentError, find_document_by_target
 
         conn = self._get_conn()
@@ -864,6 +875,7 @@ class KnowledgeBase:
         if doc is None:
             raise ValueError(f"Document not found: {target}")
 
+        touch_document(conn, doc["id"])
         chunks = conn.execute(
             "SELECT heading, content FROM chunks WHERE document_id = ? ORDER BY chunk_index",
             (doc["id"],),
