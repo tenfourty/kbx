@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.3](https://github.com/tenfourty/kbx/compare/kbx-v0.2.2...kbx-v0.2.3) (2026-05-24)
+
+
+### Features
+
+* **indexer,search:** extractive L0 abstracts ([#66](https://github.com/tenfourty/kbx/issues/66) Phase 1) ([414db7d](https://github.com/tenfourty/kbx/commit/414db7d62314e69ef3ec58639e843024ba39c640))
+
 ## [0.2.2](https://github.com/tenfourty/kbx/compare/kbx-v0.2.1...kbx-v0.2.2) (2026-05-24)
 
 
