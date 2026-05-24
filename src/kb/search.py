@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import html
 import json
-import math
 import re
 import sys
 import time
-from datetime import date
 from typing import TYPE_CHECKING, Any
 
 from kb.entities import strip_wikilinks
@@ -19,68 +17,18 @@ if TYPE_CHECKING:
     from kb.embeddings import Embedder
 
 # ---------------------------------------------------------------------------
-# Score normalization
+# Score normalisation + composition — re-exported from kb.scoring (issue #95).
+# Underscore-prefixed names preserved for existing test imports.
 # ---------------------------------------------------------------------------
 
 
-def _normalize_bm25_scores(results: list[dict[str, Any]]) -> None:
-    """Min-max normalize raw BM25 scores in-place to [0, 1].
+from kb import scoring as _scoring
 
-    FTS5 bm25() returns negative scores where lower (more negative) = more relevant.
-    After normalization, 1.0 = best match, 0.0 = worst in the result set.
-    Single results get score 1.0.
-    """
-    if not results:
-        return
-
-    raw_scores = [r["raw_bm25"] for r in results]
-    min_raw = min(raw_scores)  # most relevant (most negative)
-    max_raw = max(raw_scores)  # least relevant (closest to 0)
-
-    if min_raw == max_raw:
-        for r in results:
-            r["bm25_score"] = 1.0
-        return
-
-    spread = max_raw - min_raw
-    for r in results:
-        # Invert: most negative (min_raw) → 1.0, least negative (max_raw) → 0.0
-        r["bm25_score"] = (max_raw - r["raw_bm25"]) / spread
-
-
-# ---------------------------------------------------------------------------
-# RRF
-# ---------------------------------------------------------------------------
-
-
-def _rrf_score(rank: int, k: int = 60) -> float:
-    """Reciprocal Rank Fusion score for a given rank position."""
-    return 1.0 / (k + rank)
-
-
-# ---------------------------------------------------------------------------
-# Recency
-# ---------------------------------------------------------------------------
-
-
-def _recency_weight(doc_date: str | None, half_life_days: int = 90) -> float:
-    """Exponential decay weight. Returns [0, 1]. Recent → ~1.0, old → ~0.
-
-    None date returns 0.5 (neutral).
-    """
-    if doc_date is None:
-        return 0.5
-
-    try:
-        d = date.fromisoformat(doc_date)
-    except (ValueError, TypeError):
-        return 0.5
-
-    days_ago = (date.today() - d).days
-    if days_ago < 0:
-        return 1.0  # future date treated as very recent
-
-    return math.exp(-math.log(2) * days_ago / half_life_days)
+_normalize_bm25_scores = _scoring.normalize_bm25_scores
+_rrf_score = _scoring.rrf_score
+_recency_weight = _scoring.recency_weight
+_apply_entity_boost = _scoring.apply_entity_boost
+_ENTITY_BOOST = _scoring.ENTITY_BOOST
 
 
 # ---------------------------------------------------------------------------
@@ -213,20 +161,6 @@ def _expand_query_with_glossary(
 
     expanded = query + " OR " + " OR ".join(f'"{a}"' for a in additions)
     return expanded, expanded_terms
-
-
-# ---------------------------------------------------------------------------
-# Entity-aware boosting
-# ---------------------------------------------------------------------------
-
-_ENTITY_BOOST = 1.15  # 15% multiplicative boost for entity match
-
-
-def _apply_entity_boost(score: float, has_entity_match: bool) -> float:
-    """Apply a multiplicative boost when a result's entities match the query."""
-    if has_entity_match:
-        return score * _ENTITY_BOOST
-    return score
 
 
 # ---------------------------------------------------------------------------
