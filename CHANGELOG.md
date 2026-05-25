@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.5](https://github.com/tenfourty/kbx/compare/kbx-v0.2.4...kbx-v0.2.5) (2026-05-25)
+
+
+### Features
+
+* **entities:** vector embeddings for semantic entity search ([#96](https://github.com/tenfourty/kbx/issues/96)) ([37e78bd](https://github.com/tenfourty/kbx/commit/37e78bdd86f5025b2c750dbfacb2af26979f7900))
+
 ## [0.2.4](https://github.com/tenfourty/kbx/compare/kbx-v0.2.3...kbx-v0.2.4) (2026-05-24)
 
 
