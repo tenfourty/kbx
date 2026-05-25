@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.6](https://github.com/tenfourty/kbx/compare/kbx-v0.2.5...kbx-v0.2.6) (2026-05-25)
+
+
+### Features
+
+* **search:** two-pass hierarchical search with entity-guided retrieval ([#69](https://github.com/tenfourty/kbx/issues/69)) ([108799a](https://github.com/tenfourty/kbx/commit/108799a2b00ddd5405d322a05bdd746630185a47))
+
 ## [0.2.5](https://github.com/tenfourty/kbx/compare/kbx-v0.2.4...kbx-v0.2.5) (2026-05-25)
 
 
