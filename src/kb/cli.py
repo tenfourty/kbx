@@ -247,7 +247,8 @@ _AGENT_PLAYBOOK = """\
   kb search "query" --snippet-chars 500 --json  # longer snippets (default 200)
   kb search "query" --fts-weight 2.0 --json   # boost FTS (keywords)
   kb search "query" --vector-weight 2.0 --json  # boost vector (semantic)
-  kb search "query" --explain --json           # per-result scoring breakdown (#68 P1)
+  kb search "query" --explain                  # readable per-result scoring breakdown (#68 P2)
+  kb search "query" --explain --json           # raw structured explain fields (#68 P1)
   kb search "query" --no-hotness --json        # disable hotness blend (#67)
   kb search "query" --no-hierarchy --json      # force flat (skip Pass 1 entity match, #69)
   kb search "query" --hierarchy-alpha 0.7 --json  # tune doc-vs-entity blend (#69)
@@ -431,8 +432,8 @@ def cli() -> None:
     is_flag=True,
     help=(
         "Attach scoring breakdown to each result (FTS/vector/fused/recency component "
-        "scores, source pipeline) and diagnostic meta. Issue #68 Phase 1 — JSON only "
-        "for now; human-readable explain output ships later."
+        "scores, source pipeline) and diagnostic meta. Table format renders a readable "
+        "per-result breakdown; pass --format json for the raw structured fields."
     ),
 )
 @click.option(
@@ -538,6 +539,12 @@ def search(
         hierarchy=not no_hierarchy,
         hierarchy_alpha=hierarchy_alpha,
     )
+
+    if explain and fmt == "table" and not fields and not jq_expr:
+        from kb.explain import format_explain_text
+
+        click.echo(format_explain_text(results))
+        return
 
     kb_output(
         results.model_dump(),
