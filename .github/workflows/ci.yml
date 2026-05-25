@@ -70,6 +70,7 @@ jobs:
     environment: pypi
     permissions:
       id-token: write
+      pull-requests: write  # so the failure-notification step can comment
     steps:
       - uses: actions/checkout@v6
 
@@ -82,3 +83,27 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+
+      # Option A of issue #103: surface publish failures on the just-merged
+      # release-please PR so the drift can't sit silent. Pairs with the
+      # cron-based drift check (Option C) in .github/workflows/pypi-drift-check.yml.
+      - name: Notify release PR on publish failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SERVER_URL: ${{ github.server_url }}
+          COMMIT_SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          SHORT_SHA="${COMMIT_SHA:0:7}"
+          PR=$(gh pr list --repo "$REPO" --state merged \
+              --search "in:title chore(main): release" --limit 1 \
+              --json number --jq '.[0].number // empty')
+          if [ -n "$PR" ]; then
+            BODY=":warning: **Publish to PyPI failed** for [\`${SHORT_SHA}\`](${SERVER_URL}/${REPO}/commit/${COMMIT_SHA}). See the [failed workflow run](${SERVER_URL}/${REPO}/actions/runs/${RUN_ID}). Re-run the publish job or check PyPI Trusted Publisher config."
+            gh pr comment "$PR" --repo "$REPO" --body "$BODY"
+          else
+            echo "::warning::Publish failed but no recent release PR found to comment on."
+          fi
