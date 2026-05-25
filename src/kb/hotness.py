@@ -18,7 +18,7 @@ week ago: ~0.46. Never accessed: 0.0 (the frequency component is 0.5 for
 from __future__ import annotations
 
 import math
-from datetime import date, datetime, timezone
+from datetime import date
 
 # Defaults — match the design in issue #67. Tunable via search() kwargs later.
 DEFAULT_HALF_LIFE_DAYS = 7.0
@@ -61,9 +61,12 @@ def compute_hotness_score(
 
 
 def _parse_iso_to_date(value: str) -> date:
-    """Parse a string in either ``YYYY-MM-DD`` or full ISO-8601 form into a date."""
-    if "T" in value or " " in value:
-        # Full timestamp — strip any trailing 'Z' so fromisoformat is happy
-        clean = value.replace("Z", "+00:00")
-        return datetime.fromisoformat(clean).astimezone(timezone.utc).date()
-    return date.fromisoformat(value)
+    """Parse a date or ISO-8601 timestamp string into a ``date`` (day precision).
+
+    Hotness operates at day precision, so the time/timezone portion is
+    discarded — taking only the leading ``YYYY-MM-DD`` slice. This avoids
+    Python 3.10's stricter ``datetime.fromisoformat`` which rejects the
+    ``+0000`` (no-colon) TZ format that ``strftime('%z')`` emits on 3.10
+    but accepts on 3.11+.
+    """
+    return date.fromisoformat(value[:10])

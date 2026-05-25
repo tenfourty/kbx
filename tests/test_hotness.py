@@ -71,6 +71,16 @@ class TestComputeHotnessScore:
         score = compute_hotness_score(5, "2026-05-24T12:00:00Z")
         assert score > 0.0
 
+    def test_iso_timestamp_no_colon_tz_parses(self):
+        """ISO timestamps with no-colon TZ (`+0000`) parse cleanly on Python 3.10+.
+
+        Regression: Python 3.10's ``datetime.fromisoformat`` rejected the
+        no-colon TZ format that ``strftime('%z')`` produces. We now slice to
+        the date portion only, so the TZ format is irrelevant.
+        """
+        score = compute_hotness_score(5, "2026-05-24T12:00:00+0000")
+        assert score > 0.0
+
     def test_malformed_timestamp_returns_zero(self):
         """An unparseable timestamp degrades gracefully to 0.0."""
         assert compute_hotness_score(5, "not-a-date") == 0.0
