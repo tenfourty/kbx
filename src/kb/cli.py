@@ -209,6 +209,9 @@ _AGENT_PLAYBOOK = """\
   kb memory delete-fact <id>                         # delete a fact by ID
   kb memory edit-fact <id> --text "new text"         # update fact text
   kb memory edit-fact <id> --date 2026-03-01         # update fact date
+  kb memory similar "text" --entity "Name" --json    # dedup check: cosine similar facts (#71)
+  kb memory similar "text" --path memory/foo.md      # scope to one document's chunks
+  kb memory similar "text" --threshold 0.80 --limit 5  # tune cutoff + cap
 
 ## 3. When to Pin
   kb pin <path|title|#hash|glob>     # pin any doc to context
@@ -344,6 +347,7 @@ _AGENT_PLAYBOOK = """\
     kb.edit_glossary_term("TERM", "new expansion") # -> dict
     kb.delete_fact(fact_id)                        # -> dict (removes from DB + file)
     kb.edit_fact(fact_id, text="new text")          # -> dict (updates DB + file)
+    kb.memory_similar("text", entity="Name")       # -> SimilarityResponse (#71)
     kb.close()                                     # release resources
 
 ## Global Options
@@ -2007,6 +2011,71 @@ def memory_list(
         fields=fields,
         jq_expr=jq_expr,
         columns=["fact_date", "entity_name", "fact_text"],
+    )
+
+
+@memory.command("similar")
+@click.argument("text")
+@click.option("--entity", "entity_name", default=None, help="Scope to facts for this entity.")
+@click.option("--path", "path_arg", default=None, help="Scope to chunks of this document path.")
+@click.option(
+    "--threshold",
+    default=0.85,
+    type=float,
+    show_default=True,
+    help="Minimum cosine similarity (0.0-1.0).",
+)
+@click.option("--limit", default=5, type=int, show_default=True, help="Max matches to return.")
+@output_options
+def memory_similar_cmd(
+    text: str,
+    entity_name: str | None,
+    path_arg: str | None,
+    threshold: float,
+    limit: int,
+    fmt: str,
+    fields: list[str] | None,
+    jq_expr: str | None,
+) -> None:
+    """Find existing facts or content semantically similar to TEXT.
+
+    \b
+    Use --entity for entity-scoped fact dedup, --path for document-scoped chunk
+    lookup, or neither for a global chunk search. Threshold + limit cap the
+    returned matches. Pair with kbx-output JSON formats for programmatic use.
+
+    \b
+    Examples:
+      kb memory similar "prefers async comms" --entity "Person A"
+      kb memory similar "deployment rollback" --path memory/projects/foo.md
+      kb memory similar "deployment rollback" --format json
+    """
+    from kb.api import KnowledgeBase
+
+    kb = KnowledgeBase._from_existing(db=_get_db(), project_root=_find_project_root())
+    try:
+        resp = kb.memory_similar(
+            text,
+            entity=entity_name,
+            path=path_arg,
+            threshold=threshold,
+            limit=limit,
+        )
+    except ValueError as e:
+        click.echo(str(e), err=True)
+        raise SystemExit(1) from None
+    except RuntimeError as e:
+        click.echo(str(e), err=True)
+        raise SystemExit(1) from None
+    finally:
+        kb.close()
+
+    kb_output(
+        resp.model_dump(),
+        fmt=fmt,
+        fields=fields,
+        jq_expr=jq_expr,
+        columns=["score", "match_type", "entity_name", "text"],
     )
 
 

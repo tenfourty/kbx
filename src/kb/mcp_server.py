@@ -212,6 +212,41 @@ def handle_kb_memory_add(
         return json.dumps({"error": str(e)})
 
 
+def handle_kb_memory_similar(
+    db: Database,
+    project_root: Path,
+    text: str,
+    entity: str | None = None,
+    path: str | None = None,
+    threshold: float = 0.85,
+    limit: int = 5,
+) -> str:
+    """Find existing content semantically similar to ``text``. Returns JSON string."""
+    if not text:
+        return json.dumps({"error": "text is required"})
+    try:
+        from kb.api import KnowledgeBase
+
+        kb = KnowledgeBase._from_existing(db=db, project_root=project_root)
+        try:
+            resp = kb.memory_similar(
+                text,
+                entity=entity,
+                path=path,
+                threshold=threshold,
+                limit=limit,
+            )
+        finally:
+            kb.close()
+        return json.dumps(resp.model_dump(), default=str, ensure_ascii=False)
+    except (ValueError, RuntimeError) as e:
+        return json.dumps({"error": str(e)})
+    except Exception as e:  # pragma: no cover — defensive
+        print(f"kb_memory_similar error: {e}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        return json.dumps({"error": str(e)})
+
+
 def _set_pin_frontmatter(project_root: Path, doc_path: str, pinned: bool) -> None:
     """Write pinned: true/false to a memory note's YAML frontmatter."""
     file_path = project_root / doc_path
@@ -1117,6 +1152,26 @@ def kb_memory_add(
     project_root = find_project_root()
     return handle_kb_memory_add(
         db, project_root, text, body=body, tags=tags, entity=entity, pin=pin, date=date
+    )
+
+
+@mcp.tool(annotations=_READ_ONLY)
+def kb_memory_similar(
+    text: str,
+    entity: str | None = None,
+    path: str | None = None,
+    threshold: float = 0.85,
+    limit: int = 5,
+) -> str:
+    """Find existing facts or content semantically similar to candidate text.
+    Use before writing a new fact to check for near-duplicates.
+    Pass entity to scope to that person/project's facts, path to scope to one
+    document's chunks, or neither for a global chunk search.
+    Threshold defaults to 0.85; lower for noisier matches."""
+    db = get_db()
+    project_root = find_project_root()
+    return handle_kb_memory_similar(
+        db, project_root, text, entity=entity, path=path, threshold=threshold, limit=limit
     )
 
 

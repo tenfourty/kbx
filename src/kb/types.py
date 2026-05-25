@@ -364,3 +364,31 @@ class PinnedDocument(StrictFrozen):
     path: str
     title: str
     headings: list[str] = []
+
+
+# ---------------------------------------------------------------------------
+# Similarity lookup (issue #71)
+# ---------------------------------------------------------------------------
+
+
+class SimilarityMatch(StrictFrozen):
+    """A single match returned by ``kb.memory_similar()``."""
+
+    text: str
+    score: float
+    match_type: str  # "fact" | "chunk"
+    source_path: str | None = None
+    entity_name: str | None = None
+    fact_seq: int | None = None
+    fact_date: str | None = None
+
+
+class SimilarityResponse(StrictFrozen):
+    """Result wrapper for ``kb.memory_similar()`` — matches plus quick-check flags."""
+
+    query: str
+    threshold: float
+    matches: list[SimilarityMatch] = []
+    has_similar: bool = False
+    best_score: float = 0.0
+    scope: dict[str, Any] = {}

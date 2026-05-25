@@ -29,6 +29,8 @@ from kb.types import (
     GlossaryEntry,
     MemoryTreeNode,
     PinnedDocument,
+    SimilarityMatch,
+    SimilarityResponse,
     TimelineEntry,
 )
 
@@ -1415,6 +1417,178 @@ class KnowledgeBase:
             }
             for r in rows
         ]
+
+    # ------------------------------------------------------------------
+    # Semantic similarity (issue #71)
+    # ------------------------------------------------------------------
+
+    def memory_similar(
+        self,
+        text: str,
+        *,
+        entity: str | None = None,
+        path: str | None = None,
+        threshold: float = 0.85,
+        limit: int = 5,
+    ) -> SimilarityResponse:
+        """Find existing memory items semantically similar to ``text``.
+
+        Three mutually-exclusive scopes:
+
+        * ``entity`` — embed the entity's facts on the fly and rank by cosine
+          similarity to the candidate.
+        * ``path`` — vector search over the LanceDB chunks of the named document.
+        * neither — vector search over all indexed chunks.
+
+        Raises ``ValueError`` if both ``entity`` and ``path`` are supplied, or
+        if the named entity / path cannot be resolved. Raises ``RuntimeError``
+        if no embedder is available.
+        """
+        if entity is not None and path is not None:
+            raise ValueError("entity and path are mutually exclusive — pass either one")
+
+        embedder = self._get_embedder()
+        if embedder is None:
+            raise RuntimeError("Embedder unavailable — cannot compute similarity")
+
+        query_vec = embedder.embed_query(text)[0]
+
+        if entity is not None:
+            matches = self._similar_in_entity_facts(entity, query_vec, threshold, limit, embedder)
+        elif path is not None:
+            matches = self._similar_in_doc_chunks(path, query_vec, threshold, limit)
+        else:
+            matches = self._similar_in_all_chunks(query_vec, threshold, limit)
+
+        best = matches[0].score if matches else 0.0
+        return SimilarityResponse(
+            query=text,
+            threshold=threshold,
+            matches=matches,
+            has_similar=bool(matches),
+            best_score=best,
+            scope={"entity": entity, "path": path},
+        )
+
+    def _similar_in_entity_facts(
+        self,
+        entity_name: str,
+        query_vec: Any,
+        threshold: float,
+        limit: int,
+        embedder: Embedder,
+    ) -> list[SimilarityMatch]:
+        from kb.config import find_entity
+
+        conn = self._get_conn()
+        row = find_entity(conn, entity_name)
+        if row is None:
+            raise ValueError(f"Entity not found: {entity_name}")
+
+        facts = conn.execute(
+            "SELECT seq, fact_text, fact_date FROM facts WHERE entity_id = ? ORDER BY seq",
+            (row["id"],),
+        ).fetchall()
+        if not facts:
+            return []
+
+        import numpy as np
+
+        texts = [f["fact_text"] for f in facts]
+        fact_vecs = embedder.embed(texts)  # (n, dim), L2-normalised
+        scores = fact_vecs @ np.asarray(query_vec)
+        order = np.argsort(-scores)
+
+        matches: list[SimilarityMatch] = []
+        for idx in order:
+            score = float(scores[idx])
+            if score < threshold:
+                continue
+            f = facts[int(idx)]
+            matches.append(
+                SimilarityMatch(
+                    text=f["fact_text"],
+                    score=score,
+                    match_type="fact",
+                    source_path=row["source_path"],
+                    entity_name=row["name"],
+                    fact_seq=int(f["seq"]) if f["seq"] is not None else None,
+                    fact_date=f["fact_date"],
+                )
+            )
+            if len(matches) >= limit:
+                break
+        return matches
+
+    def _similar_in_doc_chunks(
+        self,
+        path: str,
+        query_vec: Any,
+        threshold: float,
+        limit: int,
+    ) -> list[SimilarityMatch]:
+        conn = self._get_conn()
+        row = conn.execute(
+            "SELECT id, path FROM documents WHERE path = ?",
+            (path,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"Document not found: {path}")
+        return self._lance_chunk_matches(query_vec, threshold, limit, doc_ids={int(row["id"])})
+
+    def _similar_in_all_chunks(
+        self,
+        query_vec: Any,
+        threshold: float,
+        limit: int,
+    ) -> list[SimilarityMatch]:
+        return self._lance_chunk_matches(query_vec, threshold, limit, doc_ids=None)
+
+    def _lance_chunk_matches(
+        self,
+        query_vec: Any,
+        threshold: float,
+        limit: int,
+        *,
+        doc_ids: set[int] | None,
+    ) -> list[SimilarityMatch]:
+        table = self._db.get_lance_table()
+        if table is None:
+            return []
+
+        query = table.search(query_vec.tolist())
+        if doc_ids is not None:
+            if not doc_ids:
+                return []
+            id_list = ",".join(str(d) for d in sorted(doc_ids))
+            query = query.where(f"document_id IN ({id_list})")
+        rows = query.limit(max(limit * 4, limit)).to_list()
+
+        conn = self._get_conn()
+        matches: list[SimilarityMatch] = []
+        for r in rows:
+            score = 1.0 - float(r.get("_distance", 0.0))
+            if score < threshold:
+                continue
+            chunk_row = conn.execute(
+                "SELECT c.content, d.path FROM chunks c"
+                " JOIN documents d ON d.id = c.document_id"
+                " WHERE c.id = ?",
+                (int(r["chunk_id"]),),
+            ).fetchone()
+            if chunk_row is None:
+                continue
+            matches.append(
+                SimilarityMatch(
+                    text=chunk_row["content"],
+                    score=score,
+                    match_type="chunk",
+                    source_path=chunk_row["path"],
+                )
+            )
+            if len(matches) >= limit:
+                break
+        return matches
 
     # ------------------------------------------------------------------
     # Index stats
