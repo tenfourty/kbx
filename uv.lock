@@ -696,7 +696,7 @@ wheels = [
 
 [[package]]
 name = "kbx"
-version = "0.1.68"
+version = "0.2.6"
 source = { editable = "." }
 dependencies = [
     { name = "click" },

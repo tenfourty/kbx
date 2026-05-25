@@ -111,7 +111,8 @@ class TestGetAPIKey:
         with patch("subprocess.run", return_value=mock_result) as mock_run:
             assert _get_api_key() == "grn_keychain_value"
             args = mock_run.call_args[0][0]
-            assert args[0] == "security"
+            # Bandit B607 — absolute path to security CLI
+            assert args[0] == "/usr/bin/security"
             assert "testuser" in args
             assert "granola_api_key" in args
 

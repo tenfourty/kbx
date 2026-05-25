@@ -108,9 +108,14 @@ def _get_api_key() -> str:
             f"as service '{KEYCHAIN_SERVICE}'."
         )
 
+    # Absolute path to the macOS Keychain CLI — avoids PATH-hijacking risk
+    # flagged by bandit B607. The Granola Keychain path is macOS-only; on Linux
+    # the FileNotFoundError below kicks in and surfaces a helpful error.
+    security_bin = "/usr/bin/security"
+
     try:
         result = subprocess.run(
-            ["security", "find-generic-password", "-a", user, "-s", KEYCHAIN_SERVICE, "-w"],
+            [security_bin, "find-generic-password", "-a", user, "-s", KEYCHAIN_SERVICE, "-w"],
             check=True,
             capture_output=True,
             text=True,
