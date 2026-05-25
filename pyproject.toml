@@ -4,7 +4,7 @@ version = "0.2.13"
 description = "Local knowledge base CLI — hybrid search over markdown files with AI embeddings"
 readme = "README.md"
 license = {text = "Apache-2.0"}
-authors = [{name = "Idris Kalmar"}]
+authors = [{name = "Jeremy Brown"}]
 requires-python = ">=3.10"
 classifiers = [
     "Development Status :: 4 - Beta",

@@ -36,7 +36,7 @@ class DataConfig(BaseModel):
 class UserConfig(BaseModel):
     """User identity configuration."""
 
-    name: str | None = None  # e.g. "Idris Kalmar" — resolved when name == "me"
+    name: str | None = None  # e.g. "Jeremy Brown" — resolved when name == "me"
 
 
 class NotionSyncConfig(BaseModel):

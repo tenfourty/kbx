@@ -1425,7 +1425,7 @@ def kb_memory_list(since_days: int | None = None, entity: str | None = None) -> 
 @mcp.tool(annotations=_DESTRUCTIVE)
 def kb_memory_delete_fact(entity: str, fact_seq: int) -> str:
     """Delete a fact by entity name and sequence number.
-    entity: the entity name (e.g. 'Idris Kalmar').
+    entity: the entity name (e.g. 'Jeremy Brown').
     fact_seq: the fact sequence number (from kb_person_find or kb_memory_list)."""
     db = get_db()
     project_root = find_project_root()
