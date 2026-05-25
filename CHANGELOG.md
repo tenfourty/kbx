@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.9](https://github.com/tenfourty/kbx/compare/kbx-v0.2.8...kbx-v0.2.9) (2026-05-25)
+
+
+### Features
+
+* add kbx memory similar — semantic dedup lookup (closes [#71](https://github.com/tenfourty/kbx/issues/71)) ([c9e7cc7](https://github.com/tenfourty/kbx/commit/c9e7cc7ed60615bc9dd4016cb7401a9fec9080b1))
+
 ## [0.2.8](https://github.com/tenfourty/kbx/compare/kbx-v0.2.7...kbx-v0.2.8) (2026-05-25)
 
 
