@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.13](https://github.com/tenfourty/kbx/compare/kbx-v0.2.12...kbx-v0.2.13) (2026-05-25)
+
+
+### Features
+
+* **note-edit:** --insert-under HEADING for section-anchored insertion ([#111](https://github.com/tenfourty/kbx/issues/111)) ([dece0ec](https://github.com/tenfourty/kbx/commit/dece0ec02818eaf086338f8e3fb18f3de590f942))
+
 ## [0.2.12](https://github.com/tenfourty/kbx/compare/kbx-v0.2.11...kbx-v0.2.12) (2026-05-25)
 
 
