@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.10](https://github.com/tenfourty/kbx/compare/kbx-v0.2.9...kbx-v0.2.10) (2026-05-25)
+
+
+### Features
+
+* human-readable --explain output for search (refs [#68](https://github.com/tenfourty/kbx/issues/68) P2) ([36759a8](https://github.com/tenfourty/kbx/commit/36759a8e9792bae5e6215d43865e92ca59824940))
+
 ## [0.2.9](https://github.com/tenfourty/kbx/compare/kbx-v0.2.8...kbx-v0.2.9) (2026-05-25)
 
 
