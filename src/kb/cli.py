@@ -226,6 +226,9 @@ _AGENT_PLAYBOOK = """\
   kb note list --tag ops --pinned       # combine filters
   kb note edit "title" --body "new content"  # replace body
   kb note edit "title" --append "extra"      # append to body
+kb note edit "person.md" --insert-under "## Open Items" --body "- [2026-05-25] item (from: Meeting)"
+                                            # section-anchored insertion, most-recent-first,
+                                            # creates section if absent, idempotent on duplicate
   kb note edit "title" --tags "a,b,c"        # replace tags
   kb note edit "title" --pin                 # pin note
   kb note edit "title" --unpin               # unpin note
@@ -2252,6 +2255,13 @@ def note_list(
 @click.argument("target")
 @click.option("--body", default=None, help="Replace note body with this content.")
 @click.option("--append", "append_text", default=None, help="Append this content to note body.")
+@click.option(
+    "--insert-under",
+    "insert_under",
+    default=None,
+    help="Insert --body as a line under this heading (e.g. '## Open Items'). "
+    "Creates the section if absent. Most-recent-first; idempotent on duplicate.",
+)
 @click.option("--tags", "tags_str", default=None, help="Comma-separated tags (replaces existing).")
 @click.option("--pin/--unpin", "pin_flag", default=None, help="Pin or unpin note.")
 @output_options
@@ -2259,6 +2269,7 @@ def note_edit(
     target: str,
     body: str | None,
     append_text: str | None,
+    insert_under: str | None,
     tags_str: str | None,
     pin_flag: bool | None,
     fmt: str,
@@ -2274,7 +2285,14 @@ def note_edit(
 
     try:
         tag_list = [t.strip() for t in tags_str.split(",") if t.strip()] if tags_str else None
-        result = kb.edit_note(target, body=body, append=append_text, tags=tag_list, pin=pin_flag)
+        result = kb.edit_note(
+            target,
+            body=body,
+            append=append_text,
+            tags=tag_list,
+            pin=pin_flag,
+            insert_under=insert_under,
+        )
 
         # Build output with tags for display
         output_tags: list[str] = tag_list or []

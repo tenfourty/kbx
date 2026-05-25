@@ -1201,6 +1201,93 @@ class TestEditNoteResolution:
         assert "pinned: true" in content
 
 
+class TestEditNoteInsertUnder:
+    """edit_note --insert-under: deterministic section-anchored insertion (#110)."""
+
+    def _make_entity(self, project_root, kb_instance, name="Test Person", body=""):
+        people_dir = project_root / "memory" / "people"
+        people_dir.mkdir(parents=True, exist_ok=True)
+        rel = f"memory/people/{name.lower().replace(' ', '-')}.md"
+        (project_root / rel).write_text(
+            f"---\ntitle: {name}\n---\n# {name}\n\n{body}",
+            encoding="utf-8",
+        )
+        from kb.indexer import index_all
+
+        index_all(kb_instance._db, None, project_root, memory_only=True, skip_seed=True)
+        return rel
+
+    def test_insert_under_existing_heading(self, kb_instance, project_root):
+        rel = self._make_entity(
+            project_root, kb_instance, body="## Open Items\n- [2026-05-01] old item\n"
+        )
+        kb_instance.edit_note(rel, insert_under="## Open Items", body="- [2026-05-25] newest item")
+        content = (project_root / rel).read_text(encoding="utf-8")
+        # newest item must be FIRST under the heading
+        section = content.split("## Open Items", 1)[1]
+        lines = [ln for ln in section.splitlines() if ln.startswith("- ")]
+        assert lines[0] == "- [2026-05-25] newest item"
+        assert lines[1] == "- [2026-05-01] old item"
+        # only one heading
+        assert content.count("## Open Items") == 1
+
+    def test_insert_under_creates_section_when_absent(self, kb_instance, project_root):
+        rel = self._make_entity(project_root, kb_instance, body="Some prose.\n")
+        kb_instance.edit_note(rel, insert_under="## Open Items", body="- [2026-05-25] first item")
+        content = (project_root / rel).read_text(encoding="utf-8")
+        assert content.count("## Open Items") == 1
+        assert "- [2026-05-25] first item" in content
+        # heading appears AFTER existing prose
+        assert content.index("Some prose.") < content.index("## Open Items")
+
+    def test_insert_under_idempotent_on_exact_duplicate(self, kb_instance, project_root):
+        rel = self._make_entity(
+            project_root, kb_instance, body="## Open Items\n- [2026-05-25] same item\n"
+        )
+        kb_instance.edit_note(rel, insert_under="## Open Items", body="- [2026-05-25] same item")
+        content = (project_root / rel).read_text(encoding="utf-8")
+        assert content.count("- [2026-05-25] same item") == 1
+        assert content.count("## Open Items") == 1
+
+    def test_insert_under_100_invocations_one_heading(self, kb_instance, project_root):
+        rel = self._make_entity(project_root, kb_instance, body="Prose.\n")
+        for i in range(100):
+            kb_instance.edit_note(
+                rel,
+                insert_under="## Open Items",
+                body=f"- [2026-05-25] item {i:03d}",
+            )
+        content = (project_root / rel).read_text(encoding="utf-8")
+        assert content.count("## Open Items") == 1
+        section = content.split("## Open Items", 1)[1]
+        items = [ln for ln in section.splitlines() if ln.startswith("- ")]
+        assert len(items) == 100
+        # most recent (item 099, last insert) is at the top
+        assert items[0] == "- [2026-05-25] item 099"
+        assert items[-1] == "- [2026-05-25] item 000"
+
+    def test_insert_under_conflicts_with_append(self, kb_instance, project_root):
+        rel = self._make_entity(project_root, kb_instance)
+        with pytest.raises(ValueError, match="insert_under"):
+            kb_instance.edit_note(rel, append="more", insert_under="## Open Items")
+
+    def test_insert_under_requires_body(self, kb_instance, project_root):
+        rel = self._make_entity(project_root, kb_instance)
+        with pytest.raises(ValueError, match="body"):
+            kb_instance.edit_note(rel, insert_under="## Open Items")
+
+    def test_insert_under_works_on_memory_note(self, kb_instance, project_root):
+        result = kb_instance.add_note(
+            "Section Note", body="## Open Items\n- old\n", date="2026-03-01"
+        )
+        kb_instance.edit_note(result["path"], insert_under="## Open Items", body="- new")
+        content = (project_root / result["path"]).read_text(encoding="utf-8")
+        section = content.split("## Open Items", 1)[1]
+        items = [ln for ln in section.splitlines() if ln.startswith("- ")]
+        assert items[0] == "- new"
+        assert items[1] == "- old"
+
+
 class TestListFacts:
     """KnowledgeBase.list_facts: query facts with optional recency filter."""
 

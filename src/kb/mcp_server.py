@@ -693,6 +693,7 @@ def handle_kb_note_edit(
     append: str | None = None,
     tags: str | None = None,
     pin: bool | None = None,
+    insert_under: str | None = None,
 ) -> str:
     """Edit a note's body, tags, or pin status. Delegates to KnowledgeBase. Returns JSON string."""
     try:
@@ -701,7 +702,14 @@ def handle_kb_note_edit(
         kb = KnowledgeBase._from_existing(db=db, project_root=project_root)
         try:
             tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
-            result = kb.edit_note(target, body=body, append=append, tags=tag_list, pin=pin)
+            result = kb.edit_note(
+                target,
+                body=body,
+                append=append,
+                tags=tag_list,
+                pin=pin,
+                insert_under=insert_under,
+            )
             return json.dumps(result, default=str, ensure_ascii=False)
         except ValueError as e:
             return json.dumps({"error": str(e)})
@@ -1370,17 +1378,28 @@ def kb_note_edit(
     append: str | None = None,
     tags: str | None = None,
     pin: bool | None = None,
+    insert_under: str | None = None,
 ) -> str:
     """Edit a memory note's body, tags, or pin status.
     target: note path, title, or glob.
-    body: replace note body entirely.
+    body: replace note body entirely (or line to insert when insert_under set).
     append: append to existing body.
     tags: comma-separated tags (replaces existing).
-    pin: True to pin, False to unpin."""
+    pin: True to pin, False to unpin.
+    insert_under: section heading (e.g. '## Open Items'); inserts `body` as a line
+        immediately under it, most-recent-first. Creates section if absent.
+        Idempotent on exact-duplicate line."""
     db = get_db()
     project_root = find_project_root()
     return handle_kb_note_edit(
-        db, project_root, target, body=body, append=append, tags=tags, pin=pin
+        db,
+        project_root,
+        target,
+        body=body,
+        append=append,
+        tags=tags,
+        pin=pin,
+        insert_under=insert_under,
     )
 
 

@@ -2503,6 +2503,44 @@ class TestNoteEdit:
         content = note_files[0].read_text()
         assert "pinned: true" not in content
 
+    def test_note_edit_insert_under(self, runner, notes_env):
+        """kb note edit --insert-under '## Open Items' --body 'line' is section-anchored."""
+        _, root, data_dir = notes_env
+        self._create_note(
+            runner,
+            root,
+            data_dir,
+            "Sectioned note",
+            body="## Open Items\n- [2026-05-01] old\n",
+        )
+
+        for line in ("- [2026-05-25] newer", "- [2026-05-26] newest"):
+            result = invoke_cli_with_root(
+                runner,
+                [
+                    "note",
+                    "edit",
+                    "Sectioned note",
+                    "--insert-under",
+                    "## Open Items",
+                    "--body",
+                    line,
+                ],
+                data_dir,
+                root,
+            )
+            assert result.exit_code == 0, result.output
+
+        note_files = list((root / "memory" / "notes").glob("*sectioned-note*.md"))
+        assert len(note_files) == 1
+        content = note_files[0].read_text()
+        assert content.count("## Open Items") == 1
+        section = content.split("## Open Items", 1)[1]
+        items = [ln for ln in section.splitlines() if ln.startswith("- ")]
+        assert items[0] == "- [2026-05-26] newest"
+        assert items[1] == "- [2026-05-25] newer"
+        assert items[2] == "- [2026-05-01] old"
+
     def test_note_edit_not_found(self, runner, notes_env):
         """kb note edit on unknown target exits with error."""
         _, root, data_dir = notes_env

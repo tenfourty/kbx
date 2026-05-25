@@ -41,6 +41,46 @@ if TYPE_CHECKING:
     from kb.types import ContextOutput, IndexResult, SearchResponse
 
 
+def _insert_under_heading(note_body: str, heading: str, line: str) -> str:
+    """Insert ``line`` immediately after the first occurrence of ``heading``.
+
+    - Heading match is exact on the stripped line (e.g. ``## Open Items``).
+    - If the heading is absent, a new section is appended at EOF.
+    - Idempotent: if ``line`` is already the first non-blank entry directly
+      under the heading, the body is returned unchanged.
+    """
+    target = heading.strip()
+    new_line = line.rstrip("\n")
+    lines = note_body.splitlines()
+
+    heading_idx: int | None = None
+    for i, raw in enumerate(lines):
+        if raw.strip() == target:
+            heading_idx = i
+            break
+
+    if heading_idx is None:
+        prefix = note_body.rstrip("\n")
+        sep = "\n\n" if prefix else ""
+        return f"{prefix}{sep}{target}\n{new_line}\n"
+
+    # Idempotency: first non-blank line beneath the heading equals new_line
+    j = heading_idx + 1
+    while j < len(lines) and lines[j].strip() == "":
+        j += 1
+    if j < len(lines) and lines[j].rstrip("\n") == new_line:
+        result = "\n".join(lines)
+        if note_body.endswith("\n"):
+            result += "\n"
+        return result
+
+    lines.insert(heading_idx + 1, new_line)
+    result = "\n".join(lines)
+    if note_body.endswith("\n") or not note_body:
+        result += "\n"
+    return result
+
+
 class KnowledgeBase:
     """Public API for the kbx knowledge base.
 
@@ -1283,10 +1323,20 @@ class KnowledgeBase:
         append: str | None = None,
         tags: list[str] | None = None,
         pin: bool | None = None,
+        insert_under: str | None = None,
     ) -> dict[str, object]:
         """Edit a note: modify frontmatter/body, atomic write, reindex.
 
-        Raises ValueError if note not found, not a memory note, or no changes specified.
+        ``insert_under``: section-anchored insertion. When set, ``body`` is the
+        single line to insert immediately after the matching ``## Heading`` line
+        (most-recent-first). If the heading is absent, a new section is appended
+        at EOF. Idempotent: an exact duplicate of the line already at the top of
+        the section is a no-op. Mutually exclusive with ``append`` and with the
+        full-replace meaning of ``body`` (when ``insert_under`` is set, ``body``
+        is interpreted as the line to insert, not the whole document body).
+
+        Raises ValueError if note not found, not an editable memory file, or no
+        changes specified.
         """
         import re as _re
 
@@ -1297,11 +1347,29 @@ class KnowledgeBase:
         doc = find_document_by_target(conn, target)
         if doc is None:
             raise ValueError(f"Note not found: {target}")
-        if doc["doc_type"] not in ("memory_note", "memory_doc"):
+        if doc["doc_type"] not in (
+            "memory_note",
+            "memory_doc",
+            "memory_person",
+            "memory_project",
+            "memory_context",
+        ):
             raise ValueError(f"Not a memory note (doc_type={doc['doc_type']})")
-        if body is not None and append is not None:
-            raise ValueError("Cannot specify both body and append")
-        if body is None and append is None and tags is None and pin is None:
+        if insert_under is not None:
+            if append is not None:
+                raise ValueError("Cannot combine insert_under with append")
+            if body is None:
+                raise ValueError("insert_under requires body (the line to insert)")
+        else:
+            if body is not None and append is not None:
+                raise ValueError("Cannot specify both body and append")
+        if (
+            body is None
+            and append is None
+            and tags is None
+            and pin is None
+            and insert_under is None
+        ):
             raise ValueError("No edit options. Provide body, append, tags, or pin.")
 
         file_path = self._project_root / doc["path"]
@@ -1317,8 +1385,11 @@ class KnowledgeBase:
             fm_block = ""
             note_body = content
 
-        # Apply body/append
-        if body is not None:
+        # Apply body/append/insert_under
+        if insert_under is not None:
+            assert body is not None  # validated above
+            note_body = _insert_under_heading(note_body, insert_under, body)
+        elif body is not None:
             note_body = body + "\n"
         elif append is not None:
             note_body = note_body.rstrip("\n") + append + "\n"
