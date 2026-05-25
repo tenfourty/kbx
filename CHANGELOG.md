@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.8](https://github.com/tenfourty/kbx/compare/kbx-v0.2.7...kbx-v0.2.8) (2026-05-25)
+
+
+### Bug Fixes
+
+* **hotness:** parse only date portion of last_accessed_at (Mode D) ([0396fc3](https://github.com/tenfourty/kbx/commit/0396fc3866e406a6e9f88ddd9a0c04f17737d8f4))
+
 ## [0.2.7](https://github.com/tenfourty/kbx/compare/kbx-v0.2.6...kbx-v0.2.7) (2026-05-25)
 
 
