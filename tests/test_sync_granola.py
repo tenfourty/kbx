@@ -219,12 +219,12 @@ class TestAPIRequests:
         mock_response.status_code = 200
         mock_response.json.return_value = {
             "people": [
-                {"name": "Wren Kasper", "email": "alice@example.com"},
+                {"name": "Wren Kasper", "email": "wren@example.com"},
                 {"name": "Soren Vance", "email": "thomas@example.com"},
             ],
             "calendar_event": {
                 "title": "Weekly 1:1",
-                "organizer_email": "alice@example.com",
+                "organizer_email": "wren@example.com",
                 "start_time": "2026-02-10T15:00:00Z",
                 "end_time": "2026-02-10T15:30:00Z",
             },
@@ -235,7 +235,7 @@ class TestAPIRequests:
             metadata = client.get_metadata("doc-1")
 
         assert len(metadata["people"]) == 2
-        assert metadata["people"][0]["email"] == "alice@example.com"
+        assert metadata["people"][0]["email"] == "wren@example.com"
         assert metadata["calendar_event"]["title"] == "Weekly 1:1"
 
 
@@ -411,12 +411,12 @@ class TestBuildFrontmatter:
         }
         metadata = {
             "people": [
-                {"name": "Wren Kasper", "email": "alice@example.com"},
+                {"name": "Wren Kasper", "email": "wren@example.com"},
                 {"name": "Soren Vance", "email": "thomas@example.com"},
             ],
             "calendar_event": {
                 "title": "Weekly 1:1",
-                "organizer_email": "alice@example.com",
+                "organizer_email": "wren@example.com",
                 "start_time": "2026-01-27T15:00:00Z",
                 "end_time": "2026-01-27T15:30:00Z",
             },
@@ -429,7 +429,7 @@ class TestBuildFrontmatter:
         assert fm["granola_id"] == "abc12345"
         assert fm["granola_updated_at"] == "2026-01-27T16:30:00Z"
         assert len(fm["attendees"]) == 2
-        assert fm["attendees"][0]["email"] == "alice@example.com"
+        assert fm["attendees"][0]["email"] == "wren@example.com"
         assert fm["calendar_event"]["title"] == "Weekly 1:1"
         assert fm["granola_summary"] == "Discussed performance review and CI pipeline."
         # Tags derived from attendee names
@@ -611,9 +611,9 @@ class TestFindExistingById:
 
         day_dir = tmp_dir / "day"
         day_dir.mkdir()
-        (day_dir / "Alice___Thomas_aabb1122.notes.md").write_text("old")
+        (day_dir / "Wren___Soren_aabb1122.notes.md").write_text("old")
         result = _find_existing_by_id(day_dir, "aabb1122")
-        assert result == "Alice___Thomas_aabb1122"
+        assert result == "Wren___Soren_aabb1122"
 
     def test_find_new_pattern(self, tmp_dir):
         """Finds files using new naming pattern: {id_prefix}_{Title}.granola.notes.md."""
@@ -621,9 +621,9 @@ class TestFindExistingById:
 
         day_dir = tmp_dir / "day"
         day_dir.mkdir()
-        (day_dir / "aabb1122_Alice___Thomas.granola.notes.md").write_text("new")
+        (day_dir / "aabb1122_Wren___Soren.granola.notes.md").write_text("new")
         result = _find_existing_by_id(day_dir, "aabb1122")
-        assert result == "aabb1122_Alice___Thomas"
+        assert result == "aabb1122_Wren___Soren"
 
     def test_prefers_new_over_old(self, tmp_dir):
         """When both patterns exist, prefers the new one."""
@@ -631,11 +631,11 @@ class TestFindExistingById:
 
         day_dir = tmp_dir / "day"
         day_dir.mkdir()
-        (day_dir / "Alice___Thomas_aabb1122.notes.md").write_text("old")
-        (day_dir / "aabb1122_Alice___Thomas.granola.notes.md").write_text("new")
+        (day_dir / "Wren___Soren_aabb1122.notes.md").write_text("old")
+        (day_dir / "aabb1122_Wren___Soren.granola.notes.md").write_text("new")
         result = _find_existing_by_id(day_dir, "aabb1122")
         # New pattern takes precedence
-        assert result == "aabb1122_Alice___Thomas"
+        assert result == "aabb1122_Wren___Soren"
 
     def test_not_found(self, tmp_dir):
         """Returns None when no matching file exists."""
@@ -678,7 +678,7 @@ class TestSanitizeTitle:
         """Slash becomes triple underscore."""
         from kb.sync.granola import _sanitize_title
 
-        assert _sanitize_title("Wren / Soren") == "Alice___Thomas"
+        assert _sanitize_title("Wren / Soren") == "Wren___Soren"
 
 
 class TestMakeFilename:
@@ -687,7 +687,7 @@ class TestMakeFilename:
         from kb.sync.granola import _make_filename
 
         result = _make_filename("Wren / Soren", "aabb112233445566")
-        assert result == "aabb1122_Alice___Thomas"
+        assert result == "aabb1122_Wren___Soren"
 
     def test_with_calendar_uid(self):
         """Uses calendar_uid when provided."""
@@ -842,8 +842,8 @@ class TestWriteMeeting:
         # Create old-pattern files manually
         day_dir = tmp_dir / "memory" / "meetings" / "2026" / "01" / "27"
         day_dir.mkdir(parents=True)
-        old_notes = day_dir / "Alice___Thomas_aabb1122.notes.md"
-        old_transcript = day_dir / "Alice___Thomas_aabb1122.transcript.md"
+        old_notes = day_dir / "Wren___Soren_aabb1122.notes.md"
+        old_transcript = day_dir / "Wren___Soren_aabb1122.transcript.md"
         old_notes.write_text(
             "---\ntitle: Wren / Soren\ndate: 2026-01-27\ntype: notes\n"
             "granola_id: aabb1122\ngranola_updated_at: '2026-01-27T15:00:00Z'\n---\n\n# Old\n"
@@ -1264,9 +1264,9 @@ class TestEntityAutoCreation:
         from kb.sync.granola import match_or_create_attendee
 
         conn = tmp_db.get_sqlite_conn()
-        self._seed_entity(conn, "Wren Kasper", metadata={"email": "alice@example.com"})
+        self._seed_entity(conn, "Wren Kasper", metadata={"email": "wren@example.com"})
 
-        attendee = {"name": "Wren Kasper", "email": "alice@example.com"}
+        attendee = {"name": "Wren Kasper", "email": "wren@example.com"}
         result = match_or_create_attendee(attendee, tmp_db, project_root=None)
 
         assert result is not None
@@ -1378,12 +1378,12 @@ tags:
   - Soren
 attendees:
   - name: Wren Kasper
-    email: alice@example.com
+    email: wren@example.com
   - name: Soren Vance
     email: thomas@example.com
 calendar_event:
   title: Weekly 1:1
-  organiser: alice@example.com
+  organiser: wren@example.com
   scheduled_start: '2026-01-27T15:00:00Z'
   scheduled_end: '2026-01-27T15:30:00Z'
 granola_summary: |
@@ -1394,7 +1394,7 @@ granola_summary: |
         fm = parse_frontmatter(text)
         assert fm["title"] == "Wren / Soren"
         assert len(fm["attendees"]) == 2
-        assert fm["attendees"][0]["email"] == "alice@example.com"
+        assert fm["attendees"][0]["email"] == "wren@example.com"
         assert fm["calendar_event"]["title"] == "Weekly 1:1"
         assert "performance review" in fm["granola_summary"]
         assert fm["granola_updated_at"] == "2026-01-27T16:30:00Z"
@@ -1427,7 +1427,7 @@ tags:
         # Create a meeting file with enriched frontmatter
         day_dir = tmp_dir / "memory" / "meetings" / "2026" / "01" / "27"
         day_dir.mkdir(parents=True)
-        notes = day_dir / "abc12345_Alice___Thomas.granola.notes.md"
+        notes = day_dir / "abc12345_Wren___Soren.granola.notes.md"
         notes.write_text("""---
 title: Wren / Soren
 date: 2026-01-27
@@ -1437,7 +1437,7 @@ tags:
   - Soren
 attendees:
   - name: Wren Kasper
-    email: alice@example.com
+    email: wren@example.com
   - name: Soren Vance
     email: thomas@example.com
 ---
@@ -1451,7 +1451,7 @@ Talked about performance review.
         assert docs[0].title == "Wren / Soren"
         # Attendees should be available on the parsed document
         assert len(docs[0].attendees) == 2
-        assert docs[0].attendees[0]["email"] == "alice@example.com"
+        assert docs[0].attendees[0]["email"] == "wren@example.com"
 
     def test_granola_summary_in_view(self, tmp_dir):
         """kb view --json includes granola_summary field when present."""

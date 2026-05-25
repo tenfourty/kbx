@@ -96,7 +96,7 @@ def integration_db():
                 2,
                 0,
                 "Status",
-                "[Meeting: Helix Refactor Status | Date: 2026-01-20]\nRust migration at 45% completion. 180 of 400 modules converted.",
+                "[Meeting: Helix Refactor Status | Date: 2026-01-20]\nHelix refactor at 45% completion. 180 of 400 modules converted.",
             ),
             (
                 2,
@@ -108,7 +108,7 @@ def integration_db():
                 3,
                 0,
                 "Plan",
-                "[Meeting: Atlas Pipeline Plan | Date: 2026-02-01]\nDatastore SSO integration and Grafana dashboard migration.",
+                "[Meeting: Atlas Pipeline Plan | Date: 2026-02-01]\nDatastore SSO integration and Grafana dashboard refactor.",
             ),
             (4, 0, None, "Talia Ström is the Infrastructure/Platform lead."),
         ]
@@ -252,8 +252,8 @@ class TestSearchQualityEval:
 
     EVAL_QUERIES: ClassVar[list[dict[str, str]]] = [
         {"query": "MFA implementation", "expect_title": "MFA"},
-        {"query": "Cloud migration", "expect_title": "Cloud"},
-        {"query": "Datastore", "expect_title": "Datastore"},
+        {"query": "Helix refactor", "expect_title": "Helix"},
+        {"query": "Atlas", "expect_title": "Atlas"},
     ]
 
     def test_eval_queries_hit_at_5(self, integration_db):

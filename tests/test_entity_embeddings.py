@@ -42,9 +42,9 @@ class TestBuildEntityProfileText:
     def test_includes_top_facts(self):
         text = build_entity_profile_text(
             "Wren",
-            facts=["leads the migration project", "owns the auth pipeline"],
+            facts=["leads the refactor project", "owns the auth pipeline"],
         )
-        assert "leads the migration project" in text
+        assert "leads the refactor project" in text
         assert "owns the auth pipeline" in text
 
     def test_caps_facts_at_max(self):
@@ -107,11 +107,11 @@ def db_with_entities():
         )
         conn.execute(
             "INSERT INTO facts (entity_id, fact_text, fact_date) VALUES (1, ?, ?)",
-            ("Wren leads the platform infrastructure migration project.", "2026-05-01"),
+            ("Wren leads the platform infrastructure refactor project.", "2026-05-01"),
         )
         conn.execute(
             "INSERT INTO facts (entity_id, fact_text, fact_date) VALUES (2, ?, ?)",
-            ("Cloud migration includes auth, storage, and observability rebuilds.", "2026-05-10"),
+            ("Helix refactor includes auth, storage, and observability rebuilds.", "2026-05-10"),
         )
         conn.commit()
         yield db
@@ -177,7 +177,7 @@ class TestEmbedEntities:
         conn = db_with_entities.get_sqlite_conn()
         conn.execute(
             "INSERT INTO facts (entity_id, fact_text, fact_date) VALUES (1, ?, ?)",
-            ("Wren now leads the global migration program.", "2026-05-20"),
+            ("Wren now leads the global refactor program.", "2026-05-20"),
         )
         conn.commit()
 

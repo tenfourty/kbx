@@ -85,7 +85,7 @@ def cli_db():
                 2,
                 0,
                 "Status",
-                "[Meeting: Helix Refactor Status | Date: 2026-01-20]\nRust migration at 30% completion.",
+                "[Meeting: Helix Refactor Status | Date: 2026-01-20]\nHelix refactor at 30% completion.",
             ),
             (
                 2,
@@ -125,7 +125,7 @@ def cli_db():
                 "memory/projects/helix-refactor.md",
             ),
             (
-                "Soren Vance",
+                "Anders Holt",
                 "person",
                 '["Anders M.", "Anders"]',
                 '{"role": "CEO"}',
@@ -286,11 +286,11 @@ class TestSearchCommand:
     def test_search_with_path_filter_excludes_others(self, runner, cli_db):
         """kb search --path excludes docs outside the prefix."""
         _db, db_path = cli_db
-        # Search would normally hit both meetings/ docs for "migration",
+        # Search would normally hit both meetings/ docs for "refactor",
         # but --path memory/people/ should exclude all of them.
         result = invoke_cli(
             runner,
-            ["search", "migration", "--fast", "--json", "--path", "memory/people/"],
+            ["search", "refactor", "--fast", "--json", "--path", "memory/people/"],
             db_path,
         )
         assert result.exit_code == 0, result.output
@@ -398,7 +398,7 @@ class TestSearchCommand:
         conn.execute(
             "UPDATE documents SET abstract = ? WHERE path = ?",
             (
-                "Discussed Rust migration progress.",
+                "Discussed Helix refactor progress.",
                 "meetings/2026/01/20/rust_migration.notes.md",
             ),
         )
@@ -413,7 +413,7 @@ class TestSearchCommand:
             r for r in data["results"] if r["path"] == "meetings/2026/01/20/rust_migration.notes.md"
         ]
         assert matches
-        assert matches[0]["abstract"] == "Discussed Rust migration progress."
+        assert matches[0]["abstract"] == "Discussed Helix refactor progress."
 
 
 class TestAccessResetCommand:
@@ -764,7 +764,7 @@ class TestPersonCommands:
     def test_person_find_partial_match(self, runner, cli_db):
         """kb person find with partial name (case-insensitive)."""
         _db, db_path = cli_db
-        result = invoke_cli(runner, ["person", "find", "thomas", "--json"], db_path)
+        result = invoke_cli(runner, ["person", "find", "soren", "--json"], db_path)
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert "Soren" in data["name"]
@@ -1261,7 +1261,7 @@ class TestPersonFindErrorJSON:
     def test_person_not_found_json_has_suggestion(self, runner, cli_db):
         """Not-found JSON error should include suggestion or available_actions."""
         _db, db_path = cli_db
-        result = invoke_cli(runner, ["person", "find", "Evee", "--json"], db_path)
+        result = invoke_cli(runner, ["person", "find", "Taliz", "--json"], db_path)
         # "Evee" is close to "Talia" — should suggest it
         assert result.exit_code != 0
         data = json.loads(result.output)
@@ -1570,7 +1570,7 @@ class TestFuzzyPersonSuggestions:
     def test_typo_suggestion_is_relevant(self, runner, cli_db):
         """Close typo like 'Evee' should suggest Talia Ström."""
         _, db_path = cli_db
-        result = invoke_cli(runner, ["person", "find", "Evee", "--json"], db_path)
+        result = invoke_cli(runner, ["person", "find", "Taliz", "--json"], db_path)
         assert result.exit_code != 0
         data = json.loads(result.output)
         if "suggestion" in data:

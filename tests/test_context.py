@@ -81,9 +81,9 @@ def context_db():
         chunks = [
             (1, 0, "Overview", "MFA implementation using TOTP with Okta integration."),
             (1, 1, "Rollout", "Rollout to all employees by end of February."),
-            (2, 0, "Status", "Rust migration at 30% completion."),
+            (2, 0, "Status", "Helix refactor at 30% completion."),
             (2, 1, "Performance", "Rust engine is 5x faster than Python."),
-            (3, 0, "Plan", "Datastore SSO integration and Grafana dashboard migration."),
+            (3, 0, "Plan", "Datastore SSO integration and Grafana dashboard refactor."),
             (4, 0, None, "Talia Ström is the Infrastructure/Platform lead."),
         ]
         for doc_id, idx, heading, content in chunks:
@@ -269,14 +269,14 @@ class TestGenerateContext:
         from kb.context import generate_context
 
         db, _ = context_db
-        result = generate_context(db, project_root_with_glossary, topic="migration")
+        result = generate_context(db, project_root_with_glossary, topic="refactor")
         text = result.text
         # Should have a context header
-        assert "Cloud" in text or "[KB:" in text
-        # Entities should be filtered — only those mentioned in migration-related docs
+        assert "Helix" in text or "[KB:" in text
+        # Entities should be filtered — only those mentioned in refactor-related docs
         entity_names = [e.name for e in result.entities]
         # Linnea and Talia should be present (mentioned in Helix Refactor status doc)
-        # Soren should NOT be present (no mentions in migration docs)
+        # Soren should NOT be present (no mentions in refactor docs)
         assert "Talia Ström" in entity_names
         assert "Soren Vance" not in entity_names
 
@@ -310,9 +310,9 @@ class TestContextCommand:
         """kb context --for 'topic' should filter entities."""
         _, db_path = context_db
         with patch("kb.cli._find_project_root", return_value=project_root_with_glossary):
-            result = invoke_cli(runner, ["context", "--for", "Cloud migration"], db_path)
+            result = invoke_cli(runner, ["context", "--for", "Helix refactor"], db_path)
         assert result.exit_code == 0
-        assert "Cloud" in result.output
+        assert "Helix" in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -424,7 +424,7 @@ class TestMemoryList:
 
 
 # ---------------------------------------------------------------------------
-# Step 3: Migration for facts table
+# Step 3: Refactor for facts table
 # ---------------------------------------------------------------------------
 
 
@@ -606,7 +606,7 @@ class TestContextSmartFiltering:
 
         db, _ = context_db
         # In topic mode, even 0-mention entities should appear if relevant to the topic
-        result = generate_context(db, project_root_with_glossary, topic="Cloud migration")
+        result = generate_context(db, project_root_with_glossary, topic="Helix refactor")
         # This should still include entities found via topic search, regardless of mention count
         entity_names = [e.name for e in result.entities]
         # The topic search finds entities via FTS/name matching, not mention count
@@ -774,7 +774,7 @@ class TestFactsMigration:
             db.close()
 
     def test_facts_migration_recorded(self):
-        """Facts migration should be recorded in migrations table."""
+        """Facts refactor should be recorded in migrations table."""
         with tempfile.TemporaryDirectory() as tmpdir:
             db = Database(Path(tmpdir))
             conn = db.get_sqlite_conn()
@@ -860,7 +860,7 @@ class TestContextPydantic:
         from kb.types import ContextOutput
 
         db, _ = context_db
-        result = generate_context(db, project_root_with_glossary, topic="Cloud migration")
+        result = generate_context(db, project_root_with_glossary, topic="Helix refactor")
         assert isinstance(result, ContextOutput)
 
     def test_human_format_returns_context_output(self, context_db, project_root_with_glossary):
@@ -1117,7 +1117,7 @@ class TestPeopleTierSplitting:
         conn = db.get_sqlite_conn()
         conn.execute(
             "INSERT INTO facts (entity_id, fact_text, fact_date)"
-            " VALUES (3, 'Led migration', '2026-02-01')"
+            " VALUES (3, 'Led refactor', '2026-02-01')"
         )
         conn.commit()
         result = generate_context(db, project_root_with_glossary)

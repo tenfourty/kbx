@@ -199,7 +199,7 @@ class TestEntityOperations:
         assert result is None
 
     def test_get_entity_case_insensitive(self, kb_with_entities):
-        result = kb_with_entities.get_entity("eve perrin")
+        result = kb_with_entities.get_entity("Talia Ström")
         assert result is not None
         assert result.name == "Talia Ström"
 
@@ -244,7 +244,7 @@ class TestEntityOperations:
         assert result[0].name == "Talia Ström"
 
     def test_find_entities_partial(self, kb_with_entities):
-        result = kb_with_entities.find_entities("Perrin")
+        result = kb_with_entities.find_entities("Ström")
         assert len(result) == 1
 
     def test_find_entities_no_match(self, kb_with_entities):
@@ -773,7 +773,7 @@ class TestFactCounts:
         )
         conn.execute(
             "INSERT INTO facts (entity_id, fact_text, fact_date)"
-            " VALUES (2, 'Migration kicked off', '2026-02-01')"
+            " VALUES (2, 'Refactor kicked off', '2026-02-01')"
         )
         conn.commit()
         result = kb_with_entities.get_fact_counts()
@@ -787,7 +787,7 @@ class TestFactCounts:
         )
         conn.execute(
             "INSERT INTO facts (entity_id, fact_text, fact_date)"
-            " VALUES (2, 'Migration kicked off', '2026-02-01')"
+            " VALUES (2, 'Refactor kicked off', '2026-02-01')"
         )
         conn.commit()
         # Only ask for entity 1
@@ -947,7 +947,7 @@ class TestPostMutationReindex:
         """delete_fact re-indexes the entity's source file."""
         people_dir = project_root / "memory" / "people"
         people_dir.mkdir(parents=True, exist_ok=True)
-        (people_dir / "bob.md").write_text(
+        (people_dir / "soren.md").write_text(
             "# Soren\n\n**Role:** SRE\n\n## Recent Facts\n- [2026-01-15] Deployed zephyr service\n"
         )
         kb_instance.index()
@@ -955,7 +955,7 @@ class TestPostMutationReindex:
         conn = kb_instance._get_conn()
         conn.execute(
             "INSERT OR IGNORE INTO entities (name, entity_type, aliases, metadata, source_path)"
-            " VALUES ('Soren', 'person', '[]', '{}', 'memory/people/bob.md')"
+            " VALUES ('Soren', 'person', '[]', '{}', 'memory/people/soren.md')"
         )
         conn.execute(
             "INSERT INTO facts (entity_id, fact_text, fact_date, seq)"

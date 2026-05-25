@@ -2,7 +2,7 @@
 
 ## Overview
 
-Entities represent people, projects, teams, and companies in the knowledge base. They enable queries like "everything about Linnea" or "meetings where Rust migration was discussed".
+Entities represent people, projects, teams, and companies in the knowledge base. They enable queries like "everything about Linnea" or "meetings where Helix refactor was discussed".
 
 ## Entity Sources
 

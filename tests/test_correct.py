@@ -32,17 +32,17 @@ def memory_tree(tmp_path: Path) -> Path:
     )
     (meetings_dir / "Platform_Stability.granola.ai-summary.md").write_text(
         "---\ntitle: Platform Stability\ndate: '2026-02-16'\n---\n"
-        "## Summary\n- Quartz Indexer migration discussed\n- corelogix alerts need fixing\n",
+        "## Summary\n- Quartz Indexer refactor discussed\n- quartz indexer alerts need fixing\n",
         encoding="utf-8",
     )
 
     # meeting with Bram/Bram ambiguity
     arno_dir = memory / "meetings" / "2026" / "02" / "17"
     arno_dir.mkdir(parents=True)
-    (arno_dir / "Monthly_Idris___Bram.notion.transcript.md").write_text(
-        "---\ntitle: Monthly Idris & Bram\ndate: '2026-02-17'\n"
+    (arno_dir / "Monthly_Idris___Bramble.notion.transcript.md").write_text(
+        "---\ntitle: Monthly Idris & Bramble\ndate: '2026-02-17'\n"
         "attendees:\n- name: Idris Kalmar\n  email: idris@example.com\n"
-        "- name: Bram Chazareix\n  email: arnault@example.com\n---\n"
+        "- name: Bramble Holt\n  email: bram@example.com\n---\n"
         "Hey Bram, how are you?\n"
         "Bram is one of the top performers.\n",
         encoding="utf-8",
@@ -53,7 +53,7 @@ def memory_tree(tmp_path: Path) -> Path:
     notes_dir.mkdir(parents=True)
     (notes_dir / "initiatives.md").write_text(
         "---\ntitle: Active Initiatives\ntags: [initiatives]\n---\n"
-        "# Initiatives\n- Coralogix migration on track\n",
+        "# Initiatives\n- Coralogix refactor on track\n",
         encoding="utf-8",
     )
 
@@ -69,9 +69,9 @@ def memory_tree(tmp_path: Path) -> Path:
     # project entity
     projects_dir = memory / "projects"
     projects_dir.mkdir(parents=True)
-    (projects_dir / "observability-migration.md").write_text(
-        "---\nname: Observability Migration\n---\n"
-        "# Observability Migration\n\n"
+    (projects_dir / "observability-refactor.md").write_text(
+        "---\nname: Observability Refactor\n---\n"
+        "# Observability Refactor\n\n"
         "Migrating from Quartz Indexer to Coralogix.\n"
         "Granola garbles Coralogix as Quartz Indexer or Chorologix.\n",
         encoding="utf-8",
@@ -100,7 +100,7 @@ class TestScan:
         paths = {m.rel_path for m in matches}
         assert any("Platform_Stability.granola.transcript.md" in p for p in paths)
         assert any("soren-vance.md" in p for p in paths)
-        assert any("observability-migration.md" in p for p in paths)
+        assert any("observability-refactor.md" in p for p in paths)
 
     def test_scan_counts_occurrences(self, memory_tree: Path):
         """Each match should have correct occurrence count."""
@@ -112,17 +112,17 @@ class TestScan:
     def test_scan_case_sensitive_by_default(self, memory_tree: Path):
         """Default scan is case-sensitive."""
         matches = scan(memory_tree, "Quartz Indexer")
-        # The summary has "corelogix" (lowercase) which shouldn't match
+        # The summary has "quartz indexer" (lowercase) which shouldn't match
         summary_match = [m for m in matches if "ai-summary.md" in m.rel_path]
         assert summary_match
-        assert summary_match[0].count == 1  # only "Quartz Indexer", not "corelogix"
+        assert summary_match[0].count == 1  # only "Quartz Indexer", not "quartz indexer"
 
     def test_scan_ignore_case(self, memory_tree: Path):
         """ignore_case=True matches all case variants."""
         matches = scan(memory_tree, "Quartz Indexer", ignore_case=True)
         summary_match = [m for m in matches if "ai-summary.md" in m.rel_path]
         assert summary_match
-        assert summary_match[0].count == 2  # "Quartz Indexer" + "corelogix"
+        assert summary_match[0].count == 2  # "Quartz Indexer" + "quartz indexer"
 
     def test_scan_word_boundary(self, memory_tree: Path):
         """word_boundary=True avoids substring matches."""
@@ -142,10 +142,10 @@ class TestScan:
         matches = scan(
             memory_tree,
             "Quartz Indexer",
-            scope="projects/observability-migration.md",
+            scope="projects/observability-refactor.md",
         )
         assert len(matches) == 1
-        assert "observability-migration.md" in matches[0].rel_path
+        assert "observability-refactor.md" in matches[0].rel_path
 
     def test_scan_file_type_filter(self, memory_tree: Path):
         """file_type filters by file suffix pattern."""
@@ -228,7 +228,7 @@ class TestApply:
         )
         content = summary.read_text(encoding="utf-8")
         assert "Quartz Indexer" not in content
-        assert "corelogix" not in content
+        assert "quartz indexer" not in content
         assert content.count("Coralogix") >= 2
 
     def test_apply_word_boundary(self, memory_tree: Path):
@@ -248,7 +248,7 @@ class TestApply:
             / "2026"
             / "02"
             / "17"
-            / "Monthly_Idris___Bram.notion.transcript.md"
+            / "Monthly_Idris___Bramble.notion.transcript.md"
         )
         content = arno_file.read_text(encoding="utf-8")
         assert "Hey Bram" in content
@@ -323,7 +323,7 @@ class TestEnrichMatches:
         attendees = arno[0]["attendees"]
         assert len(attendees) == 2
         names = [a["name"] for a in attendees]
-        assert "Bram Chazareix" in names
+        assert "Bramble Holt" in names
 
     def test_enrich_no_attendees_for_non_meetings(self, memory_tree: Path):
         """Non-meeting files have empty attendees list."""
@@ -478,7 +478,7 @@ class TestCorrectCLI:
 
     def test_ignore_case_flag(self, cli_runner: CliRunner, memory_tree: Path):
         """--ignore-case matches all case variants."""
-        result = self._invoke(cli_runner, memory_tree, ["corelogix", "--ignore-case", "--json"])
+        result = self._invoke(cli_runner, memory_tree, ["quartz indexer", "--ignore-case", "--json"])
         data = json.loads(result.output)
         assert data["meta"]["total_occurrences"] > 0
 

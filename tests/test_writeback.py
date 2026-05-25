@@ -369,7 +369,7 @@ class TestYamlFrontmatterWriteback:
             name="My Project",
             entity_type="project",
             aliases=["MP", "my-project"],
-            metadata={"status": "Active", "lead": "Wren Smith"},
+            metadata={"status": "Active", "lead": "Wren Kasper"},
             source_path="memory/projects/my-project.md",
             pinned=False,
         )
@@ -379,7 +379,7 @@ class TestYamlFrontmatterWriteback:
         assert "MP" in header
         assert "my-project" not in header  # file stem excluded
         assert "status: Active" in header
-        assert "[[Wren Smith]]" in header
+        assert "[[Wren Kasper]]" in header
 
     def test_split_header_body_yaml(self):
         content = "---\nrole: Dev\n---\n# Name\n\n## Notes\n\nBody here.\n"

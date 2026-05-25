@@ -84,8 +84,8 @@ class TestNoDateInQuery:
     def test_no_date_returns_none(self):
         from kb.dateparse import extract_date_filters
 
-        query, from_d, to_d = extract_date_filters("Rust migration status")
-        assert query == "Rust migration status"
+        query, from_d, to_d = extract_date_filters("Helix refactor status")
+        assert query == "Helix refactor status"
         assert from_d is None
         assert to_d is None
 

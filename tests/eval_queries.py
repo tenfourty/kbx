@@ -22,15 +22,15 @@ from kb.search import search
 
 QUERIES = [
     {"query": "MFA implementation", "expect_title": "MFA"},
-    {"query": "Cloud migration status", "expect_title": "Cloud"},
-    {"query": "Datastore migration", "expect_title": "Datastore"},
+    {"query": "Helix refactor status", "expect_title": "Helix"},
+    {"query": "Atlas Pipeline", "expect_title": "Atlas"},
     {"query": "performance review Soren", "expect_title": "Soren"},
     {"query": "Okta integration", "expect_title": "MFA"},
     {"query": "AC Scanner", "expect_title": "Shield"},
     {"query": "production stability", "expect_title": "stability"},
     {"query": "CI enhancements", "expect_title": "CI"},
     {"query": "Talia infrastructure", "expect_title": "Talia"},
-    {"query": "Linnea Cloud migration", "expect_title": "Cloud"},
+    {"query": "Linnea Helix refactor", "expect_title": "Helix"},
     {"query": "on-call observability", "expect_title": "on-call"},
     {"query": "staging environment", "expect_title": "staging"},
     {"query": "recruitment engineering", "expect_title": "recruit"},

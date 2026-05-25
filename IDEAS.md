@@ -76,7 +76,7 @@ With Qwen3's 32K context, we can embed much larger text spans. But **bigger chun
 
 **Add a "summary embedding" per document alongside chunk-level embeddings.** This is the biggest win.
 
-- **Meeting notes** (avg ~960 tokens): Embed the **entire file** as one additional vector. 100% of notes fit within 32K. This catches broad queries like "meetings about Rust migration" that might not match any single section header.
+- **Meeting notes** (avg ~960 tokens): Embed the **entire file** as one additional vector. 100% of notes fit within 32K. This catches broad queries like "meetings about Helix refactor" that might not match any single section header.
 - **Transcripts** (avg ~18K tokens): Embed a **title + first 2K tokens + last 1K tokens** composite as one summary vector. Even the largest transcript (378KB / ~94K tokens) exceeds 32K, so full-doc embedding isn't possible for all transcripts, but a summary embedding still helps.
 - **Memory files**: Already embedded as whole files. No change.
 
@@ -833,8 +833,8 @@ Mined from remaining `store.ts` (lines 2000-2913), `qmd.ts` (lines 800-2510), `l
 
 **From qmd's `buildFTS5Query()`:** Instead of just splitting query terms and OR-ing them, build a multi-strategy FTS5 query:
 
-1. **Exact phrase** — `"rust migration"` (highest weight)
-2. **Proximity (NEAR)** — `NEAR(rust migration, 10)` — terms within 10 words of each other
+1. **Exact phrase** — `"helix refactor"` (highest weight)
+2. **Proximity (NEAR)** — `NEAR(helix refactor, 10)` — terms within 10 words of each other
 3. **Individual terms** — `rust OR migration` (fallback)
 
 The strategies rank phrase > proximity > individual, so exact matches always win.
@@ -1026,7 +1026,7 @@ Three items from this backlog are **required foundations** — don't skip them w
 
 1. **BM25 score normalization (#2)** — Without this, RRF fusion can't compare FTS and vector scores. SQLite BM25 returns negative values (-15 to 0); vector cosine returns 0-1. The sigmoid mapping is trivial but everything downstream depends on it.
 
-2. **FTS5 phrase + proximity queries (#4)** — Big precision win for small effort. Multi-word queries like "performance review" or "Rust migration" should match the phrase, not just docs containing both words independently. `NEAR(term1 term2, 10)` handles this.
+2. **FTS5 phrase + proximity queries (#4)** — Big precision win for small effort. Multi-word queries like "performance review" or "Helix refactor" should match the phrase, not just docs containing both words independently. `NEAR(term1 term2, 10)` handles this.
 
 3. **Graceful FTS-only fallback (#9)** — Bulk indexing takes minutes. Users should be able to search immediately with FTS while embeddings are still being computed. Also essential for testing without downloading a 600MB model.
 
@@ -1113,13 +1113,13 @@ def blended_score(similarity: float, doc_date: date, recency_weight: float = 0.1
     return (1 - recency_weight) * similarity + recency_weight * recency
 ```
 
-**Why it matters for kb:** "What's happening with the Rust migration?" should surface the January 2026 meeting over the September 2025 one, even if the older meeting has slightly higher semantic similarity. Research shows a simple recency prior achieves **perfect accuracy on freshness queries**.
+**Why it matters for kb:** "What's happening with the Helix refactor?" should surface the January 2026 meeting over the September 2025 one, even if the older meeting has slightly higher semantic similarity. Research shows a simple recency prior achieves **perfect accuracy on freshness queries**.
 
 **Configuration:** The recency weight and half-life should be configurable:
 ```
-kb search "Rust migration"                    # Default: 15% recency weight
-kb search "Rust migration" --recency 0.3      # Heavier recency bias
-kb search "Rust migration" --recency 0        # Pure similarity (no recency)
+kb search "Helix refactor"                    # Default: 15% recency weight
+kb search "Helix refactor" --recency 0.3      # Heavier recency bias
+kb search "Helix refactor" --recency 0        # Pure similarity (no recency)
 ```
 
 **Effort:** Small. Add to the score blending step after RRF fusion.
@@ -1157,7 +1157,7 @@ This is a 1-hop traversal on the entity co-occurrence graph. No external graph d
 **What it is:** For the currently open document, automatically surface related documents:
 
 ```
-kb related "meetings/organised/2026/01/27/alice-bob_f744ed8c.notes.md"
+kb related "meetings/organised/2026/01/27/wren-soren_f744ed8c.notes.md"
 
 Related meetings:
   0.89  2026-01-13 Wren / Soren — Previous 1:1, same topics
@@ -1224,9 +1224,9 @@ Research into best-in-class CLI patterns for LLM-consumable tools and MCP server
 Every command should produce readable human output by default, with `--json` for structured machine output. This is the universal pattern across Heroku, Linearis, and Willison's LLM tool.
 
 ```
-kb search "Rust migration"              # Human: formatted table
-kb search "Rust migration" --json       # Machine: JSON array, one object per result
-kb search "Rust migration" --jsonl      # Machine: newline-delimited JSON (for streaming)
+kb search "Helix refactor"              # Human: formatted table
+kb search "Helix refactor" --json       # Machine: JSON array, one object per result
+kb search "Helix refactor" --jsonl      # Machine: newline-delimited JSON (for streaming)
 ```
 
 **Already planned** in kb's Phase 5. The key insight from Heroku: `--json` should output to **stdout** while all human messaging (progress, warnings, hints) goes to **stderr**. This means `kb search "query" --json 2>/dev/null` always gives clean JSON, and `kb search "query" 2>&1` gives everything.
@@ -1307,8 +1307,8 @@ Anthropic's guide: include `available_actions` in error responses so the agent c
 ```json
 {
   "error": "No results found for 'Rust migrtion'",
-  "suggestion": "Did you mean 'Rust migration'?",
-  "available_actions": ["kb search 'Rust migration'", "kb search --fast 'Rust'"]
+  "suggestion": "Did you mean 'Helix refactor'?",
+  "available_actions": ["kb search 'Helix refactor'", "kb search --fast 'Rust'"]
 }
 ```
 
@@ -1343,7 +1343,7 @@ The MCP spec defines three distinct primitives. Most servers only implement Tool
 | Primitive | Control | Purpose | kb Example |
 |---|---|---|---|
 | **Tools** | Model-controlled | Actions with side effects or computation | `kb_search`, `kb_entity_find` |
-| **Resources** | User/app-controlled | Read-only data, accessed by URI | `kb://status`, `kb://entity/bob` |
+| **Resources** | User/app-controlled | Read-only data, accessed by URI | `kb://status`, `kb://entity/soren` |
 | **Prompts** | User-controlled | Reusable prompt templates | "Summarise recent meetings about {topic}" |
 
 **Tools** are what the LLM calls autonomously. Keep these to 4-6 well-designed tools.
@@ -1352,7 +1352,7 @@ The MCP spec defines three distinct primitives. Most servers only implement Tool
 
 ```
 kb://status                           → Index stats, entity counts, date ranges
-kb://entity/bob-beaumont        → Full entity profile
+kb://entity/soren-vance        → Full entity profile
 kb://document/{docid}                 → Document content by docid
 kb://recent?days=7                    → Documents from last 7 days
 ```
@@ -1404,7 +1404,7 @@ async def get_month_meetings(year: str, month: str) -> str:
     return list_meetings(year, month)
 ```
 
-The URI structure acts as a natural API — `kb://entity/bob` is intuitive for both humans and LLMs.
+The URI structure acts as a natural API — `kb://entity/soren` is intuitive for both humans and LLMs.
 
 #### 4. Workflow-Based Tools (from "Less is More")
 
@@ -1556,7 +1556,7 @@ kb context --section people             # Single section
 kb context --json                       # Structured output
 ```
 
-The `--for` flag runs a lightweight entity search and only includes relevant entities. A session about "Rust migration" would include Talia, Linnea, the Helix Refactor project — but not Idris, Series B, or customer accounts.
+The `--for` flag runs a lightweight entity search and only includes relevant entities. A session about "Helix refactor" would include Talia, Linnea, the Helix Refactor project — but not Idris, Series B, or customer accounts.
 
 #### Layer 3: `kb memory` — Fact Recording
 
@@ -1573,7 +1573,7 @@ kb memory show "Soren"
 **Storage:** Append dated entries to existing memory files (human-readable, version-controllable) + index in SQLite facts table for fast querying:
 
 ```markdown
-# In memory/people/bob-chen.md, auto-appended:
+# In memory/people/soren-vance.md, auto-appended:
 
 ## Timeline
 - 2026-01-19: Promoted to Staff Engineer (source: promotion committee)
@@ -1681,7 +1681,7 @@ CREATE TABLE facts (
 ```
 kb entity history "Soren"                      # Full timeline of facts
 kb entity state "Soren" --at 2025-09          # What was true about Soren in Sep 2025?
-kb search "Rust migration" --changes         # What changed about this project over time?
+kb search "Helix refactor" --changes         # What changed about this project over time?
 ```
 
 **The key Zep insight we adopt:** When a new fact contradicts an old one, don't delete the old fact — set `valid_until` on the old one. "Soren is on Platform team" gets `valid_until = 2025-10-01` when we record "Soren leads DevEfficiency" with `valid_from = 2025-10-01`. History is preserved.

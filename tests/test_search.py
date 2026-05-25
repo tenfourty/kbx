@@ -269,7 +269,7 @@ def search_db():
                 2,
                 0,
                 "Status",
-                "Helix Refactor Status\nThe Rust migration is at 45% completion. 180 of 400 modules converted. Linnea leading the effort.",
+                "Helix Refactor Status\nThe Helix refactor is at 45% completion. 180 of 400 modules converted. Linnea leading the effort.",
                 "[Meeting: Helix Refactor Status | Date: 2026-01-20 | Section: Status]",
             ),
             (
@@ -290,7 +290,7 @@ def search_db():
                 4,
                 0,
                 "Plan",
-                "Atlas Pipeline Plan\nDatastore migration is top priority for 2026. SSO integration and Grafana dashboard migration planned.",
+                "Atlas Pipeline Plan\nAtlas Pipeline is top priority for 2026. SSO integration and Grafana dashboard refactor planned.",
                 "[Meeting: Atlas Pipeline Plan | Date: 2026-02-01 | Section: Plan]",
             ),
         ]
@@ -359,7 +359,7 @@ class TestFTSSearch:
 
     def test_fts_scores_normalized(self, search_db):
         """FTS scores should be non-negative (may exceed 1.0 due to entity boost)."""
-        results = search(search_db, None, "Rust migration", fast=True)
+        results = search(search_db, None, "Helix refactor", fast=True)
         for r in results.results:
             assert r.score >= 0
 
@@ -392,8 +392,8 @@ class TestFTSSearch:
             )
 
     def test_fts_entities_populated(self, search_db):
-        """Results for Rust migration should include entity names."""
-        results = search(search_db, None, "Rust migration", fast=True)
+        """Results for Helix refactor should include entity names."""
+        results = search(search_db, None, "Helix refactor", fast=True)
         # At least one result should have entities
         all_entities = []
         for r in results.results:
@@ -426,7 +426,7 @@ class TestFTSOnlyFallback:
 
     def test_search_fast_mode(self, search_db):
         """fast=True should use FTS only, no vector search."""
-        results = search(search_db, None, "Datastore", fast=True)
+        results = search(search_db, None, "Atlas", fast=True)
         assert results.meta.total > 0
 
 
@@ -444,20 +444,20 @@ class TestRecencyInSearch:
 
     def test_recency_zero_is_pure_similarity(self, search_db):
         """recency=0 should give same scores regardless of date."""
-        results = search(search_db, None, "migration", fast=True, recency=0.0)
+        results = search(search_db, None, "refactor", fast=True, recency=0.0)
         assert results.meta.total > 0
 
 
 class TestSortByDate:
     def test_sort_by_date_descending(self, search_db):
         """sort_by='date' should order results newest first."""
-        results = search(search_db, None, "migration", fast=True, sort_by="date")
+        results = search(search_db, None, "refactor", fast=True, sort_by="date")
         dates = [r.date for r in results.results if r.date]
         assert dates == sorted(dates, reverse=True)
 
     def test_sort_by_date_none_dates_last(self, search_db):
         """Results without dates should sort last."""
-        results = search(search_db, None, "migration", fast=True, sort_by="date")
+        results = search(search_db, None, "refactor", fast=True, sort_by="date")
         dates = [r.date for r in results.results]
         none_count = dates.count(None)
         if none_count > 0:
@@ -466,12 +466,12 @@ class TestSortByDate:
 
     def test_sort_meta_includes_sort_by(self, search_db):
         """Meta should include sort_by field."""
-        results = search(search_db, None, "migration", fast=True, sort_by="date")
+        results = search(search_db, None, "refactor", fast=True, sort_by="date")
         assert results.meta.sort_by == "date"
 
     def test_default_sort_is_score(self, search_db):
         """Default sort should be by score descending."""
-        results = search(search_db, None, "migration", fast=True)
+        results = search(search_db, None, "refactor", fast=True)
         scores = [r.score for r in results.results]
         assert scores == sorted(scores, reverse=True)
         assert results.meta.sort_by == "score"
@@ -483,26 +483,26 @@ class TestMultiTermMerge:
     def test_or_fallback_adds_results(self, search_db):
         """A multi-word query should return OR results even when NEAR finds a subset.
 
-        'Cloud Grafana' — NEAR likely finds 0 (terms not co-located), but OR should
-        find docs mentioning Cloud and docs mentioning Grafana separately.
+        'Helix Grafana' — NEAR likely finds 0 (terms not co-located), but OR should
+        find docs mentioning Helix and docs mentioning Grafana separately.
         """
-        results = search(search_db, None, "Cloud Grafana", fast=True)
-        # Should get results from both Helix Refactor and Datastore (Grafana) docs
+        results = search(search_db, None, "Helix Grafana", fast=True)
+        # Should get results from both Helix Refactor and Atlas Pipeline (Grafana) docs
         assert results.meta.total >= 2
         titles = [r.title for r in results.results]
-        assert any("Cloud" in t for t in titles)
-        assert any("Datastore" in t for t in titles)
+        assert any("Helix" in t for t in titles)
+        assert any("Atlas" in t for t in titles)
 
     def test_near_hit_doesnt_suppress_or_results(self, search_db):
         """When NEAR finds some results, OR should still contribute additional matches.
 
         _fts_search must accumulate across variants, not return on first hit.
-        'migration Cloud' — NEAR finds Helix Refactor doc (terms co-located), but
-        OR should also find Atlas Pipeline doc (has 'migration' in title/content).
+        'refactor Cloud' — NEAR finds Helix Refactor doc (terms co-located), but
+        OR should also find Atlas Pipeline doc (has 'refactor' in title/content).
         """
         from kb.search import _fts_search
 
-        results = _fts_search(search_db, "migration Cloud", limit=50)
+        results = _fts_search(search_db, "refactor Cloud", limit=50)
         doc_ids = set()
         conn = search_db.get_sqlite_conn()
         for r in results:
@@ -526,16 +526,16 @@ class TestMultiTermMerge:
 
     def test_phrase_match_ranks_higher(self, search_db):
         """Exact phrase matches should rank higher than OR-only matches."""
-        results = search(search_db, None, "Cloud migration", fast=True)
+        results = search(search_db, None, "Helix refactor", fast=True)
         assert results.meta.total > 0
         # The Helix Refactor doc should be top result (phrase match)
-        assert "Cloud" in results.results[0].title
+        assert "Helix" in results.results[0].title
 
     def test_merge_deduplicates_chunks(self, search_db):
         """Same chunk appearing in multiple FTS variants should not be duplicated."""
         from kb.search import _fts_search
 
-        results = _fts_search(search_db, "Cloud migration", limit=50)
+        results = _fts_search(search_db, "Helix refactor", limit=50)
         chunk_ids = [r["chunk_id"] for r in results]
         assert len(chunk_ids) == len(set(chunk_ids)), "Duplicate chunk_ids in merged results"
 
@@ -575,7 +575,7 @@ class TestSearchPydantic:
 
     def test_search_results_are_search_result(self, search_db: Database) -> None:
         """Each item in results should be a SearchResult model."""
-        result = search(search_db, None, "Rust migration", fast=True)
+        result = search(search_db, None, "Helix refactor", fast=True)
         assert len(result.results) > 0
         for r in result.results:
             assert isinstance(r, SearchResult)
@@ -591,7 +591,7 @@ class TestSearchPydantic:
 
     def test_search_result_attribute_access(self, search_db: Database) -> None:
         """SearchResult fields should be accessible as attributes."""
-        result = search(search_db, None, "Rust migration", fast=True)
+        result = search(search_db, None, "Helix refactor", fast=True)
         r = result.results[0]
         assert isinstance(r.chunk_id, int)
         assert isinstance(r.document_id, int)
@@ -742,14 +742,14 @@ class TestSearchWithTagFilter:
 
 class TestSearchWithDateFilter:
     def test_from_date_filter(self, search_db):
-        results = search(search_db, None, "migration", fast=True, from_date="2026-01-01")
+        results = search(search_db, None, "refactor", fast=True, from_date="2026-01-01")
         assert results.meta.total > 0
         for r in results.results:
             if r.date:
                 assert r.date >= "2026-01-01"
 
     def test_to_date_filter(self, search_db):
-        results = search(search_db, None, "migration", fast=True, to_date="2026-01-25")
+        results = search(search_db, None, "refactor", fast=True, to_date="2026-01-25")
         # Should filter out Datastore (2026-02-01)
         for r in results.results:
             if r.date:
@@ -876,7 +876,7 @@ class TestSearchVectorOnly:
 class TestSearchDocTypeFilter:
     def test_doc_type_filters_results(self, search_db):
         """doc_type filter should exclude non-matching documents."""
-        results = search(search_db, None, "migration", fast=True, doc_type="transcript")
+        results = search(search_db, None, "refactor", fast=True, doc_type="transcript")
         # All test docs are "notes", filtering by "transcript" should get 0
         assert results.meta.total == 0
 
@@ -911,13 +911,13 @@ class TestAndQueryVariant:
         """Multi-word queries should include an AND variant between NEAR and OR."""
         from kb.search import _build_fts_query
 
-        variants = _build_fts_query("rust migration status")
+        variants = _build_fts_query("helix refactor status")
         # Should have: phrase, NEAR, AND (implicit), OR
         assert len(variants) == 4
         # The AND variant is space-separated terms (implicit AND in FTS5)
-        assert "rust migration status" in variants
+        assert "helix refactor status" in variants
         # OR variant is still last
-        assert variants[-1] == "rust OR migration OR status"
+        assert variants[-1] == "helix OR refactor OR status"
 
     def test_and_variant_catches_scattered_terms(self, search_db):
         """AND variant should find chunks containing all terms even if not near each other."""
@@ -937,14 +937,14 @@ class TestPrefixSearch:
         """Trailing * should NOT be stripped from query terms."""
         from kb.search import _sanitize_fts_input
 
-        result = _sanitize_fts_input("migr*")
-        assert result == "migr*"
+        result = _sanitize_fts_input("refac*")
+        assert result == "refac*"
 
     def test_leading_star_stripped(self):
         """Leading * (not valid FTS5 prefix) should be stripped."""
         from kb.search import _sanitize_fts_input
 
-        result = _sanitize_fts_input("*migration")
+        result = _sanitize_fts_input("*refactor")
         assert "*" not in result
 
     def test_middle_star_stripped(self):
@@ -955,12 +955,12 @@ class TestPrefixSearch:
         assert "*" not in result
 
     def test_prefix_search_finds_results(self, search_db):
-        """A prefix query like 'migr*' should match 'migration'."""
-        results = search(search_db, None, "migr*", fast=True)
+        """A prefix query like 'migr*' should match 'refactor'."""
+        results = search(search_db, None, "refac*", fast=True)
         assert results.meta.total > 0
-        # Should find migration-related docs
+        # Should find refactor-related docs
         titles = [r.title for r in results.results]
-        assert any("Migration" in t for t in titles)
+        assert any("Refactor" in t for t in titles)
 
     def test_standalone_star_stripped(self):
         """A bare * should be stripped entirely."""
@@ -1500,10 +1500,10 @@ def path_filter_db():
         conn = db.get_sqlite_conn()
 
         docs = [
-            ("memory/meetings/2026/01/15/standup.md", "Migration Standup", "2026-01-15"),
-            ("memory/meetings/2026/02/20/review.md", "Migration Review", "2026-02-20"),
-            ("memory/notes/migration-plan.md", "Migration Plan Note", "2026-02-01"),
-            ("memory/people/alice.md", "Wren Migration Lead", "2026-01-01"),
+            ("memory/meetings/2026/01/15/standup.md", "Refactor Standup", "2026-01-15"),
+            ("memory/meetings/2026/02/20/review.md", "Refactor Review", "2026-02-20"),
+            ("memory/notes/refactor-plan.md", "Refactor Plan Note", "2026-02-01"),
+            ("memory/people/wren.md", "Wren Refactor Lead", "2026-01-01"),
             ("memory/projects/cloud.md", "Helix Refactor Project", "2026-01-10"),
         ]
         for i, (path, title, date) in enumerate(docs, 1):
@@ -1517,7 +1517,7 @@ def path_filter_db():
             conn.execute(
                 "INSERT INTO chunks (document_id, chunk_index, heading, content) "
                 "VALUES (?, ?, ?, ?)",
-                (i, 0, "Body", f"{title}\nDiscussed migration timeline and rollout."),
+                (i, 0, "Body", f"{title}\nDiscussed refactor timeline and rollout."),
             )
 
         conn.commit()
@@ -1531,7 +1531,7 @@ class TestPathFilter:
     def test_path_filter_scopes_fts_results(self, path_filter_db):
         """Prefix filter keeps only matching paths in FTS results."""
         results = search(
-            path_filter_db, None, "migration", fast=True, path_filter="memory/meetings/"
+            path_filter_db, None, "refactor", fast=True, path_filter="memory/meetings/"
         )
         assert results.meta.total > 0
         for r in results.results:
@@ -1541,14 +1541,14 @@ class TestPathFilter:
 
     def test_path_filter_excludes_siblings(self, path_filter_db):
         """Filter on memory/notes/ excludes meetings, people, projects."""
-        results = search(path_filter_db, None, "migration", fast=True, path_filter="memory/notes/")
+        results = search(path_filter_db, None, "refactor", fast=True, path_filter="memory/notes/")
         paths = [r.path for r in results.results]
-        assert paths == ["memory/notes/migration-plan.md"], paths
+        assert paths == ["memory/notes/refactor-plan.md"], paths
 
     def test_path_filter_no_match_returns_empty(self, path_filter_db):
         """Filter that matches no docs returns zero results."""
         results = search(
-            path_filter_db, None, "migration", fast=True, path_filter="memory/nonexistent/"
+            path_filter_db, None, "refactor", fast=True, path_filter="memory/nonexistent/"
         )
         assert results.meta.total == 0
         assert results.results == []
@@ -1556,7 +1556,7 @@ class TestPathFilter:
     def test_path_filter_glob_star(self, path_filter_db):
         """`*` glob is translated to SQL `%` wildcard."""
         results = search(
-            path_filter_db, None, "migration", fast=True, path_filter="memory/*/2026/*"
+            path_filter_db, None, "refactor", fast=True, path_filter="memory/*/2026/*"
         )
         paths = [r.path for r in results.results]
         assert paths, "expected at least one match for memory/*/2026/*"
@@ -1565,7 +1565,7 @@ class TestPathFilter:
 
     def test_path_filter_no_filter_returns_all(self, path_filter_db):
         """Without --path, all matching docs are returned (no regression)."""
-        results = search(path_filter_db, None, "migration", fast=True)
+        results = search(path_filter_db, None, "refactor", fast=True)
         assert results.meta.total == 5
 
 
@@ -1583,13 +1583,13 @@ class TestResolvePathFilter:
     def test_resolve_exact_path(self, path_filter_db):
         from kb.search import _resolve_doc_ids_for_path
 
-        doc_ids = _resolve_doc_ids_for_path(path_filter_db, "memory/notes/migration-plan.md")
+        doc_ids = _resolve_doc_ids_for_path(path_filter_db, "memory/notes/refactor-plan.md")
         assert doc_ids == {3}
 
     def test_resolve_glob(self, path_filter_db):
         from kb.search import _resolve_doc_ids_for_path
 
-        doc_ids = _resolve_doc_ids_for_path(path_filter_db, "memory/*/alice.md")
+        doc_ids = _resolve_doc_ids_for_path(path_filter_db, "memory/*/wren.md")
         assert doc_ids == {4}
 
     def test_resolve_empty_match(self, path_filter_db):
@@ -1767,11 +1767,11 @@ class TestExplain:
 
     def test_explain_meta_lists_fts_variants(self, search_db):
         """meta.fts_variants_tried lists the FTS5 expression variants attempted."""
-        results = search(search_db, None, "Rust migration", fast=True, explain=True)
+        results = search(search_db, None, "Helix refactor", fast=True, explain=True)
         variants = results.meta.fts_variants_tried
         assert variants, "expected at least one FTS variant for multi-word query"
         # Multi-word query produces phrase + NEAR + AND + OR variants
-        assert any(v == '"Rust migration"' for v in variants)
+        assert any(v == '"Helix refactor"' for v in variants)
         assert any("NEAR(" in v for v in variants)
 
     def test_explain_meta_with_path_filter(self, path_filter_db):
@@ -1779,7 +1779,7 @@ class TestExplain:
         results = search(
             path_filter_db,
             None,
-            "migration",
+            "refactor",
             fast=True,
             explain=True,
             path_filter="memory/meetings/",
@@ -1805,21 +1805,21 @@ class TestExplain:
         conn = path_filter_db.get_sqlite_conn()
         conn.execute(
             "UPDATE documents SET abstract = ? WHERE path = ?",
-            ("Migration is on track for Q3.", "memory/notes/migration-plan.md"),
+            ("Refactor is on track for Q3.", "memory/notes/refactor-plan.md"),
         )
         conn.commit()
 
         results = search(
             path_filter_db,
             None,
-            "migration",
+            "refactor",
             fast=True,
             path_filter="memory/notes/",
         )
         assert results.results, "expected at least one note hit"
         for r in results.results:
-            if r.path == "memory/notes/migration-plan.md":
-                assert r.abstract == "Migration is on track for Q3."
+            if r.path == "memory/notes/refactor-plan.md":
+                assert r.abstract == "Refactor is on track for Q3."
 
     def test_overview_opt_in_via_include_overview(self, path_filter_db):
         """`overview` is None by default and populated only when include_overview=True (#66 P4)."""
@@ -1827,8 +1827,8 @@ class TestExplain:
         conn.execute(
             "UPDATE documents SET overview = ? WHERE path = ?",
             (
-                "Migration is on track. Q3 milestones are on schedule.",
-                "memory/notes/migration-plan.md",
+                "Refactor is on track. Q3 milestones are on schedule.",
+                "memory/notes/refactor-plan.md",
             ),
         )
         conn.commit()
@@ -1837,30 +1837,30 @@ class TestExplain:
         default = search(
             path_filter_db,
             None,
-            "migration",
+            "refactor",
             fast=True,
             path_filter="memory/notes/",
         )
         for r in default.results:
-            if r.path == "memory/notes/migration-plan.md":
+            if r.path == "memory/notes/refactor-plan.md":
                 assert r.overview is None, "overview must be opt-in"
 
         # Opt-in: overview appears on the result.
         opt_in = search(
             path_filter_db,
             None,
-            "migration",
+            "refactor",
             fast=True,
             path_filter="memory/notes/",
             include_overview=True,
         )
         seen = False
         for r in opt_in.results:
-            if r.path == "memory/notes/migration-plan.md":
+            if r.path == "memory/notes/refactor-plan.md":
                 seen = True
                 assert r.overview is not None
-                assert "Migration is on track" in r.overview
-        assert seen, "expected migration-plan.md in include_overview results"
+                assert "Refactor is on track" in r.overview
+        assert seen, "expected refactor-plan.md in include_overview results"
 
     def test_hotness_blending_boosts_accessed_docs(self, search_db):
         """A doc with high access_count + recent timestamp ranks above a cold equivalent (#67)."""
@@ -1943,8 +1943,8 @@ class TestExplain:
 
         fake_embedder = MagicMock()
 
-        with_h = search(search_db, fake_embedder, "migration", explain=True, hierarchy=True)
-        no_h = search(search_db, fake_embedder, "migration", explain=True, hierarchy=False)
+        with_h = search(search_db, fake_embedder, "refactor", explain=True, hierarchy=True)
+        no_h = search(search_db, fake_embedder, "refactor", explain=True, hierarchy=False)
 
         # With hierarchy: meta reflects Pass 1; results constrained to entity-linked docs.
         assert with_h.meta.hierarchy_active is True
@@ -1974,7 +1974,7 @@ class TestExplain:
         from unittest.mock import MagicMock
 
         fake_embedder = MagicMock()
-        results = search(search_db, fake_embedder, "migration", explain=True, hierarchy=True)
+        results = search(search_db, fake_embedder, "refactor", explain=True, hierarchy=True)
         assert results.meta.hierarchy_active is False
         assert results.meta.pass1_entities == []
 
@@ -1989,7 +1989,7 @@ class TestExplain:
             return []
 
         monkeypatch.setattr(search_module, "_pass1_entity_search", fake_pass1)
-        search(search_db, None, "migration", fast=True, hierarchy=True)
+        search(search_db, None, "refactor", fast=True, hierarchy=True)
         assert called["n"] == 0
 
     def test_hierarchy_alpha_changes_blend(self, search_db, monkeypatch):
@@ -2009,7 +2009,7 @@ class TestExplain:
         low_alpha = search(
             search_db,
             fake_embedder,
-            "migration",
+            "refactor",
             explain=True,
             hierarchy=True,
             hierarchy_alpha=0.0,
@@ -2017,7 +2017,7 @@ class TestExplain:
         high_alpha = search(
             search_db,
             fake_embedder,
-            "migration",
+            "refactor",
             explain=True,
             hierarchy=True,
             hierarchy_alpha=1.0,
@@ -2050,7 +2050,7 @@ class TestExplain:
         empty = search(
             search_db,
             fake_embedder,
-            "migration",
+            "refactor",
             hierarchy=True,
             path_filter="nonexistent/",
         )

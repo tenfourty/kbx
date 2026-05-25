@@ -9,7 +9,7 @@ Generates a ~30-line compressed index of all entities (people, projects, teams) 
 ```bash
 kbx context                           # full compressed index (plain text)
 kbx context --json                    # structured JSON output
-kbx context --for "Rust migration"    # filtered to relevant entities only
+kbx context --for "Helix refactor"    # filtered to relevant entities only
 ```
 
 ### Plain text output format
@@ -57,7 +57,7 @@ When a topic is provided, the command:
 1. Runs an FTS search for the topic
 2. Collects entity IDs mentioned in matching documents
 3. Filters the output to only those entities
-4. Adjusts the header: `# Context: Rust migration`
+4. Adjusts the header: `# Context: Helix refactor`
 
 This is useful for scoping context to a specific conversation topic.
 
@@ -76,7 +76,7 @@ kbx memory add "Led Platform TF kickoff" --entity "Linnea"
 
 1. Finds the entity by name (case-insensitive, partial match)
 2. Inserts a row into the `facts` SQLite table
-3. If the entity has a `source_path` (e.g. `memory/people/bob-chen.md`), appends the fact under a `## Recent Facts` section in that file
+3. If the entity has a `source_path` (e.g. `memory/people/soren-vance.md`), appends the fact under a `## Recent Facts` section in that file
 
 ### File format
 

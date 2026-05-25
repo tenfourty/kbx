@@ -39,9 +39,9 @@ Column weights: `bm25(chunks_fts, 1.0, 2.0)` — heading matches get 2x boost ov
 
 Multi-word queries try four match levels, merging results across all variants:
 
-1. **Phrase**: `"rust migration"` — exact phrase match
-2. **Proximity**: `NEAR(rust migration, 10)` — words within 10 tokens
-3. **AND** (implicit): `rust migration` — all terms must appear in the row
+1. **Phrase**: `"helix refactor"` — exact phrase match
+2. **Proximity**: `NEAR(helix refactor, 10)` — words within 10 tokens
+3. **AND** (implicit): `helix refactor` — all terms must appear in the row
 4. **OR fallback**: `rust OR migration` — either word
 
 Single-word queries use the term directly. Prefix matching is supported via trailing `*` (e.g. `migr*`).

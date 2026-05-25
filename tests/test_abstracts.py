@@ -18,8 +18,8 @@ class TestExtractAbstract:
 
     def test_strips_leading_headings(self):
         """Leading markdown headings are skipped."""
-        content = "## Overview\n\nMigration is on track for Q3."
-        assert extract_abstract(content) == "Migration is on track for Q3."
+        content = "## Overview\n\nRefactor is on track for Q3."
+        assert extract_abstract(content) == "Refactor is on track for Q3."
 
     def test_question_mark_terminates(self):
         """`?` is a valid sentence terminator."""

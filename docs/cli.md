@@ -105,8 +105,8 @@ Options:
 ### view
 
 ```bash
-kbx view "memory/meetings/2026/01/27/abc_Alice_Bob.notes.md"
-kbx view "Alice_Bob.notes.md"              # suffix match
+kbx view "memory/meetings/2026/01/27/abc_Wren_Soren.notes.md"
+kbx view "Wren_Soren.notes.md"              # suffix match
 kbx view "#abcdef"                          # content-hash lookup
 kbx view "*Wren*"                          # glob pattern
 kbx view "path.md" --plain                  # raw content only
@@ -121,7 +121,7 @@ Resolution order: exact path → glob → suffix match → `#hash` lookup → fu
 kbx context                                 # compressed entity index
 kbx context --json                          # structured output
 kbx context --human                         # markdown format
-kbx context --for "Rust migration"          # filtered to relevant entities
+kbx context --for "Helix refactor"          # filtered to relevant entities
 ```
 
 ### person / project

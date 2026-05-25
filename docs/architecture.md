@@ -175,7 +175,7 @@ flowchart LR
 from kb import KnowledgeBase
 
 with KnowledgeBase(thread_safe=True) as kb:
-    results = kb.search("cloud migration")
+    results = kb.search("helix refactor")
     people = kb.list_entities(entity_type="person")
 ```
 

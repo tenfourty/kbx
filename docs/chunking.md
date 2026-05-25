@@ -47,7 +47,7 @@ Exception: `glossary.md` is chunked per table row, with the term as heading and 
 
 ## Document-Level Summary Embeddings
 
-One additional chunk per document with `heading = "__document__"`. Captures the document's overall topic for broad queries like "meetings about Rust migration".
+One additional chunk per document with `heading = "__document__"`. Captures the document's overall topic for broad queries like "meetings about Helix refactor".
 
 | Doc Type | Summary Strategy |
 |----------|-----------------|

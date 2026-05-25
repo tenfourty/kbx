@@ -6,7 +6,7 @@ embedder lifecycle. Consumers create one instance and call methods.
     from kb import KnowledgeBase
 
     with KnowledgeBase() as kb:
-        results = kb.search("cloud migration")
+        results = kb.search("helix refactor")
         people = kb.list_entities(entity_type="person")
 """
 

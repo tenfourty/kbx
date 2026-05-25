@@ -94,7 +94,7 @@ def mcp_db():
                 2,
                 0,
                 "Status",
-                "[Meeting: Helix Refactor Status | Date: 2026-01-20]\nRust migration at 45% completion. 180 of 400 modules converted.",
+                "[Meeting: Helix Refactor Status | Date: 2026-01-20]\nHelix refactor at 45% completion. 180 of 400 modules converted.",
             ),
             (
                 2,
@@ -106,7 +106,7 @@ def mcp_db():
                 3,
                 0,
                 "Plan",
-                "[Meeting: Atlas Pipeline Plan | Date: 2026-02-01]\nDatastore SSO integration and Grafana dashboard migration.",
+                "[Meeting: Atlas Pipeline Plan | Date: 2026-02-01]\nDatastore SSO integration and Grafana dashboard refactor.",
             ),
             (4, 0, None, "Talia Ström is the Infrastructure/Platform lead."),
         ]
@@ -244,10 +244,10 @@ class TestMcpSearch:
         from kb.mcp_server import handle_kb_search
 
         db, _ = mcp_db
-        result = handle_kb_search(db, "Cloud migration", fast=True, limit=5)
+        result = handle_kb_search(db, "Helix refactor", fast=True, limit=5)
         data = json.loads(result)
         titles = [r["title"] for r in data["results"]]
-        assert any("Cloud" in t for t in titles)
+        assert any("Helix" in t for t in titles)
 
     def test_search_no_results(self, mcp_db):
         """kb_search should return empty results for no matches."""
@@ -887,7 +887,7 @@ class TestMcpMemoryAdd:
                     db,
                     db_path,
                     "Note about Talia",
-                    body="Talia helped with the migration",
+                    body="Talia helped with the refactor",
                     entity="Talia",
                 )
             )
@@ -1776,9 +1776,9 @@ class TestMcpSearchDocType:
         from kb.mcp_server import handle_kb_search
 
         db, _ = mcp_db
-        # Search for "migration" which appears in both notes and memory_person chunks
+        # Search for "refactor" which appears in both notes and memory_person chunks
         result = json.loads(
-            handle_kb_search(db, "migration", fast=True, limit=10, doc_type="notes")
+            handle_kb_search(db, "refactor", fast=True, limit=10, doc_type="notes")
         )
         # All results should be doc_type "notes"
         for r in result["results"]:
@@ -2283,23 +2283,23 @@ class TestMcpPersonCreate:
         from kb.mcp_server import handle_kb_person_create
 
         db, db_path = mcp_db
-        result = json.loads(handle_kb_person_create(db, db_path, "Wren Smith", role="SRE Lead"))
-        assert result["name"] == "Wren Smith"
+        result = json.loads(handle_kb_person_create(db, db_path, "Wren Kasper", role="SRE Lead"))
+        assert result["name"] == "Wren Kasper"
         assert result["entity_type"] == "person"
         assert "path" in result
-        assert result["path"].endswith("alice-smith.md")
+        assert result["path"].endswith("wren-kasper.md")
 
     def test_create_person_writes_file(self, mcp_db):
         """kb_person_create should create a markdown file in memory/people/."""
         from kb.mcp_server import handle_kb_person_create
 
         db, db_path = mcp_db
-        handle_kb_person_create(db, db_path, "Soren Jones", role="Engineer", team="Platform")
+        handle_kb_person_create(db, db_path, "Soren Vance", role="Engineer", team="Platform")
 
-        filepath = db_path / "memory" / "people" / "bob-jones.md"
+        filepath = db_path / "memory" / "people" / "soren-vance.md"
         assert filepath.exists()
         content = filepath.read_text()
-        assert "# Soren Jones" in content
+        assert "# Soren Vance" in content
         assert "role: Engineer" in content
         assert "team:" in content
 
@@ -2361,7 +2361,7 @@ class TestMcpPersonCreate:
         assert result["name"] == "Anders Castle"
         assert result["entity_type"] == "person"
 
-        filepath = db_path / "memory" / "people" / "frank-castle.md"
+        filepath = db_path / "memory" / "people" / "anders-castle.md"
         assert filepath.exists()
         content = filepath.read_text()
         assert "# Anders Castle" in content
@@ -2528,14 +2528,14 @@ class TestMcpPersonEdit:
         from kb.mcp_server import handle_kb_person_edit
 
         db, db_path = mcp_db
-        self._create_person(db, db_path, "Wren Smith", role="Engineer")
-        result = json.loads(handle_kb_person_edit(db, db_path, "Wren Smith", role="VP Platform"))
+        self._create_person(db, db_path, "Wren Kasper", role="Engineer")
+        result = json.loads(handle_kb_person_edit(db, db_path, "Wren Kasper", role="VP Platform"))
         assert result["updated"] is True
-        assert result["name"] == "Wren Smith"
+        assert result["name"] == "Wren Kasper"
 
         conn = db.get_sqlite_conn()
         row = conn.execute(
-            "SELECT metadata FROM entities WHERE name = ?", ("Wren Smith",)
+            "SELECT metadata FROM entities WHERE name = ?", ("Wren Kasper",)
         ).fetchone()
         meta = json.loads(row["metadata"])
         assert meta["role"] == "VP Platform"
@@ -2545,8 +2545,8 @@ class TestMcpPersonEdit:
         from kb.mcp_server import handle_kb_person_edit
 
         db, db_path = mcp_db
-        self._create_person(db, db_path, "Soren Jones", team="Platform")
-        result = json.loads(handle_kb_person_edit(db, db_path, "Soren Jones", team="Infrastructure"))
+        self._create_person(db, db_path, "Soren Vance", team="Platform")
+        result = json.loads(handle_kb_person_edit(db, db_path, "Soren Vance", team="Infrastructure"))
         assert result["updated"] is True
 
     def test_edit_person_with_meta(self, mcp_db):
@@ -2638,13 +2638,13 @@ class TestMcpProjectCreate:
 
         db, db_path = mcp_db
         handle_kb_project_create(
-            db, db_path, "Platform Migration", status="In Progress", lead="Talia Ström"
+            db, db_path, "Platform Refactor", status="In Progress", lead="Talia Ström"
         )
 
-        filepath = db_path / "memory" / "projects" / "platform-migration.md"
+        filepath = db_path / "memory" / "projects" / "platform-refactor.md"
         assert filepath.exists()
         content = filepath.read_text()
-        assert "# Platform Migration" in content
+        assert "# Platform Refactor" in content
         assert "status: In Progress" in content
 
     def test_create_project_with_all_fields(self, mcp_db):
@@ -2857,7 +2857,7 @@ class TestFactSeqMigration:
             )
             conn.commit()
 
-            # Run migration manually
+            # Run refactor manually
             from kb.db import _migrate_012_add_fact_seq
 
             _migrate_012_add_fact_seq(conn)

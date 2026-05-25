@@ -224,7 +224,7 @@ class TestAPIClient:
         mock_response = {
             "recordMap": {
                 "notion_user": {
-                    "user-1": {"value": {"name": "Wren", "email": "alice@example.com"}}
+                    "user-1": {"value": {"name": "Wren", "email": "wren@example.com"}}
                 }
             }
         }
@@ -394,8 +394,8 @@ class TestFrontmatterAndWrite:
                 "endTime": "2026-02-23T10:30:00.000+01:00",
             },
             attendees=[
-                {"name": "Wren Smith", "email": "alice@example.com"},
-                {"name": "Soren Jones", "email": "bob@example.com"},
+                {"name": "Wren Kasper", "email": "wren@example.com"},
+                {"name": "Soren Vance", "email": "soren@example.com"},
             ],
         )
         assert fm["title"] == "Weekly Sync"
@@ -627,8 +627,8 @@ class TestSyncOrchestration:
             client.load_page_chunk.side_effect = _load_page_chunk
             client.load_block_children.side_effect = _load_block_children
             client.get_users.return_value = {
-                "user-a": {"name": "Wren Smith", "email": "alice@example.com"},
-                "user-b": {"name": "Soren Jones", "email": "bob@example.com"},
+                "user-a": {"name": "Wren Kasper", "email": "wren@example.com"},
+                "user-b": {"name": "Soren Vance", "email": "soren@example.com"},
             }
 
             result = sync_notion(
@@ -892,8 +892,8 @@ class TestEndToEnd:
 
             # get_users resolves attendees
             client.get_users.return_value = {
-                "user-a": {"name": "Wren Smith", "email": "alice@example.com"},
-                "user-b": {"name": "Soren Jones", "email": "bob@example.com"},
+                "user-a": {"name": "Wren Kasper", "email": "wren@example.com"},
+                "user-b": {"name": "Soren Vance", "email": "soren@example.com"},
             }
 
             # load_block_children for transcript, summary, and notes
@@ -968,7 +968,7 @@ class TestEndToEnd:
         assert "title: Weekly Team Sync" in notes_content
         assert "source: notion-api" in notes_content
         assert "calendar_uid: cal12345@google.com" in notes_content
-        assert "alice@example.com" in notes_content
+        assert "wren@example.com" in notes_content
         assert "### Key Decisions" in notes_content
         assert "Agreed to ship v2 next week" in notes_content
 

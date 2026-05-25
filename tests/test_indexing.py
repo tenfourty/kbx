@@ -296,8 +296,8 @@ def memory_root(tmp_path):
     # People
     people = mem / "people"
     people.mkdir(parents=True)
-    (people / "alice.md").write_text("# Wren Smith\n\n**Role:** Engineer\n**Team:** Platform\n")
-    (people / "bob.md").write_text("# Soren Jones\n\n**Role:** Manager\n**Team:** Product\n")
+    (people / "wren.md").write_text("# Wren Kasper\n\n**Role:** Engineer\n**Team:** Platform\n")
+    (people / "soren.md").write_text("# Soren Vance\n\n**Role:** Manager\n**Team:** Product\n")
     # Projects
     projects = mem / "projects"
     projects.mkdir(parents=True)
@@ -401,7 +401,7 @@ def meetings_root(tmp_path):
     base.mkdir(parents=True)
     for i, (name, tag) in enumerate(
         [
-            ("aabb0001_User___Bob", "Soren"),
+            ("aabb0001_User___Soren", "Soren"),
             ("aabb0002_User___Charles", "Soren"),
             ("aabb0003_Team_Standup", "Engineering"),
         ]
@@ -413,7 +413,7 @@ def meetings_root(tmp_path):
         )
     for i, name in enumerate(
         [
-            "aabb0001_User___Bob",
+            "aabb0001_User___Soren",
             "aabb0002_User___Charles",
         ]
     ):
@@ -423,12 +423,12 @@ def meetings_root(tmp_path):
             f"**Me:** Hello.\n\n**System:** Hi there.\n"
         )
     # Add prep and debrief files
-    (base / "aabb0001_User___Bob.prep.md").write_text(
+    (base / "aabb0001_User___Soren.prep.md").write_text(
         "---\ntitle: 'Prep: User / Soren'\ndate: 2026-01-15\ntype: prep\n"
         "source: cos-agent\ncalendar_uid: aabb0001\n---\n\n"
         "## Agenda\n\nDiscuss project updates.\n"
     )
-    (base / "aabb0001_User___Bob.debrief.md").write_text(
+    (base / "aabb0001_User___Soren.debrief.md").write_text(
         "---\ntitle: 'Debrief: User / Soren'\ndate: 2026-01-15\ntype: debrief\n"
         "source: cos-agent\ncalendar_uid: aabb0001\n---\n\n"
         "## Action Items\n\n- Follow up on project timeline.\n"
@@ -638,7 +638,7 @@ class TestAbstractIndexing:
                 "---\ntitle: Sync\ndate: 2026-05-24\ntype: notes\n"
                 "granola_id: ab12cd34\n---\n\n"
                 "## Overview\n\n"
-                "Migration is on track for Q3. Remaining tasks are ranked.\n"
+                "Refactor is on track for Q3. Remaining tasks are ranked.\n"
             )
 
             index_all(tmp_db, None, tmp_root, full=True)
@@ -648,7 +648,7 @@ class TestAbstractIndexing:
                 "SELECT abstract FROM documents WHERE path LIKE '%_Sync.granola.notes.md'"
             ).fetchone()
             assert row is not None
-            assert row["abstract"] == "Migration is on track for Q3."
+            assert row["abstract"] == "Refactor is on track for Q3."
 
     def test_abstract_falls_back_to_title_when_body_empty(self, tmp_db):
         """A doc with only frontmatter falls back to title."""
@@ -658,13 +658,13 @@ class TestAbstractIndexing:
             tmp_root = Path(tmpdir)
             people_dir = tmp_root / "memory" / "people"
             people_dir.mkdir(parents=True)
-            (people_dir / "alice.md").write_text("# Wren Kasper\n\n**Role:** Lead\n")
+            (people_dir / "wren.md").write_text("# Wren Kasper\n\n**Role:** Lead\n")
 
             index_all(tmp_db, None, tmp_root, full=True)
 
             conn = tmp_db.get_sqlite_conn()
             row = conn.execute(
-                "SELECT abstract FROM documents WHERE path LIKE '%alice.md'"
+                "SELECT abstract FROM documents WHERE path LIKE '%wren.md'"
             ).fetchone()
             assert row is not None
             # The body for an entity file is typically structured key/value lines;
@@ -689,7 +689,7 @@ class TestOverviewIndexing:
                 "---\ntitle: Sync\ndate: 2026-05-24\ntype: notes\n"
                 "granola_id: ab12cd34\n---\n\n"
                 "## Overview\n\n"
-                "Migration is on track for Q3. Remaining tasks are ranked. "
+                "Refactor is on track for Q3. Remaining tasks are ranked. "
                 "Owners assigned and timeline confirmed for the rollout phase.\n"
             )
 
@@ -702,7 +702,7 @@ class TestOverviewIndexing:
             assert row is not None
             assert row["overview"] is not None
             # Paragraph-level capture — keeps multiple sentences, not just the first.
-            assert "Migration is on track" in row["overview"]
+            assert "Refactor is on track" in row["overview"]
             assert "Remaining tasks" in row["overview"]
 
 
@@ -1210,7 +1210,7 @@ class TestIndexingDeleteAndReindex:
             tmp_root = Path(tmpdir)
             meet_dir = tmp_root / "memory" / "meetings" / "2026" / "01" / "15"
             meet_dir.mkdir(parents=True)
-            (meet_dir / "aabb0001_User___Bob.granola.notes.md").write_text(
+            (meet_dir / "aabb0001_User___Soren.granola.notes.md").write_text(
                 "---\ntitle: Meeting 1\ndate: 2026-01-15\ntype: notes\n"
                 "granola_id: aabb0001\ntags:\n  - Soren\n---\n\n## Discussion\n\nOriginal.\n"
             )
@@ -1219,7 +1219,7 @@ class TestIndexingDeleteAndReindex:
             assert r1.documents_indexed == 1
 
             # Change the file — triggers _delete_document + re-index
-            (meet_dir / "aabb0001_User___Bob.granola.notes.md").write_text(
+            (meet_dir / "aabb0001_User___Soren.granola.notes.md").write_text(
                 "---\ntitle: Meeting 1\ndate: 2026-01-15\ntype: notes\n"
                 "granola_id: aabb0001\ntags:\n  - Soren\n---\n\n## Discussion\n\nUpdated content.\n"
             )

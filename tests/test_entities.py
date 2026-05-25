@@ -37,8 +37,8 @@ def entity_root(tmp_path):
         "**Role:** CEO\n"
         "**Team:** ExCom\n"
     )
-    (people / "alice-smith.md").write_text(
-        "# Wren Smith\n\n**Also known as:** Wren\n**Role:** Engineer\n**Team:** Platform\n"
+    (people / "wren-kasper.md").write_text(
+        "# Wren Kasper\n\n**Also known as:** Wren\n**Role:** Engineer\n**Team:** Platform\n"
     )
     # Projects
     projects = mem / "projects"
@@ -179,7 +179,7 @@ class TestEntityLinking:
         from kb.entities import Entity
 
         return [
-            Entity(id=1, name="Wren Kasper", entity_type="person", aliases=["Wren", "alice-reed"]),
+            Entity(id=1, name="Wren Kasper", entity_type="person", aliases=["Wren", "wren-kasper"]),
             Entity(
                 id=2,
                 name="Soren Vance",
@@ -188,7 +188,7 @@ class TestEntityLinking:
             ),
             Entity(
                 id=3,
-                name="Soren Vance",
+                name="Anders Holt",
                 entity_type="person",
                 aliases=["Anders M.", "Anders", "david-marchand"],
             ),
@@ -498,8 +498,8 @@ class TestSeedEntitiesNonDestructive:
         count_before = len(load_entities(db))
 
         # Add a new person file
-        (root / "memory" / "people" / "bob-smith.md").write_text(
-            "# Soren Smith\n\n**Role:** Designer\n"
+        (root / "memory" / "people" / "soren-vance.md").write_text(
+            "# Soren Vance\n\n**Role:** Designer\n"
         )
 
         seed_entities(db, root)
@@ -508,7 +508,7 @@ class TestSeedEntitiesNonDestructive:
 
         entities = load_entities(db)
         names = {e.name for e in entities}
-        assert "Soren Smith" in names
+        assert "Soren Vance" in names
         db.close()
 
     def test_seed_removes_deleted_entities(self, tmp_path):
@@ -878,7 +878,7 @@ class TestYamlFrontmatterParsing:
             "aliases: [MP, MyProj]\n"
             "status: Active\n"
             "started: January 2026\n"
-            'lead: "[[Wren Smith]] — Tech Lead"\n'
+            'lead: "[[Wren Kasper]] — Tech Lead"\n'
             "---\n"
             "# My Project\n\n"
             "## Overview\n\nProject details.\n"
@@ -891,7 +891,7 @@ class TestYamlFrontmatterParsing:
         assert "my-project" in result.aliases
         assert result.metadata["status"] == "Active"
         assert result.metadata["started"] == "January 2026"
-        assert result.metadata["lead"] == "Wren Smith — Tech Lead"
+        assert result.metadata["lead"] == "Wren Kasper — Tech Lead"
 
     def test_parse_project_old_format_still_works(self, tmp_path):
         from kb.entities import _parse_project_file

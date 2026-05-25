@@ -41,7 +41,7 @@ def _make_result(
         doc_type="meeting",
         score=score,
         section="Overview",
-        snippet="discussed the migration timeline...",
+        snippet="discussed the refactor timeline...",
         explain=explain,
     )
 

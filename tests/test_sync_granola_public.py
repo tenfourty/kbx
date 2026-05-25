@@ -60,7 +60,7 @@ def sample_note_full(sample_note_summary):
         },
         "attendees": [
             {"name": "Idris Kalmar", "email": "idris@example.com"},
-            {"name": "Wren Kasper", "email": "alice@example.com"},
+            {"name": "Wren Kasper", "email": "wren@example.com"},
         ],
         "folder_membership": [],
         "summary_text": "Spent $100k, made $150k.",
@@ -312,7 +312,7 @@ class TestNoteToInternalDoc:
         doc = _note_to_internal_doc(sample_note_full)
         assert doc["people"]["creator"]["email"] == "idris@example.com"
         emails = [a["email"] for a in doc["people"]["attendees"]]
-        assert "alice@example.com" in emails
+        assert "wren@example.com" in emails
 
     def test_handles_missing_calendar_event(self, sample_note_summary):
         from kb.sync.granola_public import _note_to_internal_doc
@@ -544,7 +544,7 @@ class TestSyncGranolaPublic:
                 "creator": {"name": "Idris Kalmar", "email": "idris@example.com"},
                 "attendees": [
                     {"name": "Idris Kalmar", "email": "idris@example.com"},
-                    {"name": "Wren Kasper", "email": "alice@example.com"},
+                    {"name": "Wren Kasper", "email": "wren@example.com"},
                 ],
             },
             "google_calendar_event": {

@@ -78,11 +78,11 @@ class TestBuildFtsQuery:
     def test_multi_word(self):
         from kb.search import _build_fts_query
 
-        variants = _build_fts_query("Rust migration")
+        variants = _build_fts_query("Helix refactor")
         assert len(variants) == 4
-        assert variants[0] == '"Rust migration"'
+        assert variants[0] == '"Helix refactor"'
         assert "NEAR" in variants[1]
-        assert variants[2] == "Rust migration"  # implicit AND
+        assert variants[2] == "Helix refactor"  # implicit AND
         assert "OR" in variants[3]
 
     def test_empty_after_sanitize(self):
@@ -302,7 +302,7 @@ class TestFuzzySuggestEntity:
         from kb.cli import _fuzzy_suggest_entity
 
         names = ["Talia Ström", "Soren Vance"]
-        suggestions = _fuzzy_suggest_entity("Evee", names)
+        suggestions = _fuzzy_suggest_entity("Taliz", names)
         assert "Talia Ström" in suggestions
 
     def test_no_close_match(self):
@@ -431,7 +431,7 @@ class TestSearchSortDate:
         )
         conn.execute(
             "INSERT INTO chunks (document_id, chunk_index, heading, content) VALUES (?, ?, ?, ?)",
-            (1, 0, None, "Old meeting about migration."),
+            (1, 0, None, "Old meeting about refactor."),
         )
         conn.execute(
             """INSERT INTO documents (path, title, doc_date, doc_type, source_system, tags, content_hash, chunk_count)
@@ -440,12 +440,12 @@ class TestSearchSortDate:
         )
         conn.execute(
             "INSERT INTO chunks (document_id, chunk_index, heading, content) VALUES (?, ?, ?, ?)",
-            (2, 0, None, "New meeting about migration."),
+            (2, 0, None, "New meeting about refactor."),
         )
         conn.commit()
 
         result = invoke_cli(
-            runner, ["search", "migration", "--fast", "--sort", "date", "--json"], str(data_dir)
+            runner, ["search", "refactor", "--fast", "--sort", "date", "--json"], str(data_dir)
         )
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -834,7 +834,7 @@ class TestFindEntities:
             conn = db.get_sqlite_conn()
             conn.execute(
                 "INSERT INTO entities (name, entity_type, aliases, metadata) VALUES (?, ?, ?, ?)",
-                ("Soren Vance", "person", '["Anders M.", "Anders"]', '{"role": "CEO"}'),
+                ("Anders Holt", "person", '["Anders M.", "Anders"]', '{"role": "CEO"}'),
             )
             conn.execute(
                 "INSERT INTO entities (name, entity_type, aliases, metadata) VALUES (?, ?, ?, ?)",
@@ -1044,8 +1044,8 @@ class TestEntityCreateDuplicateError:
             people_dir = project_root / "memory" / "people"
             people_dir.mkdir(parents=True)
             # Write a person file
-            (people_dir / "alice-smith.md").write_text(
-                "---\ntitle: Wren Smith\n---\n# Wren Smith\n"
+            (people_dir / "wren-kasper.md").write_text(
+                "---\ntitle: Wren Kasper\n---\n# Wren Kasper\n"
             )
 
             data_dir = project_root / "kbx" / "data"
@@ -1053,7 +1053,7 @@ class TestEntityCreateDuplicateError:
             conn = db.get_sqlite_conn()
             conn.execute(
                 "INSERT INTO entities (name, entity_type, aliases, metadata, source_path) VALUES (?, ?, ?, ?, ?)",
-                ("Wren Smith", "person", "[]", "{}", "memory/people/alice-smith.md"),
+                ("Wren Kasper", "person", "[]", "{}", "memory/people/wren-kasper.md"),
             )
             conn.commit()
             db.close()
@@ -1062,7 +1062,7 @@ class TestEntityCreateDuplicateError:
             with _patch("kb.cli._find_project_root", return_value=project_root):
                 result = runner.invoke(
                     cli,
-                    ["person", "create", "Wren Smith", "--json"],
+                    ["person", "create", "Wren Kasper", "--json"],
                     env={"KB_DATA_DIR": str(data_dir)},
                 )
             # Should fail with EntityExistsError
@@ -1338,11 +1338,11 @@ class TestMergeClaudeMdAliases:
         with tempfile.TemporaryDirectory() as tmpdir:
             claude_md = Path(tmpdir) / "CLAUDE.md"
             claude_md.write_text(
-                "# People\n\n| Who | Role |\n|------|-------|\n| **Anders** | Soren Vance (CEO) |\n"
+                "# People\n\n| Who | Role |\n|------|-------|\n| **Anders** | Anders Holt (CEO) |\n"
             )
             entities = [
                 EntityData(
-                    name="Soren Vance",
+                    name="Anders Holt",
                     entity_type="person",
                     aliases=["Anders M."],
                     metadata={"role": "CEO"},
@@ -1400,12 +1400,12 @@ class TestBuildNamePatternsEdgeCases:
     def test_short_first_name_skipped_in_content(self):
         from kb.entities import Entity, _build_name_patterns
 
-        entity = Entity(id=1, name="Soren Vance", aliases=["Anders"], entity_type="person")
+        entity = Entity(id=1, name="Anders Holt", aliases=["Anders"], entity_type="person")
         patterns = _build_name_patterns(entity)
         # "Anders" (6 chars, single word, Title case) should be skipped
         alias_names = [p[0].pattern for p in patterns]
         # Only the full name pattern should be present
-        assert any("Anders\\ Marchand" in p for p in alias_names)
+        assert any("Anders\\ Holt" in p for p in alias_names)
 
 
 # ---------------------------------------------------------------------------
@@ -1735,8 +1735,8 @@ class TestFindEntitiesPartialAlias:
                 ("Helix Refactor", "project", '["helix-refactor", "RM"]', "{}"),
             )
             conn.commit()
-            # "cloud" matches as partial in alias "helix-refactor"
-            results = find_entities(conn, "cloud")
+            # "helix" matches as partial in alias "helix-refactor"
+            results = find_entities(conn, "helix")
             assert len(results) >= 1
             assert results[0]["name"] == "Helix Refactor"
             db.close()
@@ -1754,8 +1754,8 @@ class TestFindEntitiesPartialAlias:
             )
             conn.commit()
             # "CLM" matches as exact alias, won't reach partial
-            # "datastore" matches partial in name
-            results = find_entities(conn, "datastore")
+            # "atlas" matches partial in name
+            results = find_entities(conn, "atlas")
             assert len(results) >= 1
             db.close()
 
