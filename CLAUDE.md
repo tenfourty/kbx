@@ -135,9 +135,10 @@ The Claude Code sandbox injects SOCKS proxy env vars (`ALL_PROXY=socks5h://local
 
 ## Claude Code Hooks
 
-`.claude/settings.json` configures two hooks (matching gm's pattern):
+`.claude/settings.json` configures three hooks (matching gm's pattern):
 - **PreToolUse** (`block-sensitive-files.sh`): Blocks Edit/Write to `.env*` and `uv.lock`
 - **PostToolUse** (`post-edit-lint.sh`): Auto-runs `ruff check --fix` + `ruff format` on `.py` files after Edit/Write
+- **PostToolUse** (`check-agent-playbook.sh`): When `src/kb/cli.py` is edited, emits a reminder to verify `_AGENT_PLAYBOOK` still reflects the change (commands, flags, JSON shapes). `kb --help` is the LLM API contract.
 
 Scripts in `.claude/hooks/` read stdin JSON for `tool_input.file_path` and `cwd`.
 
