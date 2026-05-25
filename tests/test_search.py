@@ -1668,6 +1668,44 @@ class TestVectorPathFilter:
 
         mock_query.where.assert_not_called()
 
+    def test_pass1_entity_search_returns_empty_when_no_embedder(self, path_filter_db):
+        """`_pass1_entity_search(embedder=None)` short-circuits to [] (#69)."""
+        from kb.search import _pass1_entity_search
+
+        assert _pass1_entity_search(path_filter_db, None, "query") == []
+
+    def test_pass1_entity_search_returns_empty_when_no_entity_table(self, path_filter_db):
+        """No LanceDB entity table → Pass 1 returns []."""
+        from unittest.mock import MagicMock
+
+        from kb.search import _pass1_entity_search
+
+        # search_entities returns [] when no entity table exists; _pass1 passes through.
+        assert _pass1_entity_search(path_filter_db, MagicMock(), "query") == []
+
+    def test_resolve_entity_doc_ids_collects_max_score(self, search_db):
+        """`_resolve_entity_doc_ids` collects mentioning docs + best parent score."""
+        from kb.search import _resolve_entity_doc_ids
+
+        # search_db has entity_id=1 (Linnea) mentioned in doc 2 ("discussed"),
+        # and entity_id=2 (Helix Refactor) also mentioned in doc 2.
+        # Both their parent scores are passed; doc 2 should pick the max.
+        entity_scores = [
+            {"entity_id": 1, "name": "Linnea", "entity_type": "person", "score": 0.7},
+            {"entity_id": 2, "name": "Helix Refactor", "entity_type": "project", "score": 0.9},
+        ]
+        doc_ids, best_score = _resolve_entity_doc_ids(search_db, entity_scores)
+
+        assert 2 in doc_ids
+        assert best_score[2] == pytest.approx(0.9)  # max of (0.7, 0.9)
+
+    def test_resolve_entity_doc_ids_empty_input(self, search_db):
+        from kb.search import _resolve_entity_doc_ids
+
+        doc_ids, best_score = _resolve_entity_doc_ids(search_db, [])
+        assert doc_ids == set()
+        assert best_score == {}
+
     def test_vector_search_empty_doc_ids_returns_empty(self):
         """When the resolver returns an empty set, vector search short-circuits."""
         from unittest.mock import MagicMock
@@ -1848,6 +1886,140 @@ class TestExplain:
         assert 0.0 < doc1_result.explain.hotness_score < 1.0
         assert doc1_result.explain.pre_hotness_score is not None
         assert doc1_result.explain.pre_hotness_score != doc1_result.explain.final_score
+
+    def test_hierarchy_blends_parent_entity_score(self, search_db, monkeypatch):
+        """When Pass 1 finds an entity, Pass 2 blends its score into the doc score (#69)."""
+        from kb import search as search_module
+
+        # Pretend Pass 1 found "Helix Refactor" (entity id 2 in search_db) with
+        # near-perfect score. That entity is linked to doc 2 via entity_mentions
+        # in the fixture.
+        fake_pass1 = [
+            {"entity_id": 2, "name": "Helix Refactor", "entity_type": "project", "score": 0.95}
+        ]
+        monkeypatch.setattr(
+            search_module, "_pass1_entity_search", lambda *args, **kwargs: fake_pass1
+        )
+
+        # Need an embedder to trigger the hierarchy code path; use a dummy.
+        from unittest.mock import MagicMock
+
+        fake_embedder = MagicMock()
+
+        with_h = search(search_db, fake_embedder, "migration", explain=True, hierarchy=True)
+        no_h = search(search_db, fake_embedder, "migration", explain=True, hierarchy=False)
+
+        # With hierarchy: meta reflects Pass 1; results constrained to entity-linked docs.
+        assert with_h.meta.hierarchy_active is True
+        assert with_h.meta.pass1_entities == fake_pass1
+        assert with_h.meta.hierarchy_alpha == 0.5
+        # Helix Refactor is linked only to document_id=2, so results must come from it.
+        assert with_h.results
+        assert all(r.document_id == 2 for r in with_h.results)
+        # Explain block surfaces parent_entity_score
+        for r in with_h.results:
+            assert r.explain is not None
+            assert r.explain.parent_entity_score == pytest.approx(0.95)
+
+        # Without hierarchy: meta says inactive, results aren't constrained.
+        assert no_h.meta.hierarchy_active is False
+        assert no_h.meta.pass1_entities == []
+        for r in no_h.results:
+            assert r.explain is not None
+            assert r.explain.parent_entity_score is None
+
+    def test_hierarchy_fallback_when_no_entities(self, search_db, monkeypatch):
+        """Pass 1 returns nothing above threshold → flat search (no constraint, no blend)."""
+        from kb import search as search_module
+
+        monkeypatch.setattr(
+            search_module, "_pass1_entity_search", lambda *args, **kwargs: []
+        )
+
+        from unittest.mock import MagicMock
+
+        fake_embedder = MagicMock()
+        results = search(search_db, fake_embedder, "migration", explain=True, hierarchy=True)
+        assert results.meta.hierarchy_active is False
+        assert results.meta.pass1_entities == []
+
+    def test_hierarchy_skipped_in_fast_mode(self, search_db, monkeypatch):
+        """fast=True skips Pass 1 entirely (no embedder, no vector path)."""
+        from kb import search as search_module
+
+        called = {"n": 0}
+
+        def fake_pass1(*args: object, **kwargs: object) -> list[dict[str, object]]:
+            called["n"] += 1
+            return []
+
+        monkeypatch.setattr(search_module, "_pass1_entity_search", fake_pass1)
+        search(search_db, None, "migration", fast=True, hierarchy=True)
+        assert called["n"] == 0
+
+    def test_hierarchy_alpha_changes_blend(self, search_db, monkeypatch):
+        """Higher `hierarchy_alpha` weights doc-score higher; lower weights entity-score higher."""
+        from kb import search as search_module
+
+        fake_pass1 = [
+            {"entity_id": 2, "name": "Helix Refactor", "entity_type": "project", "score": 0.9}
+        ]
+        monkeypatch.setattr(
+            search_module, "_pass1_entity_search", lambda *args, **kwargs: fake_pass1
+        )
+
+        from unittest.mock import MagicMock
+
+        fake_embedder = MagicMock()
+        low_alpha = search(
+            search_db,
+            fake_embedder,
+            "migration",
+            explain=True,
+            hierarchy=True,
+            hierarchy_alpha=0.0,
+        )
+        high_alpha = search(
+            search_db,
+            fake_embedder,
+            "migration",
+            explain=True,
+            hierarchy=True,
+            hierarchy_alpha=1.0,
+        )
+
+        # alpha=0 → final = entity_score; alpha=1 → final = doc_score.
+        # The entity score is 0.9 — when alpha=0 the final should equal that.
+        for r in low_alpha.results:
+            assert r.score == pytest.approx(0.9, abs=0.01)
+        # When alpha=1, the parent score doesn't influence final.
+        for r_low, r_high in zip(low_alpha.results, high_alpha.results, strict=True):
+            assert r_high.score != r_low.score
+
+    def test_hierarchy_active_with_path_intersects(self, search_db, monkeypatch):
+        """`--path` + hierarchy → docs must satisfy BOTH constraints (intersection)."""
+        from kb import search as search_module
+
+        # Pass 1 returns Helix Refactor which is linked to doc_id=2 (path doc2.md).
+        fake_pass1 = [
+            {"entity_id": 2, "name": "Helix Refactor", "entity_type": "project", "score": 0.9}
+        ]
+        monkeypatch.setattr(
+            search_module, "_pass1_entity_search", lambda *args, **kwargs: fake_pass1
+        )
+
+        from unittest.mock import MagicMock
+
+        fake_embedder = MagicMock()
+        # path_filter narrows to docs that don't contain doc2.md → intersection empty.
+        empty = search(
+            search_db,
+            fake_embedder,
+            "migration",
+            hierarchy=True,
+            path_filter="nonexistent/",
+        )
+        assert empty.results == []
 
     def test_hotness_zero_access_skips_blend(self, search_db):
         """Documents with access_count=0 are NOT affected by hotness blending."""

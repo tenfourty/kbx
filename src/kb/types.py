@@ -131,6 +131,7 @@ class SearchExplain(StrictFrozen):
     pre_hotness_score: float | None = None  # score before hotness blending (#67)
     hotness_score: float | None = None  # 0..1 hotness component (None when no access)
     access_count: int = 0  # times this doc was viewed/accessed (#67)
+    parent_entity_score: float | None = None  # Pass 1 entity match score (#69)
     final_score: float  # post-everything — matches SearchResult.score
     source: str  # "fts_only" | "vector_only" | "both"
     fts_weight: float
@@ -177,6 +178,9 @@ class SearchMeta(StrictFrozen):
     both_hits: int | None = None  # chunks that appeared in both pipelines
     path_filter: str | None = None
     path_filter_doc_count: int | None = None  # doc count the path filter resolved to
+    hierarchy_active: bool = False  # True when Pass 1 entity match drove Pass 2 (#69)
+    pass1_entities: list[dict[str, Any]] = []  # Pass 1 entity hits (#69)
+    hierarchy_alpha: float | None = None  # blend weight used in Pass 2 (#69)
 
 
 class SearchResponse(StrictFrozen):

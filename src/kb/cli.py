@@ -246,6 +246,8 @@ _AGENT_PLAYBOOK = """\
   kb search "query" --vector-weight 2.0 --json  # boost vector (semantic)
   kb search "query" --explain --json           # per-result scoring breakdown (#68 P1)
   kb search "query" --no-hotness --json        # disable hotness blend (#67)
+  kb search "query" --no-hierarchy --json      # force flat (skip Pass 1 entity match, #69)
+  kb search "query" --hierarchy-alpha 0.7 --json  # tune doc-vs-entity blend (#69)
   kb access reset                              # clear all hotness access counts
   # JSON results include `abstract`: extractive one-sentence summary per doc (#66 P1)
   kb view <path|#hash|glob> --json            # full document
@@ -438,6 +440,24 @@ def cli() -> None:
         "access history."
     ),
 )
+@click.option(
+    "--no-hierarchy",
+    is_flag=True,
+    help=(
+        "Disable two-pass hierarchical search (#69) — Pass 1 entity match + Pass 2 "
+        "doc constraint. With --no-hierarchy the search is purely flat across all "
+        "documents regardless of entity relevance."
+    ),
+)
+@click.option(
+    "--hierarchy-alpha",
+    default=0.5,
+    type=float,
+    help=(
+        "When hierarchy is active, the blend weight on the doc score vs. the "
+        "parent-entity score (0.0 = pure entity proximity, 1.0 = pure doc relevance)."
+    ),
+)
 @output_options
 def search(
     query: str,
@@ -459,6 +479,8 @@ def search(
     merge_chunks: bool,
     explain: bool,
     no_hotness: bool,
+    no_hierarchy: bool,
+    hierarchy_alpha: float,
     fmt: str,
     fields: list[str] | None,
     jq_expr: str | None,
@@ -509,6 +531,8 @@ def search(
         highlight=(fmt == "table"),
         explain=explain,
         hotness=not no_hotness,
+        hierarchy=not no_hierarchy,
+        hierarchy_alpha=hierarchy_alpha,
     )
 
     kb_output(

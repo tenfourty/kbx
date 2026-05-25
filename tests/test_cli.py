@@ -339,6 +339,21 @@ class TestSearchCommand:
         for r in data["results"]:
             assert r["explain"] is None
 
+    def test_search_no_hierarchy_disables_pass1(self, runner, cli_db):
+        """`kbx search --no-hierarchy` skips Pass 1 entirely (#69)."""
+        _db, db_path = cli_db
+        # No entity LanceDB table → flat anyway, but --no-hierarchy should also
+        # disable the path so meta reports `hierarchy_active=False`.
+        result = invoke_cli(
+            runner,
+            ["search", "Soren", "--fast", "--json", "--explain", "--no-hierarchy"],
+            db_path,
+        )
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["meta"]["hierarchy_active"] is False
+        assert data["meta"]["pass1_entities"] == []
+
     def test_search_no_hotness_flag_disables_blend(self, runner, cli_db):
         """`kbx search --no-hotness` short-circuits hotness blending."""
         from datetime import datetime, timezone

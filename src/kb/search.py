@@ -275,6 +275,93 @@ def _resolve_doc_ids_for_path(db: Database, path_filter: str | None) -> set[int]
     return {row["id"] for row in rows}
 
 
+def _pass1_entity_search(
+    db: Database,
+    embedder: Embedder | None,
+    query: str,
+    *,
+    limit: int = 5,
+    threshold: float = 0.5,
+) -> list[dict[str, Any]]:
+    """Issue #69 Pass 1 — find the top entities relevant to ``query``.
+
+    Combines the semantic entity match (``kb.entity_embeddings.search_entities``,
+    backed by the LanceDB entity table from #96) with a confidence threshold so
+    pure-topic queries (no entity hit) fall through to flat search.
+
+    Returns a list of dicts ``{entity_id, name, entity_type, score}`` sorted by
+    score descending. Empty list when no embedder is available, when the entity
+    table doesn't exist yet, or when no entity scores above ``threshold``.
+    """
+    if embedder is None:
+        return []
+
+    from kb.entity_embeddings import search_entities
+
+    try:
+        candidates = search_entities(
+            db, embedder, query, limit=limit * 2, threshold=threshold
+        )
+    except Exception:
+        # Defensive: if the entity table or embedder fails, fall back to flat.
+        return []
+
+    # Drop the chunky profile_text from the per-result dicts so explain output
+    # stays compact. Callers (the meta block) only need the identity + score.
+    return [
+        {
+            "entity_id": c["entity_id"],
+            "name": c["name"],
+            "entity_type": c["entity_type"],
+            "score": c["score"],
+        }
+        for c in candidates[:limit]
+    ]
+
+
+def _resolve_entity_doc_ids(
+    db: Database, entity_scores: list[dict[str, Any]]
+) -> tuple[set[int], dict[int, float]]:
+    """Map a list of Pass 1 entity matches to the docs they appear in.
+
+    Args:
+        db: kbx Database.
+        entity_scores: Output from ``_pass1_entity_search``.
+
+    Returns:
+        Two-tuple ``(doc_id_set, doc_id_to_best_parent_score)``:
+        - ``doc_id_set`` is every document mentioning any of the matched entities.
+        - The dict maps each doc_id to the **best** (max) parent entity score
+          across the matching entities — used in Pass 2 score propagation.
+    """
+    if not entity_scores:
+        return set(), {}
+
+    entity_id_to_score = {int(e["entity_id"]): float(e["score"]) for e in entity_scores}
+    placeholders = ",".join("?" * len(entity_id_to_score))
+
+    conn = db.get_sqlite_conn()
+    rows = conn.execute(
+        f"""
+        SELECT entity_id, document_id
+        FROM entity_mentions
+        WHERE entity_id IN ({placeholders})
+        """,
+        list(entity_id_to_score),
+    ).fetchall()
+
+    doc_ids: set[int] = set()
+    best_score: dict[int, float] = {}
+    for row in rows:
+        eid = int(row["entity_id"])
+        did = int(row["document_id"])
+        doc_ids.add(did)
+        score = entity_id_to_score[eid]
+        if score > best_score.get(did, 0.0):
+            best_score[did] = score
+    return doc_ids, best_score
+
+
 def _fts_search(
     db: Database,
     query: str,
@@ -533,6 +620,9 @@ def search(
     highlight: bool = False,
     explain: bool = False,
     hotness: bool = True,
+    hierarchy: bool = True,
+    hierarchy_threshold: float = 0.5,
+    hierarchy_alpha: float = 0.5,
     hook: SearchProgressHook | None = None,
 ) -> SearchResponse:
     """Hybrid search: FTS5 + vector + weighted RRF + recency.
@@ -572,6 +662,31 @@ def search(
     # Capture FTS variants once (pure function, same call as inside _fts_search) so
     # explain mode can report what was actually tried — issue #68 Phase 1.
     fts_variants = _build_fts_query(query, extra_or_terms=expansion_or_terms) if explain else []
+
+    # Two-pass hierarchical search (issue #69). Pass 1 finds the top entities
+    # relevant to the query; Pass 2 (the rest of search()) constrains documents
+    # to those linked to those entities and blends the parent entity score into
+    # the final ranking. Falls back to flat search when no entities clear the
+    # confidence threshold (or when embedder/entity table is unavailable).
+    pass1_entities: list[dict[str, Any]] = []
+    parent_entity_scores: dict[int, float] = {}
+    hierarchy_active = False
+    if hierarchy and not fast and embedder is not None:
+        pass1_entities = _pass1_entity_search(
+            db, embedder, query, threshold=hierarchy_threshold
+        )
+        if pass1_entities:
+            entity_doc_ids, parent_entity_scores = _resolve_entity_doc_ids(
+                db, pass1_entities
+            )
+            if entity_doc_ids:
+                # Compose with --path (#73): intersect both constraints. If the
+                # user pinned a path AND hierarchy picked entities, we honour both.
+                if path_doc_ids is None:
+                    path_doc_ids = entity_doc_ids
+                else:
+                    path_doc_ids = path_doc_ids & entity_doc_ids
+                hierarchy_active = True
 
     # Step 1: FTS5 search
     hook.on_fts_start()
@@ -696,6 +811,16 @@ def search(
                     {"search": 1.0 - DEFAULT_HOTNESS_WEIGHT, "hotness": DEFAULT_HOTNESS_WEIGHT},
                 )
 
+        # Hierarchical Pass 2 blend (issue #69) — score propagation: blend the
+        # parent entity score into the doc score with configurable alpha.
+        parent_score_value: float | None = None
+        if hierarchy_active:
+            parent_score_value = parent_entity_scores.get(info["document_id"], 0.0)
+            final = _scoring.compose_scores(
+                {"doc": final, "entity": parent_score_value},
+                {"doc": hierarchy_alpha, "entity": 1.0 - hierarchy_alpha},
+            )
+
         if explain:
             explain_per_chunk[chunk_id] = {
                 "fused_score": base_score,
@@ -704,6 +829,7 @@ def search(
                 "pre_hotness_score": pre_hotness_score,
                 "hotness_score": hotness_value,
                 "access_count": int(info.get("access_count") or 0),
+                "parent_entity_score": parent_score_value,
             }
 
         scored.append((chunk_id, final))
@@ -774,6 +900,7 @@ def search(
                 pre_hotness_score=chunk_explain.get("pre_hotness_score"),
                 hotness_score=chunk_explain.get("hotness_score"),
                 access_count=int(chunk_explain.get("access_count") or 0),
+                parent_entity_score=chunk_explain.get("parent_entity_score"),
                 final_score=round(score, 4),
                 source=source,
                 fts_weight=fts_weight,
@@ -836,6 +963,9 @@ def search(
             both_hits=len(both_ids),
             path_filter=path_filter,
             path_filter_doc_count=(len(path_doc_ids) if path_doc_ids is not None else None),
+            hierarchy_active=hierarchy_active,
+            pass1_entities=pass1_entities,
+            hierarchy_alpha=hierarchy_alpha if hierarchy_active else None,
         )
     else:
         meta = SearchMeta(
