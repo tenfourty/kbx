@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.11](https://github.com/tenfourty/kbx/compare/kbx-v0.2.10...kbx-v0.2.11) (2026-05-25)
+
+
+### Features
+
+* extractive L1 overviews for indexed documents (refs [#66](https://github.com/tenfourty/kbx/issues/66) P4) ([66132c3](https://github.com/tenfourty/kbx/commit/66132c363487345c5357106e86776b219a03d6c5))
+
 ## [0.2.10](https://github.com/tenfourty/kbx/compare/kbx-v0.2.9...kbx-v0.2.10) (2026-05-25)
 
 
