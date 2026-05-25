@@ -544,6 +544,7 @@ def _enrich_results(
             d.doc_type,
             d.tags,
             d.abstract,
+            d.overview,
             d.access_count,
             d.last_accessed_at
         FROM chunks c
@@ -581,6 +582,7 @@ def _enrich_results(
             "section": row["heading"],
             "content": row["content"],
             "abstract": row["abstract"],
+            "overview": row["overview"],
             "access_count": row["access_count"],
             "last_accessed_at": row["last_accessed_at"],
             "entities": entities_by_doc.get(doc_id, []),
@@ -615,6 +617,7 @@ def search(
     snippet_chars: int = 200,
     full_chunks: bool = False,
     merge_chunks: bool = False,
+    include_overview: bool = False,
     highlight: bool = False,
     explain: bool = False,
     hotness: bool = True,
@@ -914,6 +917,7 @@ def search(
                 section=None if info["section"] == "__document__" else info["section"],
                 snippet=snippet,
                 abstract=info.get("abstract"),
+                overview=info.get("overview") if include_overview else None,
                 content=chunk_content,
                 entities=info["entities"],
                 tags=info.get("tags", []),

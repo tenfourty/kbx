@@ -673,6 +673,39 @@ class TestAbstractIndexing:
             assert row["abstract"]
 
 
+@pytest.mark.slow
+class TestOverviewIndexing:
+    """Extractive L1 overviews populated during indexing (issue #66 Phase 4)."""
+
+    def test_overview_populated_for_meeting_note(self, tmp_db):
+        """A meeting note gets its first body paragraph stored as `documents.overview`."""
+        from kb.indexer import index_all
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_root = Path(tmpdir)
+            meetings_dir = tmp_root / "memory" / "meetings" / "2026" / "05" / "24"
+            meetings_dir.mkdir(parents=True)
+            (meetings_dir / "ab12cd34_Sync.granola.notes.md").write_text(
+                "---\ntitle: Sync\ndate: 2026-05-24\ntype: notes\n"
+                "granola_id: ab12cd34\n---\n\n"
+                "## Overview\n\n"
+                "Migration is on track for Q3. Remaining tasks are ranked. "
+                "Owners assigned and timeline confirmed for the rollout phase.\n"
+            )
+
+            index_all(tmp_db, None, tmp_root, full=True)
+
+            conn = tmp_db.get_sqlite_conn()
+            row = conn.execute(
+                "SELECT overview FROM documents WHERE path LIKE '%_Sync.granola.notes.md'"
+            ).fetchone()
+            assert row is not None
+            assert row["overview"] is not None
+            # Paragraph-level capture — keeps multiple sentences, not just the first.
+            assert "Migration is on track" in row["overview"]
+            assert "Remaining tasks" in row["overview"]
+
+
 class TestIndexer:
     """Indexing behaviour tests — use embedder=None (text-only, no network)."""
 

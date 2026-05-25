@@ -254,6 +254,7 @@ _AGENT_PLAYBOOK = """\
   kb search "query" --hierarchy-alpha 0.7 --json  # tune doc-vs-entity blend (#69)
   kb access reset                              # clear all hotness access counts
   # JSON results include `abstract`: extractive one-sentence summary per doc (#66 P1)
+  kb search "query" --include-overview --json  # also include L1 paragraph overview (#66 P4, ~500 chars)
   kb view <path|#hash|glob> --json            # full document
   kb view <path|#hash|glob> --plain           # raw content only (no metadata)
   kb list --type notes --from 2026-02-01      # browse by type/date
@@ -428,6 +429,14 @@ def cli() -> None:
     help="With --dedupe --full-chunks, concatenate all matching chunks per document.",
 )
 @click.option(
+    "--include-overview",
+    is_flag=True,
+    help=(
+        "Include the extractive L1 overview (paragraph-length summary, ~500 chars) "
+        "on each result. Off by default to keep search output compact (#66 P4)."
+    ),
+)
+@click.option(
     "--explain",
     is_flag=True,
     help=(
@@ -482,6 +491,7 @@ def search(
     snippet_chars: int,
     full_chunks: bool,
     merge_chunks: bool,
+    include_overview: bool,
     explain: bool,
     no_hotness: bool,
     no_hierarchy: bool,
@@ -533,6 +543,7 @@ def search(
         snippet_chars=snippet_chars,
         full_chunks=full_chunks,
         merge_chunks=merge_chunks,
+        include_overview=include_overview,
         highlight=(fmt == "table"),
         explain=explain,
         hotness=not no_hotness,

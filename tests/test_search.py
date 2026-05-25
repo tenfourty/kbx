@@ -1821,6 +1821,47 @@ class TestExplain:
             if r.path == "memory/notes/migration-plan.md":
                 assert r.abstract == "Migration is on track for Q3."
 
+    def test_overview_opt_in_via_include_overview(self, path_filter_db):
+        """`overview` is None by default and populated only when include_overview=True (#66 P4)."""
+        conn = path_filter_db.get_sqlite_conn()
+        conn.execute(
+            "UPDATE documents SET overview = ? WHERE path = ?",
+            (
+                "Migration is on track. Q3 milestones are on schedule.",
+                "memory/notes/migration-plan.md",
+            ),
+        )
+        conn.commit()
+
+        # Default: overview omitted from results (None).
+        default = search(
+            path_filter_db,
+            None,
+            "migration",
+            fast=True,
+            path_filter="memory/notes/",
+        )
+        for r in default.results:
+            if r.path == "memory/notes/migration-plan.md":
+                assert r.overview is None, "overview must be opt-in"
+
+        # Opt-in: overview appears on the result.
+        opt_in = search(
+            path_filter_db,
+            None,
+            "migration",
+            fast=True,
+            path_filter="memory/notes/",
+            include_overview=True,
+        )
+        seen = False
+        for r in opt_in.results:
+            if r.path == "memory/notes/migration-plan.md":
+                seen = True
+                assert r.overview is not None
+                assert "Migration is on track" in r.overview
+        assert seen, "expected migration-plan.md in include_overview results"
+
     def test_hotness_blending_boosts_accessed_docs(self, search_db):
         """A doc with high access_count + recent timestamp ranks above a cold equivalent (#67)."""
         from datetime import datetime, timezone

@@ -89,3 +89,48 @@ def extract_abstract(
         return title_clean
 
     return None
+
+
+def extract_overview(
+    content: str,
+    title: str | None = None,
+    max_chars: int = 500,
+    min_chars: int = 20,
+) -> str | None:
+    """Extract an L1 overview — paragraph-length summary (issue #66 Phase 4).
+
+    Same input/output contract as ``extract_abstract`` but operates at paragraph
+    granularity: returns the first non-trivial paragraph (multiple sentences)
+    up to ``max_chars``, falling back to the title when no usable paragraph
+    exists.
+
+    Args:
+        content: Raw markdown content (may include YAML frontmatter + headings).
+        title: Optional document title used as fallback when no paragraph found.
+        max_chars: Cap paragraph length. Longer text is truncated with ``…``.
+        min_chars: Paragraphs shorter than this are rejected (falls back to title).
+
+    Returns:
+        The cleaned overview string, or ``None`` if neither content nor title
+        yields anything usable.
+    """
+    body = _FRONTMATTER_RE.sub("", content, count=1) if content else ""
+    body = _HEADING_RE.sub("", body)
+
+    for paragraph in (p.strip() for p in body.split("\n\n")):
+        if not paragraph:
+            continue
+        flat = _strip_markdown(paragraph)
+        if len(flat) < min_chars:
+            continue
+        if len(flat) > max_chars:
+            flat = flat[: max_chars - 1].rstrip() + "…"
+        return flat
+
+    if title and title.strip():
+        title_clean = title.strip()
+        if len(title_clean) > max_chars:
+            title_clean = title_clean[: max_chars - 1].rstrip() + "…"
+        return title_clean
+
+    return None

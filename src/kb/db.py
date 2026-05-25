@@ -162,6 +162,7 @@ MIGRATIONS: list[tuple[str, str | None]] = [
         "015b_add_entities_last_accessed_at",
         "ALTER TABLE entities ADD COLUMN last_accessed_at TEXT",
     ),
+    ("016_add_documents_overview", "ALTER TABLE documents ADD COLUMN overview TEXT"),
 ]
 
 

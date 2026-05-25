@@ -38,6 +38,7 @@ def handle_kb_search(
     explain: bool = False,
     hotness: bool = True,
     hierarchy: bool = True,
+    include_overview: bool = False,
 ) -> str:
     """Search the knowledge base. Returns JSON string."""
     try:
@@ -58,6 +59,7 @@ def handle_kb_search(
             explain=explain,
             hotness=hotness,
             hierarchy=hierarchy,
+            include_overview=include_overview,
         )
         return json.dumps(results.model_dump(), default=str, ensure_ascii=False)
     except Exception as e:
@@ -1041,6 +1043,7 @@ def kb_search(
     explain: bool = False,
     hotness: bool = True,
     hierarchy: bool = True,
+    include_overview: bool = False,
 ) -> str:
     """Search the knowledge base. Returns JSON with matching documents, ranked by relevance.
     Use fast=True (default) for instant FTS-only search.
@@ -1073,6 +1076,7 @@ def kb_search(
         explain=explain,
         hotness=hotness,
         hierarchy=hierarchy,
+        include_overview=include_overview,
     )
 
 

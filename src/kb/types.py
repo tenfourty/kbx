@@ -152,6 +152,7 @@ class SearchResult(StrictFrozen):
     section: str | None
     snippet: str
     abstract: str | None = None  # extractive L0 abstract (issue #66 Phase 1)
+    overview: str | None = None  # extractive L1 paragraph (issue #66 Phase 4)
     content: str | None = None  # full chunk text (populated when full_chunks=True)
     entities: list[str] = []
     tags: list[str] = []

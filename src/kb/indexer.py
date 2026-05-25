@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from kb.abstracts import extract_abstract
+from kb.abstracts import extract_abstract, extract_overview
 from kb.entities import (
     Entity,
     EntityMention,
@@ -254,20 +254,21 @@ def index_all(
 
     for doc_idx, doc in enumerate(docs_to_index):
         try:
-            # Compute extractive L0 abstract from the raw body (issue #66 Phase 1).
-            # Falls back to title; returns None when neither is usable. For docs
-            # without raw_body (e.g. memory_person/project), the first chunk's
-            # content is a reasonable substitute since each entity file is itself
-            # a single chunk.
+            # Compute extractive L0 abstract + L1 overview from the raw body
+            # (issue #66 Phase 1 + Phase 4). Both fall back to title; both return
+            # None when neither is usable. For docs without raw_body (e.g.
+            # memory_person/project), the first chunk's content is a reasonable
+            # substitute since each entity file is itself a single chunk.
             abstract_source = doc.raw_body or (doc.chunks[0].content if doc.chunks else "")
             abstract = extract_abstract(abstract_source, title=doc.title)
+            overview = extract_overview(abstract_source, title=doc.title)
 
             # Insert document row
             cursor = conn.execute(
                 """INSERT INTO documents (
                     path, title, doc_date, doc_type, source_system, source_id,
-                    tags, content_hash, chunk_count, pinned, abstract
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    tags, content_hash, chunk_count, pinned, abstract, overview
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     doc.path,
                     doc.title,
@@ -280,6 +281,7 @@ def index_all(
                     len(doc.chunks),
                     1 if doc.pinned else 0,
                     abstract,
+                    overview,
                 ),
             )
             doc_id = cursor.lastrowid

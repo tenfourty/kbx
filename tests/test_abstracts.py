@@ -105,3 +105,85 @@ class TestExtractAbstract:
         assert result is not None
         assert len(result) == 20
         assert result.endswith("…")
+
+
+class TestExtractOverview:
+    """Tests for ``extract_overview`` — L1 extractive paragraph (issue #66 P4)."""
+
+    def test_returns_first_paragraph(self):
+        from kb.abstracts import extract_overview
+
+        content = "First sentence. Second sentence. Third one.\n\nSecond paragraph ignored."
+        result = extract_overview(content)
+        assert result == "First sentence. Second sentence. Third one."
+
+    def test_strips_yaml_frontmatter(self):
+        from kb.abstracts import extract_overview
+
+        content = "---\ntitle: Notes\n---\n\nFirst paragraph content here."
+        result = extract_overview(content)
+        assert result == "First paragraph content here."
+
+    def test_strips_leading_headings(self):
+        from kb.abstracts import extract_overview
+
+        content = "# Title\n\n## Overview\n\nReal paragraph starts here."
+        result = extract_overview(content)
+        assert result == "Real paragraph starts here."
+
+    def test_caps_at_max_chars(self):
+        from kb.abstracts import extract_overview
+
+        content = "x " * 1000  # ~2000 chars
+        result = extract_overview(content, max_chars=100)
+        assert result is not None
+        assert len(result) == 100
+        assert result.endswith("…")
+
+    def test_min_chars_skips_tiny_paragraph(self):
+        from kb.abstracts import extract_overview
+
+        content = "Tiny.\n\nA much longer paragraph that meets the min length requirement easily."
+        result = extract_overview(content, min_chars=20)
+        assert result is not None
+        assert "Tiny" not in result
+        assert "longer paragraph" in result
+
+    def test_falls_back_to_title_when_empty_body(self):
+        from kb.abstracts import extract_overview
+
+        result = extract_overview("", title="Doc Title")
+        assert result == "Doc Title"
+
+    def test_returns_none_when_no_content_or_title(self):
+        from kb.abstracts import extract_overview
+
+        assert extract_overview("") is None
+        assert extract_overview("", title=None) is None
+
+    def test_strips_wikilinks_and_markdown_links(self):
+        from kb.abstracts import extract_overview
+
+        content = "See [[Doc One]] and [the spec](https://example.com) for details."
+        result = extract_overview(content)
+        assert result is not None
+        assert "Doc One" in result
+        assert "the spec" in result
+        assert "https://example.com" not in result
+
+    def test_collapses_whitespace_within_paragraph(self):
+        from kb.abstracts import extract_overview
+
+        content = "Line one\nLine two\n   Line three with extra space."
+        result = extract_overview(content)
+        assert result == "Line one Line two Line three with extra space."
+
+    def test_default_max_chars_is_500(self):
+        from kb.abstracts import extract_overview
+
+        # Three full sentences should easily fit in default 500 char cap.
+        content = "First sentence is here. Second sentence is also present. Third is too."
+        result = extract_overview(content)
+        assert result is not None
+        assert len(result) <= 500
+        assert "Third is too" in result
