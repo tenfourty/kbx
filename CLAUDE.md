@@ -91,6 +91,7 @@ src/kb/|root: ./src/kb
 |scoring.py — centralised score normalisation + compose_scores() for blended retrieval
 |hotness.py — frequency x recency hotness score for #67 boost
 |access.py — touch_document/touch_entity + reset helpers for hotness tracking
+|entity_embeddings.py — entity-as-coherent-object vector embeddings for #69 Pass 1
 |embeddings.py — Qwen3-Embedding-0.6B (MLX on Apple Silicon, PyTorch fallback)
 |entities.py — entity seeding from memory/ + regex-based mention linking + source-ID linking
 |matching.py — task-to-project matching (TypedDicts: TaskInput, ProjectInput) + sources extraction/formatting

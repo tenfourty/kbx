@@ -434,6 +434,23 @@ def index_all(
     if lance_batch:
         _flush_lance_batch(db, lance_batch)
 
+    # Entity-as-coherent-object embeddings (issue #96 / Prereq A for #69).
+    # Runs after doc indexing so facts/mentions captured during the doc loop
+    # are reflected in each entity's profile text. Skipped for --no-embed runs.
+    if embedder is not None:
+        try:
+            from kb.entity_embeddings import embed_entities
+
+            n_embedded = embed_entities(db, embedder, full=full)
+            if n_embedded:
+                print(
+                    f"  Entity embeddings updated: {n_embedded}.",
+                    file=sys.stderr,
+                    flush=True,
+                )
+        except Exception as exc:
+            print(f"  Entity embedding failed: {exc}", file=sys.stderr, flush=True)
+
     # Compact LanceDB: merge small files and prune old versions.
     # This is the equivalent of VACUUM — without it, append-heavy workloads
     # accumulate old versions and small fragment files on disk.

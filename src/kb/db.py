@@ -293,6 +293,7 @@ TRIGGERS_SQL = [
 
 # LanceDB schema — built lazily to avoid top-level pyarrow import
 _lance_schema = None
+_entity_lance_schema = None
 
 
 def get_lance_schema() -> Any:
@@ -313,6 +314,24 @@ def get_lance_schema() -> Any:
             ]
         )
     return _lance_schema
+
+
+def get_entity_lance_schema() -> Any:
+    """Get the LanceDB schema for entity-as-coherent-object embeddings (issue #96)."""
+    global _entity_lance_schema
+    if _entity_lance_schema is None:
+        import pyarrow as pa
+
+        _entity_lance_schema = pa.schema(
+            [
+                pa.field("entity_id", pa.int64()),
+                pa.field("embedding", pa.list_(pa.float32(), EMBEDDING_DIM)),
+                pa.field("entity_type", pa.utf8()),
+                pa.field("profile_text", pa.utf8()),  # input text, for explain/debug
+                pa.field("profile_hash", pa.utf8()),  # content hash for incremental regen
+            ]
+        )
+    return _entity_lance_schema
 
 
 # Backward compat alias — existing code references LANCE_SCHEMA directly.
@@ -337,6 +356,7 @@ class Database:
         self._sqlite_conn: sqlite3.Connection | None = None
         self._lance_db: Any | None = None  # lancedb.DBConnection (lazy)
         self._lance_table: Any | None = None  # lancedb.table.Table (lazy)
+        self._lance_entity_table: Any | None = None  # entity embeddings (issue #96)
 
         # Initialize SQLite schema
         self._init_sqlite()
@@ -398,11 +418,38 @@ class Database:
             self._lance_table = db.create_table("chunks", schema=get_lance_schema())
         return self._lance_table
 
+    def get_lance_entity_table(self) -> Any:
+        """Get the entity vector table (issue #96), or None if it doesn't exist yet."""
+        if self._lance_entity_table is None:
+            db = self.get_lance_db()
+            if "entities" in db.list_tables().tables:
+                self._lance_entity_table = db.open_table("entities")
+        return self._lance_entity_table
+
+    def ensure_lance_entity_table(self, data: list[dict[str, Any]] | None = None) -> Any:
+        """Create or open the entity vector table. Mirrors chunks-table behaviour."""
+        if self._lance_entity_table is not None:
+            return self._lance_entity_table
+
+        db = self.get_lance_db()
+        if "entities" in db.list_tables().tables:
+            self._lance_entity_table = db.open_table("entities")
+        elif data:
+            self._lance_entity_table = db.create_table(
+                "entities", data=data, schema=get_entity_lance_schema()
+            )
+        else:
+            self._lance_entity_table = db.create_table(
+                "entities", schema=get_entity_lance_schema()
+            )
+        return self._lance_entity_table
+
     def close(self) -> None:
         if self._sqlite_conn is not None:
             self._sqlite_conn.close()
             self._sqlite_conn = None
         self._lance_table = None
+        self._lance_entity_table = None
         self._lance_db = None
 
     def __del__(self) -> None:
