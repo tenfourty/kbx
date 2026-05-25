@@ -39,8 +39,8 @@ def memory_tree(tmp_path: Path) -> Path:
     # meeting with Bram/Bram ambiguity
     arno_dir = memory / "meetings" / "2026" / "02" / "17"
     arno_dir.mkdir(parents=True)
-    (arno_dir / "Monthly_Jeremy___Arnault.notion.transcript.md").write_text(
-        "---\ntitle: Monthly Jeremy & Bram\ndate: '2026-02-17'\n"
+    (arno_dir / "Monthly_Idris___Bram.notion.transcript.md").write_text(
+        "---\ntitle: Monthly Idris & Bram\ndate: '2026-02-17'\n"
         "attendees:\n- name: Idris Kalmar\n  email: idris@example.com\n"
         "- name: Bram Chazareix\n  email: arnault@example.com\n---\n"
         "Hey Bram, how are you?\n"
@@ -248,7 +248,7 @@ class TestApply:
             / "2026"
             / "02"
             / "17"
-            / "Monthly_Jeremy___Arnault.notion.transcript.md"
+            / "Monthly_Idris___Bram.notion.transcript.md"
         )
         content = arno_file.read_text(encoding="utf-8")
         assert "Hey Bram" in content

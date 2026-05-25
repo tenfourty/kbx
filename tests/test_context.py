@@ -1049,14 +1049,14 @@ class TestPersonFormatters:
             metadata={
                 "role": "Eng Director",
                 "team": "Core",
-                "reports_to": "Jeremy",
+                "reports_to": "Idris",
             },
             source_path=None,
             mention_count=1066,
             pinned=False,
         )
         result = _format_person_key(entity)
-        assert result == "Idris(Eng Director|\u2192Jeremy,1066m) ○"
+        assert result == "Idris(Eng Director|\u2192Idris,1066m) ○"
 
     def test_format_key_no_reports_to(self):
         """Key person without reports_to shows just role."""
