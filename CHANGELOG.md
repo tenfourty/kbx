@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.12](https://github.com/tenfourty/kbx/compare/kbx-v0.2.11...kbx-v0.2.12) (2026-05-25)
+
+
+### Documentation
+
+* **claude-md:** index explain.py + note L1 overviews on abstracts.py ([14f8915](https://github.com/tenfourty/kbx/commit/14f8915d60d1bfa0950cd18932fd0fcddcc0d713))
+
 ## [0.2.11](https://github.com/tenfourty/kbx/compare/kbx-v0.2.10...kbx-v0.2.11) (2026-05-25)
 
 
