@@ -330,9 +330,7 @@ class TestSearchCommand:
     def test_search_without_explain_omits_block(self, runner, cli_db):
         """Default search has no explain block — backward compat."""
         _db, db_path = cli_db
-        result = invoke_cli(
-            runner, ["search", "Rust", "--fast", "--json"], db_path
-        )
+        result = invoke_cli(runner, ["search", "Rust", "--fast", "--json"], db_path)
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["meta"].get("search_mode") is None
@@ -368,9 +366,7 @@ class TestSearchCommand:
         )
         conn.commit()
 
-        hot = invoke_cli(
-            runner, ["search", "Rust", "--fast", "--json", "--explain"], db_path
-        )
+        hot = invoke_cli(runner, ["search", "Rust", "--fast", "--json", "--explain"], db_path)
         cold = invoke_cli(
             runner,
             ["search", "Rust", "--fast", "--json", "--explain", "--no-hotness"],
@@ -380,11 +376,13 @@ class TestSearchCommand:
         cold_data = json.loads(cold.output)
 
         hot_doc = next(
-            r for r in hot_data["results"]
+            r
+            for r in hot_data["results"]
             if r["path"] == "meetings/2026/01/20/rust_migration.notes.md"
         )
         cold_doc = next(
-            r for r in cold_data["results"]
+            r
+            for r in cold_data["results"]
             if r["path"] == "meetings/2026/01/20/rust_migration.notes.md"
         )
         # With hotness, score is blended (higher); without, it's the legacy score.
@@ -412,9 +410,7 @@ class TestSearchCommand:
         assert data["results"], "expected at least one Rust hit"
         assert all("abstract" in r for r in data["results"])
         matches = [
-            r
-            for r in data["results"]
-            if r["path"] == "meetings/2026/01/20/rust_migration.notes.md"
+            r for r in data["results"] if r["path"] == "meetings/2026/01/20/rust_migration.notes.md"
         ]
         assert matches
         assert matches[0]["abstract"] == "Discussed Rust migration progress."
@@ -440,9 +436,7 @@ class TestAccessResetCommand:
         assert data["entities_cleared"] >= 1
 
         # Verify the DB is actually cleared
-        rows = conn.execute(
-            "SELECT access_count, last_accessed_at FROM documents"
-        ).fetchall()
+        rows = conn.execute("SELECT access_count, last_accessed_at FROM documents").fetchall()
         assert all(r["access_count"] == 0 and r["last_accessed_at"] is None for r in rows)
 
     def test_reset_specific_path(self, runner, cli_db):
@@ -473,9 +467,7 @@ class TestAccessResetCommand:
 
     def test_reset_unknown_path_errors(self, runner, cli_db):
         _db, db_path = cli_db
-        result = invoke_cli(
-            runner, ["access", "reset", "--path", "nope/missing.md"], db_path
-        )
+        result = invoke_cli(runner, ["access", "reset", "--path", "nope/missing.md"], db_path)
         assert result.exit_code != 0
 
 

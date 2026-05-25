@@ -168,9 +168,7 @@ class TestGranolaPublicClient:
         from kb.sync.granola_public import GranolaPublicClient
 
         client = GranolaPublicClient(api_key="grn_test")
-        with patch.object(
-            client, "_request", return_value={"id": "not_abc"}
-        ) as mock_req:
+        with patch.object(client, "_request", return_value={"id": "not_abc"}) as mock_req:
             client.get_note("not_abc")
 
         assert mock_req.call_args.args == ("GET", "/notes/not_abc")
@@ -421,9 +419,7 @@ class TestSyncGranolaPublic:
             mock.list_notes.return_value = iter([sample_note_summary])
             mock.get_note.return_value = sample_note_full
 
-            sync_granola_public(
-                project_root=project_root, data_dir=data_dir, api_key="grn_test"
-            )
+            sync_granola_public(project_root=project_root, data_dir=data_dir, api_key="grn_test")
 
         transcript_path = next(
             (project_root / "memory" / "meetings").rglob("*.granola.transcript.md")
@@ -488,9 +484,7 @@ class TestSyncGranolaPublic:
         with patch("kb.sync.granola_public.GranolaPublicClient") as MockClient:
             mock = MockClient.return_value
             mock.list_notes.return_value = iter([])
-            sync_granola_public(
-                project_root=project_root, data_dir=data_dir, api_key="grn_test"
-            )
+            sync_granola_public(project_root=project_root, data_dir=data_dir, api_key="grn_test")
 
         assert mock.list_notes.call_args.kwargs["updated_after"] == "2026-05-14T09:30:00Z"
 
@@ -511,8 +505,11 @@ class TestSyncGranolaPublic:
 
             def _get(note_id, **_):
                 if note_id == "not_first":
-                    return {**sample_note_full, "id": "not_first",
-                            "updated_at": "2026-05-15T10:00:00Z"}
+                    return {
+                        **sample_note_full,
+                        "id": "not_first",
+                        "updated_at": "2026-05-15T10:00:00Z",
+                    }
                 raise GranolaPublicAPIError("simulated 429")
 
             mock.get_note.side_effect = _get
@@ -525,9 +522,7 @@ class TestSyncGranolaPublic:
         state = json.loads((data_dir / ".granola_sync_state.json").read_text())
         assert state["last_sync"].startswith("2026-05-15T10:00:00")
 
-    def test_frontmatter_parity_with_legacy_path(
-        self, sample_note_full
-    ):
+    def test_frontmatter_parity_with_legacy_path(self, sample_note_full):
         """build_frontmatter output must match what legacy granola.py would produce
         from a functionally identical internal-doc.
         """

@@ -1870,6 +1870,7 @@ class TestRequestProxyStripping:
             os.environ.pop("ALL_PROXY", None)
             os.environ.pop("all_proxy", None)
 
+
 class TestGranolaViewCLI:
     """Tests for ``kbx granola view``."""
 

@@ -2673,4 +2673,3 @@ def access_reset(entity_name: str | None, doc_path: str | None, as_json: bool) -
             f"Reset hotness — documents: {docs_cleared}, entities: {entities_cleared}.",
             err=True,
         )
-

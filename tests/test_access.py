@@ -65,9 +65,7 @@ class TestTouchDocument:
         conn = db.get_sqlite_conn()
         touch_document(conn, 1)
         touch_document(conn, 1)
-        row = conn.execute(
-            "SELECT access_count FROM documents WHERE id = 2"
-        ).fetchone()
+        row = conn.execute("SELECT access_count FROM documents WHERE id = 2").fetchone()
         assert row["access_count"] == 0
 
     def test_missing_id_is_silent(self, db):
@@ -129,9 +127,7 @@ class TestResetEntityAccess:
         touch_entity(conn, 2)
         n = reset_entity_access(conn, entity_id=1)
         assert n == 1
-        rows = conn.execute(
-            "SELECT id, access_count FROM entities ORDER BY id"
-        ).fetchall()
+        rows = conn.execute("SELECT id, access_count FROM entities ORDER BY id").fetchall()
         assert rows[0]["access_count"] == 0
         assert rows[1]["access_count"] == 1
 

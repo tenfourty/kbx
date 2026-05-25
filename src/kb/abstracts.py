@@ -30,9 +30,7 @@ _WHITESPACE_RE = re.compile(r"\s+")
 # initials (e.g. "Mr.", "Dr.", "St.", "vs.", "A.", "Q.") which would otherwise
 # truncate sentences mid-name.
 _ABBREVIATIONS = ("Mr", "Mrs", "Ms", "Dr", "St", "vs", "etc", "Inc", "Co", "Ltd")
-_ABBREV_RE = re.compile(
-    r"(?<!\b" + r")(?<!\b".join(_ABBREVIATIONS) + r")(?<!\b[A-Z])([.!?])(\s|$)"
-)
+_ABBREV_RE = re.compile(r"(?<!\b" + r")(?<!\b".join(_ABBREVIATIONS) + r")(?<!\b[A-Z])([.!?])(\s|$)")
 
 
 def _strip_markdown(text: str) -> str:

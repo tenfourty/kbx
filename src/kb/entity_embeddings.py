@@ -162,11 +162,7 @@ def embed_entities(
             existing_hashes: dict[int, str] = {}
             for row in table.to_arrow().to_pylist():
                 existing_hashes[int(row["entity_id"])] = row["profile_hash"]
-            work = [
-                w
-                for w in work
-                if existing_hashes.get(w["entity_id"]) != w["profile_hash"]
-            ]
+            work = [w for w in work if existing_hashes.get(w["entity_id"]) != w["profile_hash"]]
             if not work:
                 return 0
 

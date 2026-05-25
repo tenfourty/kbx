@@ -439,9 +439,7 @@ class Database:
                 "entities", data=data, schema=get_entity_lance_schema()
             )
         else:
-            self._lance_entity_table = db.create_table(
-                "entities", schema=get_entity_lance_schema()
-            )
+            self._lance_entity_table = db.create_table("entities", schema=get_entity_lance_schema())
         return self._lance_entity_table
 
     def close(self) -> None:

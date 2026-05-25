@@ -13,14 +13,7 @@ class TestExtractAbstract:
 
     def test_strips_yaml_frontmatter(self):
         """YAML frontmatter is discarded before sentence detection."""
-        content = (
-            "---\n"
-            "title: Notes\n"
-            "date: 2026-05-24\n"
-            "---\n"
-            "\n"
-            "Actual first sentence."
-        )
+        content = "---\ntitle: Notes\ndate: 2026-05-24\n---\n\nActual first sentence."
         assert extract_abstract(content) == "Actual first sentence."
 
     def test_strips_leading_headings(self):

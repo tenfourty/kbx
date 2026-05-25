@@ -54,9 +54,7 @@ def reset_document_access(conn: sqlite3.Connection, document_id: int | None = No
     Returns the number of rows affected.
     """
     if document_id is None:
-        cursor = conn.execute(
-            "UPDATE documents SET access_count = 0, last_accessed_at = NULL"
-        )
+        cursor = conn.execute("UPDATE documents SET access_count = 0, last_accessed_at = NULL")
     else:
         cursor = conn.execute(
             "UPDATE documents SET access_count = 0, last_accessed_at = NULL WHERE id = ?",
@@ -72,9 +70,7 @@ def reset_entity_access(conn: sqlite3.Connection, entity_id: int | None = None) 
     Returns the number of rows affected.
     """
     if entity_id is None:
-        cursor = conn.execute(
-            "UPDATE entities SET access_count = 0, last_accessed_at = NULL"
-        )
+        cursor = conn.execute("UPDATE entities SET access_count = 0, last_accessed_at = NULL")
     else:
         cursor = conn.execute(
             "UPDATE entities SET access_count = 0, last_accessed_at = NULL WHERE id = ?",

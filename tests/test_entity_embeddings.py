@@ -56,16 +56,12 @@ class TestBuildEntityProfileText:
         assert f"fact {MAX_FACTS_IN_PROFILE}" not in text
 
     def test_skips_empty_fields(self):
-        text = build_entity_profile_text(
-            "Wren", aliases=[], metadata={}, facts=[""]
-        )
+        text = build_entity_profile_text("Wren", aliases=[], metadata={}, facts=[""])
         assert text == "Wren"
 
     def test_skips_falsy_metadata_values(self):
         """Empty `role` / `team` strings don't pollute the profile."""
-        text = build_entity_profile_text(
-            "Wren", metadata={"role": "", "team": None}
-        )
+        text = build_entity_profile_text("Wren", metadata={"role": "", "team": None})
         assert text == "Wren"
 
     def test_caps_total_length(self):
@@ -213,9 +209,7 @@ class TestSearchEntities:
     def test_entity_type_filter(self, db_with_entities):
         embedder = _make_mock_embedder()
         embed_entities(db_with_entities, embedder, full=True)
-        results = search_entities(
-            db_with_entities, embedder, "anything", entity_type="project"
-        )
+        results = search_entities(db_with_entities, embedder, "anything", entity_type="project")
         for r in results:
             assert r["entity_type"] == "project"
 
@@ -223,9 +217,7 @@ class TestSearchEntities:
         embedder = _make_mock_embedder()
         embed_entities(db_with_entities, embedder, full=True)
         # Threshold above 1.0 should filter everything out.
-        assert (
-            search_entities(db_with_entities, embedder, "anything", threshold=1.01) == []
-        )
+        assert search_entities(db_with_entities, embedder, "anything", threshold=1.01) == []
 
     def test_limit_cap(self, db_with_entities):
         embedder = _make_mock_embedder()

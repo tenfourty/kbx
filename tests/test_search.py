@@ -1541,9 +1541,7 @@ class TestPathFilter:
 
     def test_path_filter_excludes_siblings(self, path_filter_db):
         """Filter on memory/notes/ excludes meetings, people, projects."""
-        results = search(
-            path_filter_db, None, "migration", fast=True, path_filter="memory/notes/"
-        )
+        results = search(path_filter_db, None, "migration", fast=True, path_filter="memory/notes/")
         paths = [r.path for r in results.results]
         assert paths == ["memory/notes/migration-plan.md"], paths
 
@@ -1876,9 +1874,7 @@ class TestExplain:
         )
         conn.commit()
 
-        results = search(
-            search_db, None, "implementation", fast=True, explain=True, hotness=True
-        )
+        results = search(search_db, None, "implementation", fast=True, explain=True, hotness=True)
         doc1_result = next(r for r in results.results if r.document_id == 1)
         assert doc1_result.explain is not None
         assert doc1_result.explain.access_count == 10
@@ -1932,9 +1928,7 @@ class TestExplain:
         """Pass 1 returns nothing above threshold → flat search (no constraint, no blend)."""
         from kb import search as search_module
 
-        monkeypatch.setattr(
-            search_module, "_pass1_entity_search", lambda *args, **kwargs: []
-        )
+        monkeypatch.setattr(search_module, "_pass1_entity_search", lambda *args, **kwargs: [])
 
         from unittest.mock import MagicMock
 

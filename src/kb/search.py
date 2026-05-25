@@ -299,9 +299,7 @@ def _pass1_entity_search(
     from kb.entity_embeddings import search_entities
 
     try:
-        candidates = search_entities(
-            db, embedder, query, limit=limit * 2, threshold=threshold
-        )
+        candidates = search_entities(db, embedder, query, limit=limit * 2, threshold=threshold)
     except Exception:
         # Defensive: if the entity table or embedder fails, fall back to flat.
         return []
@@ -672,13 +670,9 @@ def search(
     parent_entity_scores: dict[int, float] = {}
     hierarchy_active = False
     if hierarchy and not fast and embedder is not None:
-        pass1_entities = _pass1_entity_search(
-            db, embedder, query, threshold=hierarchy_threshold
-        )
+        pass1_entities = _pass1_entity_search(db, embedder, query, threshold=hierarchy_threshold)
         if pass1_entities:
-            entity_doc_ids, parent_entity_scores = _resolve_entity_doc_ids(
-                db, pass1_entities
-            )
+            entity_doc_ids, parent_entity_scores = _resolve_entity_doc_ids(db, pass1_entities)
             if entity_doc_ids:
                 # Compose with --path (#73): intersect both constraints. If the
                 # user pinned a path AND hierarchy picked entities, we honour both.
