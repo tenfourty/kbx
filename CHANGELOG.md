@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.7](https://github.com/tenfourty/kbx/compare/kbx-v0.2.6...kbx-v0.2.7) (2026-05-25)
+
+
+### Bug Fixes
+
+* **security:** use absolute path for /usr/bin/security (bandit B607) ([4375b43](https://github.com/tenfourty/kbx/commit/4375b43122230dd76586a5c520f08bb85d451b7e))
+
 ## [0.2.6](https://github.com/tenfourty/kbx/compare/kbx-v0.2.5...kbx-v0.2.6) (2026-05-25)
 
 
