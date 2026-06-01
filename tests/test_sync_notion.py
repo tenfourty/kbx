@@ -223,9 +223,7 @@ class TestAPIClient:
         """syncRecordValues batch-fetches records."""
         mock_response = {
             "recordMap": {
-                "notion_user": {
-                    "user-1": {"value": {"name": "Wren", "email": "wren@example.com"}}
-                }
+                "notion_user": {"user-1": {"value": {"name": "Wren", "email": "wren@example.com"}}}
             }
         }
         with patch.object(client, "_request", return_value=mock_response):

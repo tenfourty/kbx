@@ -1475,7 +1475,9 @@ class TestMcpMemoryFactOps:
 
         # Get fact seq
         conn = db.get_sqlite_conn()
-        fact_row = conn.execute("SELECT seq FROM facts WHERE fact_text = 'Talia is great'").fetchone()
+        fact_row = conn.execute(
+            "SELECT seq FROM facts WHERE fact_text = 'Talia is great'"
+        ).fetchone()
         fact_seq = fact_row["seq"]
 
         with patch("kb.config.get_data_dir", return_value=root):
@@ -1777,9 +1779,7 @@ class TestMcpSearchDocType:
 
         db, _ = mcp_db
         # Search for "refactor" which appears in both notes and memory_person chunks
-        result = json.loads(
-            handle_kb_search(db, "refactor", fast=True, limit=10, doc_type="notes")
-        )
+        result = json.loads(handle_kb_search(db, "refactor", fast=True, limit=10, doc_type="notes"))
         # All results should be doc_type "notes"
         for r in result["results"]:
             assert r["doc_type"] == "notes"
@@ -2546,7 +2546,9 @@ class TestMcpPersonEdit:
 
         db, db_path = mcp_db
         self._create_person(db, db_path, "Soren Vance", team="Platform")
-        result = json.loads(handle_kb_person_edit(db, db_path, "Soren Vance", team="Infrastructure"))
+        result = json.loads(
+            handle_kb_person_edit(db, db_path, "Soren Vance", team="Infrastructure")
+        )
         assert result["updated"] is True
 
     def test_edit_person_with_meta(self, mcp_db):
@@ -2742,7 +2744,9 @@ class TestMcpProjectEdit:
 
         db, db_path = mcp_db
         self._create_project(db, db_path, "Platform Work")
-        result = json.loads(handle_kb_project_edit(db, db_path, "Platform Work", lead="Talia Ström"))
+        result = json.loads(
+            handle_kb_project_edit(db, db_path, "Platform Work", lead="Talia Ström")
+        )
         assert result["updated"] is True
 
     def test_edit_project_with_meta(self, mcp_db):
