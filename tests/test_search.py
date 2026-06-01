@@ -2140,3 +2140,37 @@ class TestZeroResultDiagnostics:
         diag = results.meta.zero_result_diagnostics
         assert diag is not None
         assert diag.vector_near_misses == []
+
+    def test_vector_near_misses_enriched_sorted_and_capped(self, search_db):
+        """The near-miss path enriches candidates, sorts by similarity desc, caps at 3.
+
+        Exercises `_build_zero_result_diagnostics` directly with a non-None embedder
+        sentinel and pre-built vector candidates — no embedding model needed (the
+        embedder is never called because vector_results is non-empty).
+        """
+        from kb.search import _build_zero_result_diagnostics
+
+        # chunk_ids 1..6 exist in search_db: 1->doc1 (MFA), 3->doc2 (Helix), 6->doc4 (Atlas).
+        vector_results = [
+            {"chunk_id": 1, "document_id": 1, "score": 0.20},
+            {"chunk_id": 3, "document_id": 2, "score": 0.45},
+            {"chunk_id": 6, "document_id": 4, "score": 0.31},
+            {"chunk_id": 5, "document_id": 3, "score": 0.10},  # 4th — dropped by the cap
+        ]
+        diag = _build_zero_result_diagnostics(
+            search_db,
+            object(),  # non-None embedder sentinel; never invoked (vector_results non-empty)
+            "xyznonexistent",
+            fast=False,
+            has_filters=False,
+            path_doc_ids=None,
+            vector_results=vector_results,
+        )
+        near = diag.vector_near_misses
+        assert len(near) == 3  # capped at 3 of the 4 candidates
+        sims = [m.similarity for m in near]
+        assert sims == sorted(sims, reverse=True)  # sorted by similarity, descending
+        assert sims[0] == 0.45
+        # enriched with the real title/path from the fixture document
+        assert near[0].title == "Helix Refactor Status"
+        assert near[0].path == "doc2.md"

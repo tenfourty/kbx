@@ -177,7 +177,7 @@ class VectorNearMiss(StrictFrozen):
 
     title: str
     path: str
-    similarity: float  # cosine similarity in [0,1]
+    similarity: float  # 1 - cosine distance; ~[0,1] for unit vectors, not hard-bounded
 
 
 class ZeroResultDiagnostics(StrictFrozen):
