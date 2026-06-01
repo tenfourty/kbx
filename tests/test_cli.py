@@ -1218,6 +1218,73 @@ class TestHelpOutput:
         assert result.exit_code == 0
         assert "Agent Playbook" in result.output
 
+    def test_help_playbook_uses_named_contract_anchors(self, runner, cli_db):
+        """kbx --help playbook exposes stable '## <name> contract' anchor headings (#5).
+
+        These headings are the external-consumer contract surface — cross-repo hooks
+        anchor to them by name (mirrors gm's '## Scoping axes'). Renaming one is a
+        breaking change for those consumers, so this test pins the full set.
+        """
+        _db, db_path = cli_db
+        result = invoke_cli(runner, ["--help"], db_path)
+        assert result.exit_code == 0
+        expected_anchors = [
+            "## Quick start contract",
+            "## Memory contract",
+            "## Pinning contract",
+            "## Notes contract",
+            "## Search contract",
+            "## People & projects contract",
+            "## Glossary contract",
+            "## Context contract",
+            "## Index contract",
+            "## Sync contract",
+            "## Granola contract",
+            "## Corrections contract",
+            "## Python API contract",
+            "## Global options contract",
+        ]
+        for anchor in expected_anchors:
+            assert anchor in result.output, f"missing contract anchor: {anchor}"
+
+    def test_help_playbook_preserves_all_command_surfaces(self, runner, cli_db):
+        """The anchor refactor must not drop any documented command/flag (#5 acceptance)."""
+        _db, db_path = cli_db
+        result = invoke_cli(runner, ["--help"], db_path)
+        assert result.exit_code == 0
+        # One representative surface per contract section — guards against content loss.
+        for surface in [
+            "kb context",  # quick start
+            "kb memory add",
+            "kb memory similar",  # memory
+            "kb pin",  # pinning
+            "kb note edit",
+            "--insert-under",  # notes
+            "kb search",
+            "--explain",
+            "Score Interpretation",  # search
+            "kb person find",
+            "kb project find",  # people & projects
+            "kb glossary add",  # glossary
+            "kb context --human",  # context
+            "kb index run",
+            "--no-embed",  # index
+            "kb sync granola",  # sync
+            "kb granola view",  # granola
+            "kb correct",  # corrections
+            "KnowledgeBase",  # python api
+            "--meta",  # documented elsewhere, still present
+        ]:
+            assert surface in result.output, f"lost command surface in refactor: {surface}"
+
+    def test_help_playbook_drops_numbered_headings(self, runner, cli_db):
+        """Numbered section headings are replaced by named anchors — no '## N.' left (#5)."""
+        _db, db_path = cli_db
+        result = invoke_cli(runner, ["--help"], db_path)
+        assert result.exit_code == 0
+        for stale in ["## 1. Quick Start", "## 5. Finding Things", "## 11. Python API"]:
+            assert stale not in result.output, f"stale numbered heading still present: {stale}"
+
     def test_usage_command_removed(self, runner, cli_db):
         """The 'usage' command should no longer exist."""
         from kb.cli import cli

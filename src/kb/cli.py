@@ -192,16 +192,23 @@ def _get_init_status() -> str:
     return "\n".join(lines)
 
 
+# _AGENT_PLAYBOOK anchor convention (issue #5):
+# Sections use stable, conceptual '## <name> contract' headings (NOT numbered).
+# These headings are the external-consumer contract surface — cross-repo hooks and
+# skill prompts anchor to them BY NAME rather than inlining flag lists (mirrors
+# guten-morgen's '## Scoping axes' anchor). Renaming a heading is a breaking change
+# for those consumers, so treat the set as stable: add new sections freely, but do
+# not casually rename existing ones. tests/test_cli.py::TestHelpOutput pins the set.
 _AGENT_PLAYBOOK = """\
 
 # kb — Agent Playbook
 
-## 1. Quick Start
+## Quick start contract
   kb context              # orient: pinned docs + entity index
   kb search "topic" --fast --json --limit 5   # keyword search (~instant)
   kb view <path>          # read a full document
 
-## 2. Taking Notes
+## Memory contract
   kb memory add "title" --body "markdown content" --tags t1,t2 --pin
   kb memory add "Quick note"                     # one-liner, no body
   kb memory add "fact" --entity "Name"           # fact appended to entity file
@@ -213,13 +220,13 @@ _AGENT_PLAYBOOK = """\
   kb memory similar "text" --path memory/foo.md      # scope to one document's chunks
   kb memory similar "text" --threshold 0.80 --limit 5  # tune cutoff + cap
 
-## 3. When to Pin
+## Pinning contract
   kb pin <path|title|#hash|glob>     # pin any doc to context
   kb unpin <path|title|glob>         # remove from context
   kb memory add "title" --pin        # create + pin in one step
   kb person pin "Name"               # pin a person to context
 
-## 4. Browsing & Editing Notes
+## Notes contract
   kb note list --json                   # all notes
   kb note list --tag decision --json    # filter by tag (AND: --tag a,b)
   kb note list --pinned --json          # pinned notes only
@@ -236,7 +243,7 @@ kb note edit "person.md" --insert-under "## Open Items" --body "- [2026-05-25] i
   kb note delete "title"                     # delete note (file + index)
   kb note delete "#hash" --force             # skip confirmation
 
-## 5. Finding Things
+## Search contract
   kb search "query" --fast --json             # keyword (FTS, instant)
   kb search "query" --json --limit 10         # hybrid (semantic + FTS, ~2s)
   kb search "query" --tag infra --fast --json # filter by tag
@@ -267,7 +274,7 @@ kb note edit "person.md" --insert-under "## Open Items" --body "- [2026-05-25] i
   --full-chunks adds a "content" field with the complete chunk text for agent triage.
   --merge-chunks (with --dedupe --full-chunks) concatenates all matching chunks per document.
 
-## 6. People & Projects
+## People & projects contract
   kb me --json                       # your own profile (shortcut for person find me)
   kb person find "Name" --json       # compact profile (facts, metadata, breadcrumbs)
   kb person timeline "Name" --json   # chronological doc list
@@ -280,22 +287,26 @@ kb note edit "person.md" --insert-under "## Open Items" --body "- [2026-05-25] i
   kb project create "Name" --status "Active" --lead "Name"
   kb project edit "Name" --meta "priority=High"
   kb project list --json             # all projects
-  kb glossary add "TERM" "expansion"
-  kb glossary edit "TERM" "new expansion"  # update existing term
-  kb glossary list --json
   kb entity stale --json               # entities not updated/mentioned in 30+ days
   kb entity stale --days 60 --json     # custom threshold
   kb entity stale --type person --json # filter by type
 
-## 7. Context & Indexing
+## Glossary contract
+  kb glossary add "TERM" "expansion"
+  kb glossary edit "TERM" "new expansion"  # update existing term
+  kb glossary list --json
+
+## Context contract
   kb context                         # compact entity index (for agents)
   kb context --human                 # markdown format (for humans)
   kb context --for "topic"           # filtered to a topic
+
+## Index contract
   kb index status --json             # database health
   kb index run --no-embed            # text-only index (fast, no GPU)
   kb index run --cpu                 # full index with embeddings on CPU
 
-## 8. Sync
+## Sync contract
   kb sync                              # run all sync plugins
   kb sync granola --since 2026-01-01   # sync Granola meetings since date
   kb sync notion --since 2026-01-01    # sync Notion AI Meeting Notes since date
@@ -306,14 +317,15 @@ kb note edit "person.md" --insert-under "## Open Items" --body "- [2026-05-25] i
     .granola.transcript.md   — full transcript
     .granola.ai-summary.md   — AI-generated summary (from Granola's summary panel)
 
-## 9. Granola
+## Granola contract
   kb granola view <calendar-uid>                                  # view notes (YAML header + markdown)
   kb granola view <calendar-uid> --summary                        # view AI summary
   kb granola view <calendar-uid> --transcript                     # view transcript (live from API)
   kb granola view <calendar-uid> --all                            # view notes + summary + transcript
   kb granola view <calendar-uid> --plain                          # raw markdown only (no header)
 
-## 10. Corrections (find-and-replace across memory)
+## Corrections contract
+  # find-and-replace across memory
   kb correct "Quartz Indexer" --json                          # scan: list all occurrences (structured)
   kb correct "Quartz Indexer"                                 # scan: human-readable summary
   kb correct "Bram" --word-boundary --json               # scan: whole-word matches only
@@ -329,7 +341,7 @@ kb note edit "person.md" --insert-under "## Open Items" --body "- [2026-05-25] i
   for disambiguation decisions (e.g. which "Bram" is in this meeting).
   Replacements are atomic (temp file → rename). Only .md files are modified.
 
-## 11. Python API
+## Python API contract
 
     from kb import KnowledgeBase
 
@@ -355,7 +367,7 @@ kb note edit "person.md" --insert-under "## Open Items" --body "- [2026-05-25] i
     kb.memory_similar("text", entity="Name")       # -> SimilarityResponse (#71)
     kb.close()                                     # release resources
 
-## Global Options
+## Global options contract
   --json | --format table|json|jsonl|csv | --fields f1,f2 | --jq expr
 """
 
