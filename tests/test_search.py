@@ -2071,3 +2071,72 @@ class TestExplain:
         assert results.meta.search_mode == "fast"
         assert results.meta.fts_hits == 0
         assert results.meta.fts_variants_tried, "variants should be listed even on zero hits"
+
+
+# ---------------------------------------------------------------------------
+# Zero-result diagnostics (issue #3 — zero-result slice only)
+# ---------------------------------------------------------------------------
+
+
+class TestZeroResultDiagnostics:
+    """`search(explain=True)` explains *why* a query returned nothing.
+
+    Scope (issue #3, zero-result slice): per-term FTS document counts, vector
+    near-misses, and suggested reformulations. NOT the why-not mode or verbose
+    mode — those are separate slices.
+    """
+
+    def test_diagnostics_none_without_explain(self, search_db):
+        """No diagnostics computed unless explain=True (zero overhead on the hot path)."""
+        results = search(search_db, None, "xyznonexistent zzqqww", fast=True)
+        assert results.meta.total == 0
+        assert results.meta.zero_result_diagnostics is None
+
+    def test_diagnostics_none_when_results_present(self, search_db):
+        """Diagnostics stay None when the search actually returns hits."""
+        results = search(search_db, None, "MFA", fast=True, explain=True)
+        assert results.meta.total > 0
+        assert results.meta.zero_result_diagnostics is None
+
+    def test_zero_result_per_term_counts_all_zero(self, search_db):
+        """A no-match query reports each query term with its (zero) FTS doc count."""
+        results = search(search_db, None, "xyznonexistent zzqqww", fast=True, explain=True)
+        assert results.meta.total == 0
+        diag = results.meta.zero_result_diagnostics
+        assert diag is not None
+        counts = {th.term: th.doc_count for th in diag.term_hits}
+        assert counts == {"xyznonexistent": 0, "zzqqww": 0}
+        assert diag.suggestions, "expected actionable suggestions on a miss"
+
+    def test_term_count_reflects_corpus_when_filter_excludes(self, search_db):
+        """A term present in the corpus but excluded by a filter shows its true count (#3).
+
+        'MFA' exists in doc1 (dated 2026-01-27); a future --from excludes it, so the
+        search returns zero — but the per-term FTS count must still report the match,
+        proving the miss is a filter artefact, not a missing term.
+        """
+        results = search(search_db, None, "MFA", fast=True, explain=True, from_date="2030-01-01")
+        assert results.meta.total == 0
+        diag = results.meta.zero_result_diagnostics
+        assert diag is not None
+        counts = {th.term: th.doc_count for th in diag.term_hits}
+        assert counts.get("MFA", 0) >= 1
+        assert any("filter" in s.lower() or "loosen" in s.lower() for s in diag.suggestions), (
+            f"expected a filter-related suggestion, got {diag.suggestions}"
+        )
+
+    def test_fast_mode_suggests_semantic_search(self, search_db):
+        """In --fast mode a miss suggests dropping --fast for semantic matching."""
+        results = search(search_db, None, "xyznonexistent", fast=True, explain=True)
+        diag = results.meta.zero_result_diagnostics
+        assert diag is not None
+        assert any("fast" in s.lower() or "semantic" in s.lower() for s in diag.suggestions), (
+            f"expected a semantic-search suggestion in fast mode, got {diag.suggestions}"
+        )
+
+    def test_fast_mode_has_no_vector_near_misses(self, search_db):
+        """--fast skips the embedder, so there can be no vector near-misses."""
+        results = search(search_db, None, "xyznonexistent", fast=True, explain=True)
+        diag = results.meta.zero_result_diagnostics
+        assert diag is not None
+        assert diag.vector_near_misses == []

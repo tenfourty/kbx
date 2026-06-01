@@ -15,7 +15,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from kb.types import SearchExplain, SearchResponse, SearchResult
+    from kb.types import (
+        SearchExplain,
+        SearchResponse,
+        SearchResult,
+        ZeroResultDiagnostics,
+    )
 
 
 _RULE = "━" * 60
@@ -123,6 +128,31 @@ def _fmt_meta(response: SearchResponse) -> list[str]:
     return lines
 
 
+def _fmt_zero_result_diagnostics(diag: ZeroResultDiagnostics) -> list[str]:
+    """Render zero-result diagnostics: per-term FTS coverage, near-misses, suggestions (#3)."""
+    lines: list[str] = ["No results — diagnostics:"]
+
+    if diag.term_hits:
+        lines.append("  FTS term coverage:")
+        for th in diag.term_hits:
+            mark = "✗" if th.doc_count == 0 else "✓"
+            noun = "document" if th.doc_count == 1 else "documents"
+            lines.append(f"    {mark} {th.term}: {th.doc_count} {noun}")
+
+    if diag.vector_near_misses:
+        lines.append("  Closest semantic matches (below the relevance bar):")
+        for nm in diag.vector_near_misses:
+            lines.append(f"    {nm.similarity:.3f}  {nm.title}")
+            lines.append(f"           {nm.path}")
+
+    if diag.suggestions:
+        lines.append("  Suggestions:")
+        for suggestion in diag.suggestions:
+            lines.append(f"    • {suggestion}")
+
+    return lines
+
+
 def format_explain_text(response: SearchResponse) -> str:
     """Render a ``SearchResponse`` (with explain data attached) as readable text.
 
@@ -149,7 +179,11 @@ def format_explain_text(response: SearchResponse) -> str:
 
     if not response.results:
         lines.append("")
-        lines.append("No results — try lowering --threshold or broadening the query.")
+        diag = response.meta.zero_result_diagnostics
+        if diag is None:
+            lines.append("No results — try lowering --threshold or broadening the query.")
+        else:
+            lines.extend(_fmt_zero_result_diagnostics(diag))
         return "\n".join(lines)
 
     for idx, result in enumerate(response.results, start=1):

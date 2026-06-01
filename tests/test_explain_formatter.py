@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
-from kb.types import SearchExplain, SearchMeta, SearchResponse, SearchResult
+from kb.types import (
+    SearchExplain,
+    SearchMeta,
+    SearchResponse,
+    SearchResult,
+    TermHit,
+    VectorNearMiss,
+    ZeroResultDiagnostics,
+)
 
 
 def _make_response(
@@ -233,3 +241,76 @@ class TestSearchExplainCLIRendering:
         assert "Vector" in result.output
         # Should NOT look like JSON
         assert not result.output.lstrip().startswith("{")
+
+
+class TestZeroResultDiagnosticsRendering:
+    """The formatter renders zero-result diagnostics in place of the generic line (#3)."""
+
+    def _empty_with_diag(self, diag: ZeroResultDiagnostics) -> SearchResponse:
+        meta = SearchMeta(
+            query="foobar baz",
+            total=0,
+            limit=10,
+            sort_by="score",
+            execution_ms=4.0,
+            search_mode="fast",
+            fts_hits=0,
+            vector_hits=0,
+            both_hits=0,
+            zero_result_diagnostics=diag,
+        )
+        return SearchResponse(results=[], meta=meta)
+
+    def test_renders_per_term_counts(self):
+        from kb.explain import format_explain_text
+
+        diag = ZeroResultDiagnostics(
+            term_hits=[
+                TermHit(term="foobar", doc_count=0),
+                TermHit(term="baz", doc_count=3),
+            ],
+            vector_near_misses=[],
+            suggestions=["Try broadening the query."],
+        )
+        out = format_explain_text(self._empty_with_diag(diag))
+        assert "foobar" in out
+        assert "baz" in out
+        assert "0" in out and "3" in out  # the per-term counts surface
+        assert "Try broadening the query." in out
+
+    def test_renders_vector_near_misses(self):
+        from kb.explain import format_explain_text
+
+        diag = ZeroResultDiagnostics(
+            term_hits=[TermHit(term="foobar", doc_count=0)],
+            vector_near_misses=[
+                VectorNearMiss(
+                    title="Deploy Notes", path="memory/notes/deploy.md", similarity=0.31
+                ),
+            ],
+            suggestions=["Rephrase the query."],
+        )
+        out = format_explain_text(self._empty_with_diag(diag))
+        assert "Deploy Notes" in out
+        assert "memory/notes/deploy.md" in out
+        assert "0.31" in out
+
+    def test_renders_suggestions_bullets(self):
+        from kb.explain import format_explain_text
+
+        diag = ZeroResultDiagnostics(
+            term_hits=[TermHit(term="foobar", doc_count=0)],
+            vector_near_misses=[],
+            suggestions=["Drop the unmatched term.", "Try semantic search."],
+        )
+        out = format_explain_text(self._empty_with_diag(diag))
+        assert "Drop the unmatched term." in out
+        assert "Try semantic search." in out
+
+    def test_empty_results_without_diag_keeps_generic_line(self):
+        """Back-compat: empty response with no diagnostics still shows the generic line."""
+        from kb.explain import format_explain_text
+
+        meta = SearchMeta(query="x", total=0, limit=10, sort_by="score", execution_ms=1.0)
+        out = format_explain_text(SearchResponse(results=[], meta=meta))
+        assert "No results" in out

@@ -160,6 +160,38 @@ class SearchResult(StrictFrozen):
     explain: SearchExplain | None = None  # populated when search(explain=True)
 
 
+class TermHit(StrictFrozen):
+    """How many documents contain a single query term (zero-result diagnostics, #3).
+
+    The count is the raw FTS document frequency for the term across the whole
+    corpus — it deliberately ignores date/tag/doc_type/path filters, so a term
+    that exists but was filtered out of the results still reports a non-zero count.
+    """
+
+    term: str
+    doc_count: int
+
+
+class VectorNearMiss(StrictFrozen):
+    """A closest-but-unsurfaced semantic match for a zero-result query (#3)."""
+
+    title: str
+    path: str
+    similarity: float  # cosine similarity in [0,1]
+
+
+class ZeroResultDiagnostics(StrictFrozen):
+    """Why a search returned nothing — populated only when explain=True and 0 results (#3).
+
+    Scope: the zero-result slice of #3 (per-term FTS counts, vector near-misses,
+    suggested reformulations). NOT the why-not mode or verbose mode.
+    """
+
+    term_hits: list[TermHit]
+    vector_near_misses: list[VectorNearMiss]
+    suggestions: list[str]
+
+
 class SearchMeta(StrictFrozen):
     """Metadata about a search operation."""
 
@@ -182,6 +214,8 @@ class SearchMeta(StrictFrozen):
     hierarchy_active: bool = False  # True when Pass 1 entity match drove Pass 2 (#69)
     pass1_entities: list[dict[str, Any]] = []  # Pass 1 entity hits (#69)
     hierarchy_alpha: float | None = None  # blend weight used in Pass 2 (#69)
+    # Zero-result diagnostics (#3) — populated only when explain=True AND 0 results.
+    zero_result_diagnostics: ZeroResultDiagnostics | None = None
 
 
 class SearchResponse(StrictFrozen):

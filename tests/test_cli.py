@@ -1539,6 +1539,36 @@ class TestSearchDateFilters:
         assert len(jan_dates) == 0, f"Found results before 2026-02-01: {jan_dates}"
 
 
+class TestSearchZeroResultDiagnostics:
+    """E2E: `kbx search --explain` explains a no-result query (issue #3, zero-result slice)."""
+
+    def test_explain_zero_result_table_shows_diagnostics(self, runner, cli_db):
+        """A no-match --explain search renders per-term coverage + suggestions, not a bare line."""
+        _, db_path = cli_db
+        result = invoke_cli(runner, ["search", "zxqwobble", "--fast", "--explain"], db_path)
+        assert result.exit_code == 0
+        out = result.output
+        assert "zxqwobble" in out
+        # Some diagnostic framing + an actionable suggestion are present
+        assert "Suggestions" in out or "suggestion" in out.lower()
+        assert "fast" in out.lower() or "semantic" in out.lower()
+
+    def test_explain_zero_result_json_has_diagnostics(self, runner, cli_db):
+        """--explain --json exposes structured zero_result_diagnostics in meta."""
+        _, db_path = cli_db
+        result = invoke_cli(
+            runner, ["search", "zxqwobble", "--fast", "--explain", "--json"], db_path
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["results"] == []
+        diag = data["meta"]["zero_result_diagnostics"]
+        assert diag is not None
+        terms = {th["term"]: th["doc_count"] for th in diag["term_hits"]}
+        assert terms == {"zxqwobble": 0}
+        assert diag["suggestions"]
+
+
 # ---------------------------------------------------------------------------
 # QA Issue #4: Entity timeline deduplication (notes + transcript same meeting)
 # ---------------------------------------------------------------------------
