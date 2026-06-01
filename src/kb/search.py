@@ -10,7 +10,15 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from kb.entities import strip_wikilinks
-from kb.types import SearchExplain, SearchMeta, SearchResponse, SearchResult
+from kb.types import (
+    SearchExplain,
+    SearchMeta,
+    SearchResponse,
+    SearchResult,
+    TermHit,
+    VectorNearMiss,
+    ZeroResultDiagnostics,
+)
 
 if TYPE_CHECKING:
     from kb.db import Database
@@ -593,6 +601,134 @@ def _enrich_results(
 
 
 # ---------------------------------------------------------------------------
+# Zero-result diagnostics (issue #3 — zero-result slice)
+# ---------------------------------------------------------------------------
+
+
+def _term_doc_count(db: Database, term: str) -> int:
+    """Raw FTS document frequency for a single term, ignoring all result filters.
+
+    Counts distinct documents whose chunks match ``term``. Deliberately unfiltered
+    (no date/tag/doc_type/path) so a term that exists in the corpus but was filtered
+    out of the results still reports its true count — that's what makes the miss
+    diagnosable ("term exists but your filter excluded it" vs "term unknown").
+    """
+    safe = _sanitize_fts_input(term)
+    if not safe:
+        return 0
+    conn = db.get_sqlite_conn()
+    try:
+        row = conn.execute(
+            """
+            SELECT COUNT(DISTINCT c.document_id) AS n
+            FROM chunks_fts
+            JOIN chunks c ON c.id = chunks_fts.rowid
+            WHERE chunks_fts MATCH ?
+            """,
+            (f'"{safe}"',),
+        ).fetchone()
+    except Exception:
+        return 0
+    return int(row["n"]) if row and row["n"] is not None else 0
+
+
+def _zero_result_suggestions(
+    query: str,
+    term_hits: list[TermHit],
+    *,
+    fast: bool,
+    has_filters: bool,
+    near_misses: list[VectorNearMiss],
+) -> list[str]:
+    """Build actionable reformulation suggestions for a zero-result query."""
+    suggestions: list[str] = []
+    matched = [th.term for th in term_hits if th.doc_count > 0]
+    unmatched = [th.term for th in term_hits if th.doc_count == 0]
+
+    if matched and (has_filters or len(term_hits) > 1):
+        # Terms exist in the corpus but nothing surfaced — filters or the
+        # all-terms combination removed them.
+        joined = " ".join(matched)
+        if has_filters:
+            suggestions.append(
+                f'"{joined}" matches indexed documents — loosen your filters '
+                "(--from/--to/--tag/--doc-type/--path) to see them."
+            )
+        if len(matched) >= 2:
+            suggestions.append(
+                f'Try fewer terms or boost semantics: kbx search "{joined}" --vector-weight 2.0'
+            )
+    if unmatched and matched:
+        suggestions.append(
+            f'Drop unmatched term(s) ({", ".join(unmatched)}): kbx search "{" ".join(matched)}"'
+        )
+    elif unmatched and not matched:
+        suggestions.append(
+            f"No indexed document contains {', '.join(unmatched)} — "
+            "check spelling or try broader terms."
+        )
+
+    if fast:
+        suggestions.append(f'Try semantic search (drop --fast): kbx search "{query}"')
+    elif near_misses:
+        suggestions.append(
+            "Closest semantic matches are shown above but scored below the bar — try rephrasing."
+        )
+
+    if not suggestions:
+        suggestions.append("Broaden the query or remove filters.")
+    return suggestions
+
+
+def _build_zero_result_diagnostics(
+    db: Database,
+    embedder: Embedder | None,
+    query: str,
+    *,
+    fast: bool,
+    has_filters: bool,
+    path_doc_ids: set[int] | None,
+    vector_results: list[dict[str, Any]],
+) -> ZeroResultDiagnostics:
+    """Assemble per-term FTS counts, vector near-misses, and suggestions (#3)."""
+    sanitized = _sanitize_fts_input(query)
+    terms = sanitized.split()
+    term_hits = [TermHit(term=t, doc_count=_term_doc_count(db, t)) for t in terms]
+
+    # Vector near-misses: the closest semantic candidates, even though none surfaced.
+    # Only meaningful when an embedder ran (not --fast). Reuse the candidates the
+    # pipeline already fetched; if none (e.g. strong-FTS fast path), do a cheap
+    # top-3 lookup so we can still show the nearest documents.
+    near_misses: list[VectorNearMiss] = []
+    if not fast and embedder is not None:
+        candidates = vector_results
+        if not candidates:
+            try:
+                candidates = _vector_search(db, embedder, query, limit=3, doc_ids=path_doc_ids)
+            except Exception:
+                candidates = []
+        top = sorted(candidates, key=lambda r: r["score"], reverse=True)[:3]
+        enriched = _enrich_results(db, [c["chunk_id"] for c in top])
+        for cand in top:
+            info = enriched.get(cand["chunk_id"])
+            if info is not None:
+                near_misses.append(
+                    VectorNearMiss(
+                        title=info["title"],
+                        path=info["path"],
+                        similarity=round(float(cand["score"]), 3),
+                    )
+                )
+
+    suggestions = _zero_result_suggestions(
+        query, term_hits, fast=fast, has_filters=has_filters, near_misses=near_misses
+    )
+    return ZeroResultDiagnostics(
+        term_hits=term_hits, vector_near_misses=near_misses, suggestions=suggestions
+    )
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -947,6 +1083,21 @@ def search(
             search_mode = "vector_only"
         else:
             search_mode = "fast" if fast else "hybrid"
+        # Zero-result diagnostics (#3) — only when the query genuinely returned nothing.
+        zero_diag: ZeroResultDiagnostics | None = None
+        if not results:
+            has_filters = any(
+                f is not None for f in (doc_type, from_date, to_date, tag, path_filter)
+            )
+            zero_diag = _build_zero_result_diagnostics(
+                db,
+                embedder,
+                query,
+                fast=fast,
+                has_filters=has_filters,
+                path_doc_ids=path_doc_ids,
+                vector_results=vector_results,
+            )
         meta = SearchMeta(
             query=query,
             total=len(results),
@@ -964,6 +1115,7 @@ def search(
             hierarchy_active=hierarchy_active,
             pass1_entities=pass1_entities,
             hierarchy_alpha=hierarchy_alpha if hierarchy_active else None,
+            zero_result_diagnostics=zero_diag,
         )
     else:
         meta = SearchMeta(
