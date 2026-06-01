@@ -116,9 +116,7 @@ class TestRecencyWeight:
 class TestSnippetExtraction:
     def test_strips_metadata_prefix(self):
         """Should strip [Meeting: ...] prefix."""
-        text = (
-            "[Meeting: Wren / Soren | Date: 2026-01-27 | Section: General]\nActual content here"
-        )
+        text = "[Meeting: Wren / Soren | Date: 2026-01-27 | Section: General]\nActual content here"
         result = _strip_metadata_prefix(text)
         assert result == "Actual content here"
 
@@ -1555,9 +1553,7 @@ class TestPathFilter:
 
     def test_path_filter_glob_star(self, path_filter_db):
         """`*` glob is translated to SQL `%` wildcard."""
-        results = search(
-            path_filter_db, None, "refactor", fast=True, path_filter="memory/*/2026/*"
-        )
+        results = search(path_filter_db, None, "refactor", fast=True, path_filter="memory/*/2026/*")
         paths = [r.path for r in results.results]
         assert paths, "expected at least one match for memory/*/2026/*"
         for p in paths:

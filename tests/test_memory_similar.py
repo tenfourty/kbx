@@ -152,9 +152,7 @@ class TestMemorySimilarAPI:
         kb = _make_kb(tmp_path, StubEmbedder(mapping=mapping))
         try:
             _seed_entity_with_facts(kb, "Linnea Roux", ["fact one", "fact two", "fact three"])
-            resp = kb.memory_similar(
-                "candidate text", entity="Linnea Roux", threshold=0.5, limit=2
-            )
+            resp = kb.memory_similar("candidate text", entity="Linnea Roux", threshold=0.5, limit=2)
             assert len(resp.matches) == 2
         finally:
             kb.close()

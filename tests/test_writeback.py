@@ -430,7 +430,9 @@ class TestParsePersonEmailCompany:
 
     def test_parses_both(self, tmp_path):
         f = tmp_path / "person.md"
-        f.write_text("# Jane Doe\n\n**Email:** jane@acme.com\n**Company:** Lattice\n**Role:** CTO\n")
+        f.write_text(
+            "# Jane Doe\n\n**Email:** jane@acme.com\n**Company:** Lattice\n**Role:** CTO\n"
+        )
         result = _parse_person_file(f)
         assert result.metadata["email"] == "jane@acme.com"
         assert result.metadata["company"] == "Lattice"

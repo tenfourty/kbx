@@ -478,7 +478,9 @@ class TestCorrectCLI:
 
     def test_ignore_case_flag(self, cli_runner: CliRunner, memory_tree: Path):
         """--ignore-case matches all case variants."""
-        result = self._invoke(cli_runner, memory_tree, ["quartz indexer", "--ignore-case", "--json"])
+        result = self._invoke(
+            cli_runner, memory_tree, ["quartz indexer", "--ignore-case", "--json"]
+        )
         data = json.loads(result.output)
         assert data["meta"]["total_occurrences"] > 0
 
