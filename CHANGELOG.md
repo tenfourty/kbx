@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/tenfourty/kbx/compare/kbx-v0.3.0...kbx-v0.3.1) (2026-06-24)
+
+
+### Documentation
+
+* migrate kbx gotchas from personal memory; sync lockfile to 0.3.0 ([#10](https://github.com/tenfourty/kbx/issues/10)) ([7b41e4e](https://github.com/tenfourty/kbx/commit/7b41e4e9f6899188e83709b505ddcc953a55bdc4))
+
 ## [0.3.0](https://github.com/tenfourty/kbx/compare/kbx-v0.2.13...kbx-v0.3.0) (2026-06-24)
 
 
