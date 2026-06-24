@@ -690,6 +690,43 @@ class TestNfcNormalization:
             )
 
 
+class TestApplyCorrectionsAtomicity:
+    """apply_corrections is all-or-nothing: a mid-batch failure rolls back (#1 COW)."""
+
+    def test_rolls_back_on_write_failure(self, memory_tree: Path, monkeypatch):
+        from kb import correct as correct_mod
+
+        matches = scan(memory_tree, "Quartz Indexer")
+        assert len(matches) >= 2, "need >=2 matched files to exercise rollback"
+        paths = [memory_tree / m.rel_path for m in matches]
+        originals = {p: p.read_text(encoding="utf-8") for p in paths}
+
+        real_write = correct_mod._atomic_write
+        calls = {"n": 0}
+
+        def flaky(path, content):  # type: ignore[no-untyped-def]
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise OSError("simulated disk failure on the 2nd write")
+            real_write(path, content)
+
+        monkeypatch.setattr(correct_mod, "_atomic_write", flaky)
+        with pytest.raises(OSError):
+            apply_corrections(memory_tree, matches, "Datalux")
+
+        # No partial application: every file is back to its original content.
+        for p in paths:
+            assert p.read_text(encoding="utf-8") == originals[p], f"{p} not rolled back"
+
+    def test_happy_path_changes_all_files(self, memory_tree: Path):
+        matches = scan(memory_tree, "Quartz Indexer")
+        assert len(matches) >= 2
+        result = apply_corrections(memory_tree, matches, "Datalux")
+        assert result.files_changed == len(matches)
+        for m in matches:
+            assert "Quartz Indexer" not in (memory_tree / m.rel_path).read_text(encoding="utf-8")
+
+
 class TestCorrectAutoCommit:
     """`kbx correct` wires auto-commit on --apply only (issue #1).
 
