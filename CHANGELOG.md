@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.5](https://github.com/tenfourty/kbx/compare/kbx-v0.3.4...kbx-v0.3.5) (2026-06-24)
+
+
+### Features
+
+* **search:** --why-not PATH explains why a document didn't surface (refs [#3](https://github.com/tenfourty/kbx/issues/3)) ([#23](https://github.com/tenfourty/kbx/issues/23)) ([f67ff6d](https://github.com/tenfourty/kbx/commit/f67ff6d94e65eeefe676182d6651d993dd71aadc))
+
 ## [0.3.4](https://github.com/tenfourty/kbx/compare/kbx-v0.3.3...kbx-v0.3.4) (2026-06-24)
 
 
