@@ -688,3 +688,53 @@ class TestNfcNormalization:
             assert m.rel_path == unicodedata.normalize("NFC", m.rel_path), (
                 f"rel_path not NFC-normalized: {m.rel_path!r}"
             )
+
+
+class TestCorrectAutoCommit:
+    """`kbx correct` wires auto-commit on --apply only (issue #1).
+
+    The real git behaviour is covered by tests/test_autocommit.py; here we assert
+    the CLI control flow — that the helper is invoked with the right args on --apply,
+    not on a dry-run, and that --no-commit is passed through.
+    """
+
+    def _invoke(self, runner: CliRunner, memory_tree: Path, args: list[str]):
+        project_root = memory_tree.parent
+        with patch("kb.cli._find_project_root", return_value=project_root):
+            return runner.invoke(cli, ["correct", *args], catch_exceptions=False)
+
+    def test_apply_invokes_auto_commit(self, cli_runner: CliRunner, memory_tree: Path, monkeypatch):
+        from unittest.mock import MagicMock
+
+        mock = MagicMock(return_value="abc1234")
+        monkeypatch.setattr("kb.autocommit.maybe_auto_commit", mock)
+        result = self._invoke(cli_runner, memory_tree, ["Quartz Indexer", "Datalux", "--apply"])
+        assert result.exit_code == 0, result.output
+        mock.assert_called_once()
+        _, kwargs = mock.call_args
+        assert kwargs["operation"] == "correct"
+        assert kwargs["no_commit"] is False
+
+    def test_dry_run_does_not_invoke_auto_commit(
+        self, cli_runner: CliRunner, memory_tree: Path, monkeypatch
+    ):
+        from unittest.mock import MagicMock
+
+        mock = MagicMock(return_value=None)
+        monkeypatch.setattr("kb.autocommit.maybe_auto_commit", mock)
+        self._invoke(cli_runner, memory_tree, ["Quartz Indexer", "Datalux"])
+        mock.assert_not_called()
+
+    def test_no_commit_flag_passed_through(
+        self, cli_runner: CliRunner, memory_tree: Path, monkeypatch
+    ):
+        from unittest.mock import MagicMock
+
+        mock = MagicMock(return_value=None)
+        monkeypatch.setattr("kb.autocommit.maybe_auto_commit", mock)
+        self._invoke(
+            cli_runner, memory_tree, ["Quartz Indexer", "Datalux", "--apply", "--no-commit"]
+        )
+        mock.assert_called_once()
+        _, kwargs = mock.call_args
+        assert kwargs["no_commit"] is True

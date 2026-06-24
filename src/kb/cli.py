@@ -1779,6 +1779,11 @@ def ingest(paths: tuple[str, ...], dry_run: bool, skip_organise: bool) -> None:
 )
 @click.option("--word-boundary", is_flag=True, help="Only match whole words.")
 @click.option("--ignore-case", is_flag=True, help="Case-insensitive matching.")
+@click.option(
+    "--no-commit",
+    is_flag=True,
+    help="Skip the git auto-commit even when [writes].auto_commit is enabled (#1).",
+)
 @output_options
 def correct(
     term: str,
@@ -1788,6 +1793,7 @@ def correct(
     file_type: str | None,
     word_boundary: bool,
     ignore_case: bool,
+    no_commit: bool,
     fmt: str,
     fields: list[str] | None,
     jq_expr: str | None,
@@ -1805,6 +1811,10 @@ def correct(
       kb correct "Quartz Indexer" "Datalux"             # dry-run preview
       kb correct "Quartz Indexer" "Datalux" --apply     # apply changes
       kb correct "Brahm" "Bram" --word-boundary --scope "meetings/2026/02/17/*" --apply
+
+    \b
+    With [writes].auto_commit enabled in kbx.toml, --apply makes one git commit of the
+    change (audit trail + git revert). Pass --no-commit to skip it. (#1)
     """
     from kb.api import KnowledgeBase
 
@@ -1826,6 +1836,24 @@ def correct(
         raise SystemExit(1) from None
     finally:
         kb.close()
+
+    # Auto-commit applied changes (issue #1, CLI-only). Dry-run/scan writes nothing.
+    if apply_flag and result.get("results"):
+        from kb.autocommit import maybe_auto_commit
+        from kb.user_config import KbxConfig, find_config, load_config
+
+        _config_path = find_config()
+        _cfg = load_config(_config_path) if _config_path else KbxConfig()
+        _sha = maybe_auto_commit(
+            project_root,
+            operation="correct",
+            target=f'"{term}" → "{replacement}"',
+            config=_cfg.writes,
+            no_commit=no_commit,
+            file_count=int(result["meta"].get("files") or len(result["results"])),
+        )
+        if _sha:
+            click.echo(f"  auto-committed {_sha[:8]}", err=True)
 
     meta = result["meta"]
     action = meta.get("action", "scan")
