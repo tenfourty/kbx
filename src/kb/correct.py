@@ -290,10 +290,9 @@ def apply_corrections(
             changed_paths=[],
         )
 
-    files_changed = 0
+    # Phase 1 — prepare: read + compute every change in memory; write nothing yet.
+    planned: list[tuple[Path, str, str, str]] = []  # (full_path, rel_path, original, new)
     total_replaced = 0
-    changed_paths: list[str] = []
-
     for match in matches:
         full_path = memory_root / match.rel_path
         try:
@@ -309,18 +308,32 @@ def apply_corrections(
 
         new_content, count = pattern.subn(lambda _: new_term, content)
         if count > 0:
-            _atomic_write(full_path, new_content)
-            files_changed += 1
+            planned.append((full_path, match.rel_path, content, new_content))
             total_replaced += count
-            changed_paths.append(match.rel_path)
+
+    # Phase 2 — commit: write all planned changes; on any write failure, restore the
+    # files already written so the batch is all-or-nothing (#1 COW atomicity).
+    written: list[tuple[Path, str]] = []  # (full_path, original) for rollback
+    changed_paths: list[str] = []
+    try:
+        for full_path, rel_path, original, new_content in planned:
+            _atomic_write(full_path, new_content)
+            written.append((full_path, original))
+            changed_paths.append(rel_path)
+    except OSError:
+        for fp, original in reversed(written):
+            # Best-effort restore; originals are held in memory.
+            with contextlib.suppress(OSError):
+                _atomic_write(fp, original)
+        raise
 
     result = CorrectionResult(
-        files_changed=files_changed,
+        files_changed=len(written),
         occurrences_replaced=total_replaced,
         changed_paths=changed_paths,
     )
 
-    if log_path is not None and files_changed > 0:
+    if log_path is not None and result.files_changed > 0:
         _write_audit_log(log_path, matches[0].search_term, new_term, result)
 
     return result
