@@ -52,6 +52,8 @@ def _fmt_result(idx: int, result: SearchResult) -> list[str]:
     lines.append(_explain_component_line(explain))
     lines.append(_explain_blend_line(explain))
     lines.append(_explain_signal_line(explain))
+    if explain.matched_terms:
+        lines.append(_explain_terms_line(explain))
     return lines
 
 
@@ -86,6 +88,20 @@ def _explain_signal_line(explain: SearchExplain) -> str:
         f"Entity boost: {boost}    "
         f"Final: {explain.final_score:.3f}"
     )
+
+
+def _explain_terms_line(explain: SearchExplain) -> str:
+    """Per-term match detail: which query terms matched and where (#3)."""
+    parts: list[str] = []
+    for tm in explain.matched_terms:
+        locs: list[str] = []
+        for loc in tm.locations:
+            if loc == "body" and tm.body_count:
+                locs.append(f"body:{tm.body_count}")
+            else:
+                locs.append(loc)
+        parts.append(f"{tm.term} ({', '.join(locs)})")
+    return "       Terms:   " + " · ".join(parts)
 
 
 def _fmt_meta(response: SearchResponse) -> list[str]:

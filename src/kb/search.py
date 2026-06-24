@@ -16,6 +16,7 @@ from kb.types import (
     SearchResponse,
     SearchResult,
     TermHit,
+    TermMatch,
     VectorNearMiss,
     ZeroResultDiagnostics,
 )
@@ -251,6 +252,35 @@ def _build_fts_query(query: str, extra_or_terms: list[str] | None = None) -> lis
             variants.append(or_extra)
 
     return variants
+
+
+def _compute_term_matches(query: str, title: str, content: str) -> list[TermMatch]:
+    """Which query terms appear in this result's title/body (issue #3 per-term detail).
+
+    Uses portable Python word-boundary matching (``re`` ``\\b``), not FTS5 offsets, so it
+    is engine-independent and works for both FTS- and vector-sourced results. Only terms
+    that match somewhere are returned; ``body_count`` is whole-word occurrences in the body.
+    """
+    title_l = title.lower()
+    content_l = content.lower()
+    out: list[TermMatch] = []
+    seen: set[str] = set()
+    for tok in re.findall(r"\w+", query):
+        key = tok.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        pat = re.compile(r"\b" + re.escape(key) + r"\b")
+        in_title = bool(pat.search(title_l))
+        body_count = len(pat.findall(content_l))
+        locations: list[str] = []
+        if in_title:
+            locations.append("title")
+        if body_count:
+            locations.append("body")
+        if locations:
+            out.append(TermMatch(term=tok, locations=locations, body_count=body_count))
+    return out
 
 
 def _resolve_doc_ids_for_path(db: Database, path_filter: str | None) -> set[int] | None:
@@ -1039,6 +1069,7 @@ def search(
                 fts_weight=fts_weight,
                 vector_weight=vector_weight,
                 recency=recency,
+                matched_terms=_compute_term_matches(query, info["title"], info["content"]),
             )
 
         results.append(

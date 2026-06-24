@@ -114,6 +114,18 @@ class IndexResult(StrictMutable):
 # ---------------------------------------------------------------------------
 
 
+class TermMatch(StrictFrozen):
+    """Which query term matched where, within a single result (issue #3 per-term detail).
+
+    ``locations`` is a subset of ``["title", "body"]``; ``body_count`` is the number
+    of whole-word occurrences in the matched chunk body (0 when matched in the title only).
+    """
+
+    term: str
+    locations: list[str]
+    body_count: int
+
+
 class SearchExplain(StrictFrozen):
     """Per-result scoring breakdown — populated when ``explain=True``.
 
@@ -137,6 +149,7 @@ class SearchExplain(StrictFrozen):
     fts_weight: float
     vector_weight: float
     recency: float
+    matched_terms: list[TermMatch] = []  # query terms matched in this result (#3)
 
 
 class SearchResult(StrictFrozen):
