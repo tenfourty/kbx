@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.7](https://github.com/tenfourty/kbx/compare/kbx-v0.3.6...kbx-v0.3.7) (2026-06-24)
+
+
+### Features
+
+* **writes:** auto-commit person/project create/edit/delete (refs [#1](https://github.com/tenfourty/kbx/issues/1)) ([#27](https://github.com/tenfourty/kbx/issues/27)) ([3170d2c](https://github.com/tenfourty/kbx/commit/3170d2c51110969c08376a97467cda1e0a032e99))
+
 ## [0.3.6](https://github.com/tenfourty/kbx/compare/kbx-v0.3.5...kbx-v0.3.6) (2026-06-24)
 
 
