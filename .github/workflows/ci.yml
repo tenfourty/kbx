@@ -48,6 +48,11 @@ jobs:
       - name: uv.lock public-index guard
         run: bash scripts/check-uv-lock-registry.sh
 
+      - name: PII denylist scan
+        env:
+          PII_DENYLIST: ${{ secrets.PII_DENYLIST }}
+        run: python3 scripts/pii-scan.py
+
   release-please:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest

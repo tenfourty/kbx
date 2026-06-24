@@ -39,6 +39,11 @@ repos:
         language: system
         files: ^uv\.lock$
         pass_filenames: false
+      - id: pii-denylist
+        name: PII denylist scan
+        entry: python3 scripts/pii-scan.py
+        language: system
+        exclude: '^.*\.(png|jpg|jpeg|gif|ico|woff2?|pdf)$'
       - id: ruff-check-pre-push
         name: ruff check (pre-push)
         entry: uv run ruff check .

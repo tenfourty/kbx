@@ -75,6 +75,9 @@ packages = ["src/kb"]
 target-version = "py310"
 line-length = 100
 src = ["src"]
+# Keep the dev-team canonical pii-scan.py byte-identical across repos — don't reformat it.
+extend-exclude = ["scripts/pii-scan.py"]
+force-exclude = true
 
 [tool.ruff.format]
 quote-style = "double"
