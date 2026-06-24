@@ -1904,6 +1904,13 @@ def correct(
     except ValueError as e:
         click.echo(f"Error: {e}", err=True)
         raise SystemExit(1) from None
+    except OSError as e:
+        # Batch write failed mid-apply; apply_corrections rolled the files back (#1 COW).
+        click.echo(
+            f"Error: correction failed and was rolled back — no files were changed ({e}).",
+            err=True,
+        )
+        raise SystemExit(1) from None
     finally:
         kb.close()
 
