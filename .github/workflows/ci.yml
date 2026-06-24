@@ -54,6 +54,34 @@ jobs:
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
 
+      # Keep uv.lock in lockstep with the version release-please writes into
+      # pyproject.toml. Without this the lock lags by a release, and the next
+      # commit's pre-commit `uv run` re-syncs it mid-hook and aborts the commit.
+      - uses: astral-sh/setup-uv@v7
+        if: steps.release.outputs.pr
+        with:
+          python-version: "3.12"
+
+      - name: Sync uv.lock on the release PR
+        if: steps.release.outputs.pr
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          PR_JSON: ${{ steps.release.outputs.pr }}
+          REPO: ${{ github.repository }}
+        run: |
+          PR_NUMBER=$(echo "$PR_JSON" | jq -r '.number')
+          BRANCH=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefName --jq .headRefName)
+          git clone --branch "$BRANCH" "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" rp-sync
+          cd rp-sync
+          uv lock
+          if ! git diff --quiet uv.lock; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add uv.lock
+            git commit -m "chore: sync uv.lock to release version"
+            git push
+          fi
+
       - name: Enable auto-merge on release PR
         if: steps.release.outputs.pr
         env:
