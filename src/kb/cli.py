@@ -1092,6 +1092,36 @@ def _entity_timeline_impl(
     kb_output(result, fmt=fmt, fields=fields, jq_expr=jq_expr)
 
 
+def _autocommit_after_write(
+    operation: str, target: str, *, no_commit: bool = False, file_count: int = 1
+) -> None:
+    """Auto-commit memory changes after a CLI write (issue #1). Best-effort, never fatal."""
+    from kb.autocommit import maybe_auto_commit
+    from kb.user_config import KbxConfig, find_config, load_config
+
+    config_path = find_config()
+    cfg = load_config(config_path) if config_path else KbxConfig()
+    sha = maybe_auto_commit(
+        _find_project_root(),
+        operation=operation,
+        target=target,
+        config=cfg.writes,
+        no_commit=no_commit,
+        file_count=file_count,
+    )
+    if sha:
+        click.echo(f"  auto-committed {sha[:8]} ({operation})", err=True)
+
+
+def _commit_option(f: Callable[..., Any]) -> Callable[..., Any]:
+    """Reusable --no-commit flag for write commands (issue #1)."""
+    return click.option(
+        "--no-commit",
+        is_flag=True,
+        help="Skip the git auto-commit even when [writes].auto_commit is enabled (#1).",
+    )(f)
+
+
 def _entity_create_impl(
     entity_type: str,
     name: str,
@@ -1100,6 +1130,7 @@ def _entity_create_impl(
     fmt: str,
     fields: list[str] | None,
     jq_expr: str | None,
+    no_commit: bool = False,
 ) -> None:
     """Create a new entity via CRUD engine."""
     from kb.crud import EntityExistsError, create_entity
@@ -1116,6 +1147,7 @@ def _entity_create_impl(
     except EntityExistsError as e:
         click.echo(str(e), err=True)
         raise SystemExit(1) from None
+    _autocommit_after_write(f"create-{entity_type}", name, no_commit=no_commit)
     kb_output(result, fmt=fmt, fields=fields, jq_expr=jq_expr)
 
 
@@ -1160,6 +1192,7 @@ def _entity_edit_impl(
     fmt: str,
     fields: list[str] | None,
     jq_expr: str | None,
+    no_commit: bool = False,
 ) -> None:
     """Edit an entity's metadata via CRUD engine."""
     from kb.crud import EntityNotFoundError, edit_entity
@@ -1175,10 +1208,13 @@ def _entity_edit_impl(
     except EntityNotFoundError as e:
         click.echo(str(e), err=True)
         raise SystemExit(1) from None
+    _autocommit_after_write(
+        f"edit-{result.get('entity_type', 'entity')}", name, no_commit=no_commit
+    )
     kb_output(result, fmt=fmt, fields=fields, jq_expr=jq_expr)
 
 
-def _entity_delete_impl(name: str) -> None:
+def _entity_delete_impl(name: str, no_commit: bool = False) -> None:
     """Delete an entity via CRUD engine."""
     from kb.crud import EntityNotFoundError, delete_entity
 
@@ -1187,6 +1223,9 @@ def _entity_delete_impl(name: str) -> None:
     except EntityNotFoundError as e:
         click.echo(str(e), err=True)
         raise SystemExit(1) from None
+    _autocommit_after_write(
+        f"delete-{result.get('entity_type', 'entity')}", str(result["name"]), no_commit=no_commit
+    )
     click.echo(f"Deleted: {result['name']}")
 
 
@@ -1220,6 +1259,7 @@ def person() -> None:
 @click.option("--reports-to", default=None)
 @click.option("--company", default=None)
 @output_options
+@_commit_option
 def person_create(
     name: str,
     role: str | None,
@@ -1228,6 +1268,7 @@ def person_create(
     aliases: tuple[str, ...],
     reports_to: str | None,
     company: str | None,
+    no_commit: bool,
     fmt: str,
     fields: list[str] | None,
     jq_expr: str | None,
@@ -1244,7 +1285,9 @@ def person_create(
         }.items()
         if v
     }
-    _entity_create_impl("person", name, metadata, list(aliases), fmt, fields, jq_expr)
+    _entity_create_impl(
+        "person", name, metadata, list(aliases), fmt, fields, jq_expr, no_commit=no_commit
+    )
 
 
 @person.command("edit")
@@ -1257,6 +1300,7 @@ def person_create(
 @click.option("--company", default=None)
 @click.option("--meta", "meta_pairs", multiple=True, help="Custom key=value metadata.")
 @output_options
+@_commit_option
 def person_edit(
     name: str,
     role: str | None,
@@ -1266,6 +1310,7 @@ def person_edit(
     reports_to: str | None,
     company: str | None,
     meta_pairs: tuple[str, ...],
+    no_commit: bool,
     fmt: str,
     fields: list[str] | None,
     jq_expr: str | None,
@@ -1283,15 +1328,16 @@ def person_edit(
         if v
     }
     _merge_meta_pairs(metadata, meta_pairs)
-    _entity_edit_impl(name, metadata, list(aliases), fmt, fields, jq_expr)
+    _entity_edit_impl(name, metadata, list(aliases), fmt, fields, jq_expr, no_commit=no_commit)
 
 
 @person.command("delete")
 @click.argument("name")
 @click.confirmation_option(prompt="Are you sure you want to delete this person?")
-def person_delete(name: str) -> None:
+@_commit_option
+def person_delete(name: str, no_commit: bool) -> None:
     """Delete a person (file + database)."""
-    _entity_delete_impl(name)
+    _entity_delete_impl(name, no_commit=no_commit)
 
 
 @person.command("find")
@@ -1363,6 +1409,7 @@ def project() -> None:
     "--source", "source_args", multiple=True, help="External source (TYPE:URL or TYPE:key=val,...)."
 )
 @output_options
+@_commit_option
 def project_create(
     name: str,
     status: str | None,
@@ -1370,6 +1417,7 @@ def project_create(
     codename: str | None,
     started: str | None,
     source_args: tuple[str, ...],
+    no_commit: bool,
     fmt: str,
     fields: list[str] | None,
     jq_expr: str | None,
@@ -1381,7 +1429,9 @@ def project_create(
     if source_args:
         metadata["sources"] = _parse_source_args(source_args)
     aliases = [codename] if codename else []
-    _entity_create_impl("project", name, metadata, aliases, fmt, fields, jq_expr)
+    _entity_create_impl(
+        "project", name, metadata, aliases, fmt, fields, jq_expr, no_commit=no_commit
+    )
 
 
 @project.command("edit")
@@ -1401,6 +1451,7 @@ def project_create(
     "--remove-source", "remove_sources", multiple=True, help="Remove source by TYPE or TYPE:ID."
 )
 @output_options
+@_commit_option
 def project_edit(
     name: str,
     status: str | None,
@@ -1410,6 +1461,7 @@ def project_edit(
     meta_pairs: tuple[str, ...],
     source_args: tuple[str, ...],
     remove_sources: tuple[str, ...],
+    no_commit: bool,
     fmt: str,
     fields: list[str] | None,
     jq_expr: str | None,
@@ -1423,15 +1475,16 @@ def project_edit(
         metadata["__source_add"] = _parse_source_args(source_args) if source_args else []
         metadata["__remove_sources"] = list(remove_sources) if remove_sources else []
     aliases = [codename] if codename else []
-    _entity_edit_impl(name, metadata, aliases, fmt, fields, jq_expr)
+    _entity_edit_impl(name, metadata, aliases, fmt, fields, jq_expr, no_commit=no_commit)
 
 
 @project.command("delete")
 @click.argument("name")
 @click.confirmation_option(prompt="Are you sure you want to delete this project?")
-def project_delete(name: str) -> None:
+@_commit_option
+def project_delete(name: str, no_commit: bool) -> None:
     """Delete a project (file + database)."""
-    _entity_delete_impl(name)
+    _entity_delete_impl(name, no_commit=no_commit)
 
 
 @project.command("find")
