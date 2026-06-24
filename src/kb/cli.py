@@ -1553,13 +1553,21 @@ def glossary() -> None:
 @click.argument("expansion")
 @click.option("--section", default="Acronyms", help="Glossary section heading.")
 @output_options
+@_commit_option
 def glossary_add(
-    term: str, expansion: str, section: str, fmt: str, fields: list[str] | None, jq_expr: str | None
+    term: str,
+    expansion: str,
+    section: str,
+    no_commit: bool,
+    fmt: str,
+    fields: list[str] | None,
+    jq_expr: str | None,
 ) -> None:
     """Add a term to the glossary."""
     from kb.glossary import add_term
 
     result = add_term(_find_project_root(), term, expansion, section=section)
+    _autocommit_after_write("add-glossary", term, no_commit=no_commit)
     kb_output(result, fmt=fmt, fields=fields, jq_expr=jq_expr)
 
 
@@ -1578,7 +1586,8 @@ def glossary_list(fmt: str, fields: list[str] | None, jq_expr: str | None) -> No
 
 @glossary.command("delete")
 @click.argument("term")
-def glossary_delete(term: str) -> None:
+@_commit_option
+def glossary_delete(term: str, no_commit: bool) -> None:
     """Delete a term from the glossary."""
     from kb.glossary import delete_term
 
@@ -1587,6 +1596,7 @@ def glossary_delete(term: str) -> None:
     except ValueError as e:
         click.echo(str(e), err=True)
         raise SystemExit(1) from None
+    _autocommit_after_write("delete-glossary", term, no_commit=no_commit)
     click.echo(f"Deleted: {term}")
 
 
@@ -1594,8 +1604,14 @@ def glossary_delete(term: str) -> None:
 @click.argument("term")
 @click.argument("expansion")
 @output_options
+@_commit_option
 def glossary_edit(
-    term: str, expansion: str, fmt: str, fields: list[str] | None, jq_expr: str | None
+    term: str,
+    expansion: str,
+    no_commit: bool,
+    fmt: str,
+    fields: list[str] | None,
+    jq_expr: str | None,
 ) -> None:
     """Update an existing glossary term's expansion."""
     from kb.glossary import edit_term
@@ -1605,6 +1621,7 @@ def glossary_edit(
     except ValueError as e:
         click.echo(str(e), err=True)
         raise SystemExit(1) from None
+    _autocommit_after_write("edit-glossary", term, no_commit=no_commit)
     kb_output(result, fmt=fmt, fields=fields, jq_expr=jq_expr)
 
 
@@ -2057,6 +2074,7 @@ def memory() -> None:
 @click.option("--tags", "tags_str", default=None, help="Comma-separated tags.")
 @click.option("--pin", "pin_flag", is_flag=True, help="Pin this note to context.")
 @click.option("--date", "fact_date", default=None, help="Date (YYYY-MM-DD, default: today).")
+@_commit_option
 def memory_add(
     text: str,
     entity_name: str | None,
@@ -2064,6 +2082,7 @@ def memory_add(
     tags_str: str | None,
     pin_flag: bool,
     fact_date: str | None,
+    no_commit: bool,
 ) -> None:
     """Record a fact about an entity, or create a searchable note.
 
@@ -2088,6 +2107,7 @@ def memory_add(
             except ValueError as e:
                 click.echo(str(e), err=True)
                 raise SystemExit(1) from None
+            _autocommit_after_write("add-fact", str(result["entity"]), no_commit=no_commit)
             return
 
         # Read body from stdin if -
@@ -2107,6 +2127,7 @@ def memory_add(
         click.echo(f"Note created: {result['path']}", err=True)
         if pin_flag:
             click.echo("Pinned to context.", err=True)
+        _autocommit_after_write("create-note", text, no_commit=no_commit)
     finally:
         kb.close()
 
@@ -2224,10 +2245,12 @@ def memory_similar_cmd(
 @click.argument("fact_seq", type=int)
 @click.option("--force", is_flag=True, help="Skip confirmation prompt.")
 @output_options
+@_commit_option
 def memory_delete_fact(
     entity_name: str,
     fact_seq: int,
     force: bool,
+    no_commit: bool,
     fmt: str,
     fields: list[str] | None,
     jq_expr: str | None,
@@ -2245,6 +2268,7 @@ def memory_delete_fact(
             click.echo(f"Deleted fact #{fact_seq} on '{entity_name}'.", err=True)
         else:
             kb_output(result, fmt=fmt, fields=fields, jq_expr=jq_expr)
+        _autocommit_after_write("delete-fact", entity_name, no_commit=no_commit)
     except ValueError as e:
         click.echo(str(e), err=True)
         raise SystemExit(1) from None
@@ -2258,11 +2282,13 @@ def memory_delete_fact(
 @click.option("--text", default=None, help="New fact text.")
 @click.option("--date", "fact_date", default=None, help="New fact date (YYYY-MM-DD).")
 @output_options
+@_commit_option
 def memory_edit_fact(
     entity_name: str,
     fact_seq: int,
     text: str | None,
     fact_date: str | None,
+    no_commit: bool,
     fmt: str,
     fields: list[str] | None,
     jq_expr: str | None,
@@ -2281,6 +2307,7 @@ def memory_edit_fact(
             click.echo(f"Updated fact #{fact_seq} on '{entity_name}'.", err=True)
         else:
             kb_output(result, fmt=fmt, fields=fields, jq_expr=jq_expr)
+        _autocommit_after_write("edit-fact", entity_name, no_commit=no_commit)
     except ValueError as e:
         click.echo(str(e), err=True)
         raise SystemExit(1) from None
@@ -2384,6 +2411,7 @@ def note_list(
 @click.option("--tags", "tags_str", default=None, help="Comma-separated tags (replaces existing).")
 @click.option("--pin/--unpin", "pin_flag", default=None, help="Pin or unpin note.")
 @output_options
+@_commit_option
 def note_edit(
     target: str,
     body: str | None,
@@ -2391,6 +2419,7 @@ def note_edit(
     insert_under: str | None,
     tags_str: str | None,
     pin_flag: bool | None,
+    no_commit: bool,
     fmt: str,
     fields: list[str] | None,
     jq_expr: str | None,
@@ -2433,6 +2462,7 @@ def note_edit(
             click.echo(f"Updated: {result['path']}", err=True)
         else:
             kb_output(result_data, fmt=fmt, fields=fields, jq_expr=jq_expr)
+        _autocommit_after_write("edit-note", str(result["path"]), no_commit=no_commit)
     except ValueError as e:
         click.echo(str(e), err=True)
         raise SystemExit(1) from None
@@ -2444,9 +2474,11 @@ def note_edit(
 @click.argument("target")
 @click.option("--force", is_flag=True, help="Skip confirmation prompt.")
 @output_options
+@_commit_option
 def note_delete(
     target: str,
     force: bool,
+    no_commit: bool,
     fmt: str,
     fields: list[str] | None,
     jq_expr: str | None,
@@ -2495,6 +2527,7 @@ def note_delete(
         click.echo(f"Deleted: {rel_path}", err=True)
     else:
         kb_output(result_data, fmt=fmt, fields=fields, jq_expr=jq_expr)
+    _autocommit_after_write("delete-note", str(rel_path), no_commit=no_commit)
 
 
 # ---------------------------------------------------------------------------

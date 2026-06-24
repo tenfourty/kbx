@@ -2109,6 +2109,90 @@ class TestEntityAutoCommit:
         assert kwargs["operation"].startswith("delete-")
 
 
+class TestWriteAutoCommit:
+    """memory / note / glossary write commands invoke auto-commit with the right op (#1).
+
+    Real git behaviour is in tests/test_autocommit.py; here maybe_auto_commit is mocked.
+    """
+
+    def test_glossary_add_invokes_autocommit(self, runner, notes_env, monkeypatch):
+        from unittest.mock import MagicMock
+
+        _db, root, data_dir = notes_env
+        mock = MagicMock(return_value=None)
+        monkeypatch.setattr("kb.autocommit.maybe_auto_commit", mock)
+        result = invoke_cli_with_root(
+            runner, ["glossary", "add", "TLA", "Three Letter Acronym"], data_dir, root
+        )
+        assert result.exit_code == 0, result.output
+        mock.assert_called_once()
+        _, kwargs = mock.call_args
+        assert kwargs["operation"] == "add-glossary"
+        assert kwargs["target"] == "TLA"
+
+    def test_memory_add_note_invokes_autocommit(self, runner, notes_env, monkeypatch):
+        from unittest.mock import MagicMock
+
+        _db, root, data_dir = notes_env
+        mock = MagicMock(return_value=None)
+        monkeypatch.setattr("kb.autocommit.maybe_auto_commit", mock)
+        result = invoke_cli_with_root(
+            runner, ["memory", "add", "My Note", "--body", "content"], data_dir, root
+        )
+        assert result.exit_code == 0, result.output
+        mock.assert_called_once()
+        _, kwargs = mock.call_args
+        assert kwargs["operation"] == "create-note"
+
+    def test_memory_add_fact_invokes_autocommit(self, runner, notes_env, monkeypatch):
+        from unittest.mock import MagicMock
+
+        from kb.crud import create_entity
+
+        db, root, data_dir = notes_env
+        create_entity(db, root, "person", "Wren")
+        mock = MagicMock(return_value=None)
+        monkeypatch.setattr("kb.autocommit.maybe_auto_commit", mock)
+        result = invoke_cli_with_root(
+            runner, ["memory", "add", "ships fast", "--entity", "Wren"], data_dir, root
+        )
+        assert result.exit_code == 0, result.output
+        mock.assert_called_once()
+        _, kwargs = mock.call_args
+        assert kwargs["operation"] == "add-fact"
+
+    def test_note_edit_invokes_autocommit(self, runner, notes_env, monkeypatch):
+        from unittest.mock import MagicMock
+
+        _db, root, data_dir = notes_env
+        # create a real memory note first (note edit requires doc_type memory_note)
+        invoke_cli_with_root(runner, ["memory", "add", "Scratch", "--body", "x"], data_dir, root)
+        mock = MagicMock(return_value=None)
+        monkeypatch.setattr("kb.autocommit.maybe_auto_commit", mock)
+        result = invoke_cli_with_root(
+            runner, ["note", "edit", "Scratch", "--append", "extra"], data_dir, root
+        )
+        assert result.exit_code == 0, result.output
+        mock.assert_called_once()
+        _, kwargs = mock.call_args
+        assert kwargs["operation"] == "edit-note"
+
+    def test_note_delete_invokes_autocommit(self, runner, notes_env, monkeypatch):
+        from unittest.mock import MagicMock
+
+        _db, root, data_dir = notes_env
+        invoke_cli_with_root(runner, ["memory", "add", "Scratch", "--body", "x"], data_dir, root)
+        mock = MagicMock(return_value=None)
+        monkeypatch.setattr("kb.autocommit.maybe_auto_commit", mock)
+        result = invoke_cli_with_root(
+            runner, ["note", "delete", "Scratch", "--force"], data_dir, root
+        )
+        assert result.exit_code == 0, result.output
+        mock.assert_called_once()
+        _, kwargs = mock.call_args
+        assert kwargs["operation"] == "delete-note"
+
+
 class TestDocumentPin:
     def test_pin_by_path(self, runner, notes_env):
         """kb pin <path> sets the pinned flag."""
