@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.3.0](https://github.com/tenfourty/kbx/compare/kbx-v0.2.13...kbx-v0.3.0) (2026-06-24)
+
+
+### ⚠ BREAKING CHANGES
+
+* **embeddings:** document and query embeddings changed; existing indexes must be rebuilt with `kbx index run --full`. The internal embed() instruction parameter was removed (documents are always raw now).
+
+### Features
+
+* **playbook:** name _AGENT_PLAYBOOK contract sections for stable anchoring ([#6](https://github.com/tenfourty/kbx/issues/6)) ([598646c](https://github.com/tenfourty/kbx/commit/598646c29c181439d9588beaf85eeacd99974bd6)), closes [#5](https://github.com/tenfourty/kbx/issues/5)
+* **search:** zero-result diagnostics for --explain (refs [#3](https://github.com/tenfourty/kbx/issues/3)) ([#7](https://github.com/tenfourty/kbx/issues/7)) ([4708e68](https://github.com/tenfourty/kbx/commit/4708e68b64138e77a3c06cd120ad5774cc41658e))
+
+
+### Bug Fixes
+
+* **embeddings:** use MLX on Python 3.14, embed documents raw per spec ([27afb81](https://github.com/tenfourty/kbx/commit/27afb810b1b10f331d065ad403c461d098951718))
+
 ## [0.2.13](https://github.com/tenfourty/kbx/compare/kbx-v0.2.12...kbx-v0.2.13) (2026-05-25)
 
 
