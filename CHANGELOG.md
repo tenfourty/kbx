@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.9](https://github.com/tenfourty/kbx/compare/kbx-v0.3.8...kbx-v0.3.9) (2026-06-24)
+
+
+### Features
+
+* **writes:** all-or-nothing batch corrections (refs [#1](https://github.com/tenfourty/kbx/issues/1)) ([#31](https://github.com/tenfourty/kbx/issues/31)) ([69dbd86](https://github.com/tenfourty/kbx/commit/69dbd860241cc1ef8603da9afe6dc4ccd6c766ce))
+
 ## [0.3.8](https://github.com/tenfourty/kbx/compare/kbx-v0.3.7...kbx-v0.3.8) (2026-06-24)
 
 
