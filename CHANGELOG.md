@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.10](https://github.com/tenfourty/kbx/compare/kbx-v0.3.9...kbx-v0.3.10) (2026-06-24)
+
+
+### Bug Fixes
+
+* **correct:** graceful message when a batch correction rolls back (refs [#1](https://github.com/tenfourty/kbx/issues/1)) ([#33](https://github.com/tenfourty/kbx/issues/33)) ([6df1412](https://github.com/tenfourty/kbx/commit/6df1412c3b27c10c469cea995c0aa1ec9c151062))
+
 ## [0.3.9](https://github.com/tenfourty/kbx/compare/kbx-v0.3.8...kbx-v0.3.9) (2026-06-24)
 
 
