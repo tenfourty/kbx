@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.4](https://github.com/tenfourty/kbx/compare/kbx-v0.3.3...kbx-v0.3.4) (2026-06-24)
+
+
+### Features
+
+* **search:** per-phase timing breakdown under --explain --verbose (refs [#3](https://github.com/tenfourty/kbx/issues/3)) ([#21](https://github.com/tenfourty/kbx/issues/21)) ([e543dd1](https://github.com/tenfourty/kbx/commit/e543dd1d66ab1e151192596d502b0bc7b02f802d))
+
 ## [0.3.3](https://github.com/tenfourty/kbx/compare/kbx-v0.3.2...kbx-v0.3.3) (2026-06-24)
 
 
