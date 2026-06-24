@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.3](https://github.com/tenfourty/kbx/compare/kbx-v0.3.2...kbx-v0.3.3) (2026-06-24)
+
+
+### Features
+
+* **search:** per-term match detail in --explain (refs [#3](https://github.com/tenfourty/kbx/issues/3)) ([#18](https://github.com/tenfourty/kbx/issues/18)) ([b290066](https://github.com/tenfourty/kbx/commit/b2900660bdf5ae23030ab32746ff2595e5748355))
+
 ## [0.3.2](https://github.com/tenfourty/kbx/compare/kbx-v0.3.1...kbx-v0.3.2) (2026-06-24)
 
 
