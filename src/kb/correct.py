@@ -2,7 +2,7 @@
 
 Scans memory/ for literal string occurrences and applies replacements
 with atomic file writes. Designed for fixing STT garbles (e.g. Quartz Indexer →
-Coralogix) and entity name corrections (e.g. Bram → Bram).
+Datalux) and entity name corrections (e.g. Bram → Bram).
 """
 
 from __future__ import annotations

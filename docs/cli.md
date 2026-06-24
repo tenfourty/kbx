@@ -160,8 +160,8 @@ kbx note delete "title"
 
 ```bash
 kbx correct "Quartz Indexer" --json             # scan: list all occurrences
-kbx correct "Quartz Indexer" "Coralogix"        # dry-run: preview replacements
-kbx correct "Quartz Indexer" "Coralogix" --apply  # execute replacements
+kbx correct "Quartz Indexer" "Datalux"        # dry-run: preview replacements
+kbx correct "Quartz Indexer" "Datalux" --apply  # execute replacements
 kbx correct "Bram" --word-boundary --json  # whole-word matches only
 ```
 
