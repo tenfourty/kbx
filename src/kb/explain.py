@@ -19,6 +19,7 @@ if TYPE_CHECKING:
         SearchExplain,
         SearchResponse,
         SearchResult,
+        WhyNotDiagnostics,
         ZeroResultDiagnostics,
     )
 
@@ -148,6 +149,18 @@ def _fmt_meta(response: SearchResponse) -> list[str]:
     return lines
 
 
+def _fmt_why_not(wn: WhyNotDiagnostics) -> list[str]:
+    """Render why-not diagnostics for a targeted document (#3 why-not mode)."""
+    lines = ["", f'Why-not "{wn.path}": {wn.status}']
+    if wn.rank is not None:
+        rank_part = f"  rank #{wn.rank}"
+        if wn.cutoff is not None:
+            rank_part += f" (cutoff: top {wn.cutoff})"
+        lines.append(rank_part)
+    lines.append(f"  {wn.detail}")
+    return lines
+
+
 def _fmt_zero_result_diagnostics(diag: ZeroResultDiagnostics) -> list[str]:
     """Render zero-result diagnostics: per-term FTS coverage, near-misses, suggestions (#3)."""
     lines: list[str] = ["No results — diagnostics:"]
@@ -196,6 +209,8 @@ def format_explain_text(response: SearchResponse) -> str:
     """
     lines: list[str] = []
     lines.extend(_fmt_meta(response))
+    if response.meta.why_not is not None:
+        lines.extend(_fmt_why_not(response.meta.why_not))
 
     if not response.results:
         lines.append("")

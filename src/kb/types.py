@@ -213,6 +213,17 @@ class PhaseTimings(StrictFrozen):
     merge_ms: float  # scoring + fusion + dedup + result building
 
 
+class WhyNotDiagnostics(StrictFrozen):
+    """Why a specific document did/didn't surface for a query (#3 why-not mode)."""
+
+    path: str
+    # "not_indexed" | "ranked" | "below_cutoff" | "no_match" | "filtered_path"
+    status: str
+    detail: str
+    rank: int | None = None  # 1-based score rank (ranked / below_cutoff)
+    cutoff: int | None = None  # the limit, when below_cutoff
+
+
 class SearchMeta(StrictFrozen):
     """Metadata about a search operation."""
 
@@ -239,6 +250,8 @@ class SearchMeta(StrictFrozen):
     zero_result_diagnostics: ZeroResultDiagnostics | None = None
     # Per-phase timing breakdown (#3) — populated only when explain=True AND verbose=True.
     timings: PhaseTimings | None = None
+    # Why-not diagnostics (#3) — populated only when why_not=PATH is requested.
+    why_not: WhyNotDiagnostics | None = None
 
 
 class SearchResponse(StrictFrozen):

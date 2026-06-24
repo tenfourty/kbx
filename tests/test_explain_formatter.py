@@ -64,6 +64,28 @@ class TestExplainFormatter:
         out = format_explain_text(_make_response())
         assert isinstance(out, str)
 
+    def test_renders_why_not(self):
+        """why-not diagnostics render a prominent section (#3)."""
+        from kb.explain import format_explain_text
+        from kb.types import WhyNotDiagnostics
+
+        resp = _make_response(
+            results=[_make_result()],
+            meta_overrides={
+                "why_not": WhyNotDiagnostics(
+                    path="doc4.md",
+                    status="below_cutoff",
+                    rank=2,
+                    cutoff=1,
+                    detail="Indexed and scored, but ranked #2 — below the top 1 cutoff.",
+                )
+            },
+        )
+        out = format_explain_text(resp)
+        assert "doc4.md" in out
+        assert "below_cutoff" in out
+        assert "ranked #2" in out
+
     def test_renders_timing_breakdown(self):
         """--verbose surfaces a per-phase timing breakdown in the meta header (#3)."""
         from kb.explain import format_explain_text

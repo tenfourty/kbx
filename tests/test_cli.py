@@ -357,6 +357,21 @@ class TestSearchCommand:
         assert t["merge_ms"] >= 0.0
         assert t["vector_ms"] is None  # --fast: no vector phase
 
+    def test_search_why_not_json(self, runner, cli_db):
+        """kb search --why-not PATH attaches why-not diagnostics (#3)."""
+        _db, db_path = cli_db
+        result = invoke_cli(
+            runner,
+            ["search", "Rust", "--fast", "--json", "--why-not", "memory/nope/missing.md"],
+            db_path,
+        )
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        wn = data["meta"]["why_not"]
+        assert wn is not None, "why-not diagnostics should be attached"
+        assert wn["status"] == "not_indexed"
+        assert wn["path"] == "memory/nope/missing.md"
+
     def test_search_without_explain_omits_block(self, runner, cli_db):
         """Default search has no explain block — backward compat."""
         _db, db_path = cli_db
