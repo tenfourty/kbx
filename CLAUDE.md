@@ -195,4 +195,6 @@ All write operations go through `KnowledgeBase` methods. CLI and MCP are thin wr
 - **`KB_DATA_DIR`** — env var overrides default `~/.config/kbx/`. Tests use this to isolate
 - **Incremental indexing** — skips unchanged files (by `content_hash`). Use `--full` to force
 - **LanceDB lazy import** — only loaded for vector ops. `--no-embed` skips entirely
-- **Slow tests** — `@pytest.mark.slow` on ML model tests; pre-commit skips them (`-m "not slow"`). Run all with `uv run pytest`
+- **LanceDB `list_tables()`** — returns a `ListTablesResponse`, NOT a list. Check membership via `"name" in db.list_tables().tables`. `db.table_names()` is deprecated.
+- **Entity list-value preservation** — the entity parser keeps YAML list values as Python lists (person + project parsers in `entities.py`); `types.py` metadata fields are `dict[str, Any]`. e.g. `task_keywords: [AI, agentic]` → `metadata['task_keywords'] == ['AI', 'agentic']`, not a stringified list.
+- **Slow tests** — `@pytest.mark.slow` on ML model tests; pre-commit skips them (`-m "not slow"`). Run all with `uv run pytest`. The model-cache check (`conftest._model_cached`) looks in `get_data_dir()/model` (where kbx stores it), so these tests run locally; they skip on CI where the model is absent.
