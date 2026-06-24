@@ -259,6 +259,7 @@ kb note edit "person.md" --insert-under "## Open Items" --body "- [2026-05-25] i
   kb search "query" --vector-weight 2.0 --json  # boost vector (semantic)
   kb search "query" --explain                  # readable per-result scoring breakdown (#68 P2)
   kb search "query" --explain --json           # raw structured explain fields (#68 P1)
+  kb search "query" --explain --verbose        # + per-phase timing breakdown (#3)
   kb search "query" --no-hotness --json        # disable hotness blend (#67)
   kb search "query" --no-hierarchy --json      # force flat (skip Pass 1 entity match, #69)
   kb search "query" --hierarchy-alpha 0.7 --json  # tune doc-vs-entity blend (#69)
@@ -461,6 +462,14 @@ def cli() -> None:
     ),
 )
 @click.option(
+    "--verbose",
+    is_flag=True,
+    help=(
+        "With --explain, add a per-phase timing breakdown (FTS / vector / merge) to the "
+        "meta header. No effect without --explain."
+    ),
+)
+@click.option(
     "--no-hotness",
     is_flag=True,
     help=(
@@ -508,6 +517,7 @@ def search(
     merge_chunks: bool,
     include_overview: bool,
     explain: bool,
+    verbose: bool,
     no_hotness: bool,
     no_hierarchy: bool,
     hierarchy_alpha: float,
@@ -561,6 +571,7 @@ def search(
         include_overview=include_overview,
         highlight=(fmt == "table"),
         explain=explain,
+        verbose=verbose,
         hotness=not no_hotness,
         hierarchy=not no_hierarchy,
         hierarchy_alpha=hierarchy_alpha,

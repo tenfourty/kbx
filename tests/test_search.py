@@ -1765,6 +1765,21 @@ class TestExplain:
             assert set(tm.locations) <= {"title", "body"}
             assert tm.body_count >= 0
 
+    def test_explain_verbose_populates_timings(self, search_db):
+        """search(explain=True, verbose=True) records a per-phase timing breakdown (#3)."""
+        results = search(search_db, None, "MFA", fast=True, explain=True, verbose=True)
+        t = results.meta.timings
+        assert t is not None, "verbose explain should attach phase timings"
+        assert t.fts_ms >= 0.0
+        assert t.merge_ms >= 0.0
+        # fast=True → no vector phase
+        assert t.vector_ms is None
+
+    def test_explain_without_verbose_has_no_timings(self, search_db):
+        """meta.timings stays None without verbose (back-compat)."""
+        results = search(search_db, None, "MFA", fast=True, explain=True)
+        assert results.meta.timings is None
+
     def test_explain_meta_has_search_mode_fast(self, search_db):
         """fast=True reports search_mode='fast'."""
         results = search(search_db, None, "MFA", fast=True, explain=True)
