@@ -33,9 +33,22 @@ EMBEDDING_DIM = 1024
 # Safety cap: truncate at ~2000 tokens to prevent MPS OOM on long texts
 MAX_TEXT_CHARS = 8_000
 
-# Instruction-aware prompts (Qwen3 supports custom task instructions for +1-5% retrieval)
-INDEX_INSTRUCTION = "Represent this document section for retrieval"
+# Qwen3-Embedding is asymmetric: a query is wrapped in an instruction template,
+# a document is embedded as RAW text (per the model card: "no need to add
+# instruction for retrieval documents").  A per-task query instruction adds
+# +1-5% retrieval.  Both backends MUST format identically so their vectors are
+# interchangeable — see _format_query and the parity test.
 QUERY_INSTRUCTION = "Find meeting notes, transcripts, and documents relevant to this query"
+
+
+def _format_query(query: str) -> str:
+    """Wrap a search query in Qwen3's ``Instruct: {task}\\nQuery: {q}`` template.
+
+    Documents are never wrapped (they are embedded raw), so a query and the
+    document it should match land in the embedding space the model was trained
+    on.  Used identically by both backends.
+    """
+    return f"Instruct: {QUERY_INSTRUCTION}\nQuery: {query}"
 
 
 # ---------------------------------------------------------------------------
@@ -51,14 +64,20 @@ def _is_apple_silicon() -> bool:
 def _mlx_available() -> bool:
     """Return True if Apple Silicon AND mlx is importable.
 
-    MLX's C extension can fatal-abort (segfault) on unsupported Python
-    versions (e.g. 3.14+).  We guard with a version check first so the
-    process never reaches the C import.
+    MLX's C extension can fatal-abort (segfault) on a CPython release it has
+    not shipped wheels for yet, so we guard with a pre-import version check —
+    a catchable ImportError the try/except below would handle, but a segfault
+    it would not.
+
+    MLX 0.31.2+ ships cp314 wheels and runs correctly on Python 3.14 (verified
+    GPU compute + Qwen3 embedding parity), so the guard tracks the next
+    *untested* major, 3.15.  When mlx is merely absent or fails a catchable
+    import, the try/except falls back to PyTorch.
     """
     if not _is_apple_silicon():
         return False
-    # MLX doesn't yet support Python 3.14+; importing crashes at C level
-    if sys.version_info >= (3, 14):
+    # Pre-import canary: block only CPython releases MLX has no wheels for yet.
+    if sys.version_info >= (3, 15):
         return False
     try:
         import mlx.core  # noqa: F401
@@ -81,7 +100,6 @@ class _EmbedderBackend(Protocol):
         self,
         texts: list[str],
         batch_size: int | None = None,
-        instruction: str = INDEX_INSTRUCTION,
     ) -> npt.NDArray[np.float32]: ...
 
     def embed_query(self, query: str) -> npt.NDArray[np.float32]: ...
@@ -134,13 +152,13 @@ class _PyTorchBackend:
         self,
         texts: list[str],
         batch_size: int | None = None,
-        instruction: str = INDEX_INSTRUCTION,
     ) -> npt.NDArray[np.float32]:
-        """Embed a list of texts for indexing.
+        """Embed a list of documents for indexing.
 
         Returns L2-normalized float32 array of shape (n, 1024).
-        Uses instruction-aware embedding with configurable task instruction.
-        batch_size defaults to 64 on MPS, 32 on CPU.
+        Documents are embedded as raw text (empty prompt) per the Qwen3 model
+        card; only queries carry an instruction. batch_size defaults to 32 on
+        MPS, 16 on CPU.
 
         On MPS, processes batch_size texts per encode() call with cache
         cleanup between calls to work around the PyTorch MPS memory leak
@@ -162,7 +180,7 @@ class _PyTorchBackend:
                 # CPU or small batch: single encode() call is fine
                 embeddings = model.encode(
                     truncated,
-                    prompt=instruction,
+                    prompt="",
                     normalize_embeddings=True,
                     show_progress_bar=False,
                     batch_size=batch_size,
@@ -176,7 +194,7 @@ class _PyTorchBackend:
                 chunk = truncated[i : i + batch_size]
                 embs = model.encode(
                     chunk,
-                    prompt=instruction,
+                    prompt="",
                     normalize_embeddings=True,
                     show_progress_bar=False,
                     batch_size=batch_size,
@@ -192,7 +210,8 @@ class _PyTorchBackend:
         """Embed a search query.
 
         Returns L2-normalized float32 array of shape (1, 1024).
-        Uses query-specific instruction for better retrieval.
+        The query is wrapped in Qwen3's instruction template and encoded as
+        raw text (empty prompt) so it matches the raw-text document space.
         """
         import numpy as np
         import torch
@@ -200,8 +219,8 @@ class _PyTorchBackend:
         model = self._load()
         with torch.inference_mode():
             embeddings = model.encode(
-                [query],
-                prompt=QUERY_INSTRUCTION,
+                [_format_query(query)],
+                prompt="",
                 normalize_embeddings=True,
                 show_progress_bar=False,
             )
@@ -236,19 +255,18 @@ class _MLXBackend:
             self._tokenizer = tokenizer
         return self._model, self._tokenizer
 
-    def _tokenize_and_run(
-        self, texts: list[str], max_length: int = 512, instruction: str | None = None
-    ) -> npt.NDArray[np.float32]:
-        """Tokenize texts, run through the MLX model, return numpy float32."""
+    def _tokenize_and_run(self, texts: list[str], max_length: int = 512) -> npt.NDArray[np.float32]:
+        """Tokenize texts as-is, run through the MLX model, return numpy float32.
+
+        Callers pre-format their input: documents are passed raw, queries are
+        wrapped with ``_format_query`` before reaching here.
+        """
         import mlx.core as mx
         import numpy as np
 
         model, tokenizer = self._load()
-        formatted = (
-            [f"Instruct: {instruction}\nQuery: {t}" for t in texts] if instruction else texts
-        )
         encoded = tokenizer(
-            formatted,
+            texts,
             padding=True,
             truncation=True,
             max_length=max_length,
@@ -273,9 +291,8 @@ class _MLXBackend:
         self,
         texts: list[str],
         batch_size: int | None = None,
-        instruction: str = INDEX_INSTRUCTION,
     ) -> npt.NDArray[np.float32]:
-        """Embed texts using MLX. Returns L2-normalized float32 (n, 1024)."""
+        """Embed documents using MLX (raw text). Returns float32 (n, 1024)."""
         import numpy as np
 
         truncated = [t[:MAX_TEXT_CHARS] for t in texts]
@@ -286,7 +303,7 @@ class _MLXBackend:
         all_embeddings = []
         for i in range(0, len(truncated), batch_size):
             batch = truncated[i : i + batch_size]
-            all_embeddings.append(self._tokenize_and_run(batch, instruction=instruction))
+            all_embeddings.append(self._tokenize_and_run(batch))
             # Clear Metal cache between batches to prevent memory accumulation
             if len(truncated) > batch_size:
                 self.release_gpu_memory()
@@ -296,8 +313,8 @@ class _MLXBackend:
         return np.concatenate(all_embeddings, axis=0)
 
     def embed_query(self, query: str) -> npt.NDArray[np.float32]:
-        """Embed a search query with instruction prefix."""
-        return self._tokenize_and_run([query], instruction=QUERY_INSTRUCTION)
+        """Embed a search query wrapped in Qwen3's instruction template."""
+        return self._tokenize_and_run([_format_query(query)])
 
     def release_gpu_memory(self) -> None:
         """Clear MLX Metal cache to release unified memory."""
@@ -358,13 +375,12 @@ class Embedder:
         self,
         texts: list[str],
         batch_size: int | None = None,
-        instruction: str = INDEX_INSTRUCTION,
     ) -> npt.NDArray[np.float32]:
-        """Embed a list of texts for indexing.
+        """Embed a list of documents for indexing (raw text, no instruction).
 
         Returns L2-normalized float32 array of shape (n, 1024).
         """
-        return self._get_backend().embed(texts, batch_size=batch_size, instruction=instruction)
+        return self._get_backend().embed(texts, batch_size=batch_size)
 
     def embed_query(self, query: str) -> npt.NDArray[np.float32]:
         """Embed a search query.
