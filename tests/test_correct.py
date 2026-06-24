@@ -369,6 +369,20 @@ class TestCorrectCLI:
         with patch("kb.cli._find_project_root", return_value=project_root):
             return runner.invoke(cli, ["correct", *args], catch_exceptions=False)
 
+    def test_apply_rollback_shows_graceful_error(
+        self, cli_runner: CliRunner, memory_tree: Path, monkeypatch
+    ):
+        """A rolled-back batch (OSError from apply) surfaces a clean message, not a traceback (#1)."""
+        from kb.api import KnowledgeBase
+
+        def boom(self, *a, **k):  # type: ignore[no-untyped-def]
+            raise OSError("disk full (simulated)")
+
+        monkeypatch.setattr(KnowledgeBase, "correct_term", boom)
+        result = self._invoke(cli_runner, memory_tree, ["Quartz Indexer", "Datalux", "--apply"])
+        assert result.exit_code == 1
+        assert "rolled back" in result.output.lower()
+
     def test_scan_json_output(self, cli_runner: CliRunner, memory_tree: Path):
         """kbx correct TERM --json returns structured scan output."""
         result = self._invoke(cli_runner, memory_tree, ["Quartz Indexer", "--json"])
