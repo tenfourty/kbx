@@ -2040,6 +2040,75 @@ def invoke_cli_with_root(runner, args, data_dir, project_root):
         return runner.invoke(cli, args, env=env, catch_exceptions=False)
 
 
+class TestEntityAutoCommit:
+    """person/project create/edit/delete wire auto-commit via the shared impls (#1).
+
+    Real git behaviour is covered by tests/test_autocommit.py; here we assert the
+    CLI invokes the helper with the right operation/target. maybe_auto_commit is
+    mocked, so no git or config is required.
+    """
+
+    def test_person_create_invokes_autocommit(self, runner, notes_env, monkeypatch):
+        from unittest.mock import MagicMock
+
+        _db, root, data_dir = notes_env
+        mock = MagicMock(return_value=None)
+        monkeypatch.setattr("kb.autocommit.maybe_auto_commit", mock)
+        result = invoke_cli_with_root(runner, ["person", "create", "Jane Doe"], data_dir, root)
+        assert result.exit_code == 0, result.output
+        mock.assert_called_once()
+        _, kwargs = mock.call_args
+        assert kwargs["operation"] == "create-person"
+        assert kwargs["target"] == "Jane Doe"
+
+    def test_project_create_invokes_autocommit(self, runner, notes_env, monkeypatch):
+        from unittest.mock import MagicMock
+
+        _db, root, data_dir = notes_env
+        mock = MagicMock(return_value=None)
+        monkeypatch.setattr("kb.autocommit.maybe_auto_commit", mock)
+        result = invoke_cli_with_root(runner, ["project", "create", "Atlas"], data_dir, root)
+        assert result.exit_code == 0, result.output
+        mock.assert_called_once()
+        _, kwargs = mock.call_args
+        assert kwargs["operation"] == "create-project"
+
+    def test_person_edit_invokes_autocommit(self, runner, notes_env, monkeypatch):
+        from unittest.mock import MagicMock
+
+        from kb.crud import create_entity
+
+        db, root, data_dir = notes_env
+        create_entity(db, root, "person", "Jane Doe", metadata={"role": "Engineer"})
+        mock = MagicMock(return_value=None)
+        monkeypatch.setattr("kb.autocommit.maybe_auto_commit", mock)
+        result = invoke_cli_with_root(
+            runner, ["person", "edit", "Jane Doe", "--role", "Lead"], data_dir, root
+        )
+        assert result.exit_code == 0, result.output
+        mock.assert_called_once()
+        _, kwargs = mock.call_args
+        assert kwargs["operation"].startswith("edit-")
+        assert kwargs["target"] == "Jane Doe"
+
+    def test_person_delete_invokes_autocommit(self, runner, notes_env, monkeypatch):
+        from unittest.mock import MagicMock
+
+        from kb.crud import create_entity
+
+        db, root, data_dir = notes_env
+        create_entity(db, root, "person", "Jane Doe", metadata={"role": "Engineer"})
+        mock = MagicMock(return_value=None)
+        monkeypatch.setattr("kb.autocommit.maybe_auto_commit", mock)
+        result = invoke_cli_with_root(
+            runner, ["person", "delete", "Jane Doe", "--yes"], data_dir, root
+        )
+        assert result.exit_code == 0, result.output
+        mock.assert_called_once()
+        _, kwargs = mock.call_args
+        assert kwargs["operation"].startswith("delete-")
+
+
 class TestDocumentPin:
     def test_pin_by_path(self, runner, notes_env):
         """kb pin <path> sets the pinned flag."""
