@@ -141,6 +141,10 @@ def _fmt_meta(response: SearchResponse) -> list[str]:
     if meta.expanded_terms:
         expansions = ", ".join(f"{k}→{v}" for k, v in meta.expanded_terms.items())
         lines.append(f"  glossary expansions: {expansions}")
+    if meta.timings:
+        t = meta.timings
+        vec = f"{t.vector_ms:.1f}ms" if t.vector_ms is not None else "—"
+        lines.append(f"  timings: fts {t.fts_ms:.1f}ms · vector {vec} · merge {t.merge_ms:.1f}ms")
     return lines
 
 

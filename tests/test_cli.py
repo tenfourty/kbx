@@ -341,6 +341,22 @@ class TestSearchCommand:
         all_terms = [tm for r in data["results"] for tm in r["explain"]["matched_terms"]]
         assert any(tm["term"].lower() == "rust" for tm in all_terms), all_terms
 
+    def test_search_explain_verbose_json_has_timings(self, runner, cli_db):
+        """kb search --explain --verbose --json surfaces a per-phase timing breakdown (#3)."""
+        _db, db_path = cli_db
+        result = invoke_cli(
+            runner,
+            ["search", "Rust", "--fast", "--json", "--explain", "--verbose"],
+            db_path,
+        )
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        t = data["meta"]["timings"]
+        assert t is not None, "verbose explain should attach phase timings"
+        assert t["fts_ms"] >= 0.0
+        assert t["merge_ms"] >= 0.0
+        assert t["vector_ms"] is None  # --fast: no vector phase
+
     def test_search_without_explain_omits_block(self, runner, cli_db):
         """Default search has no explain block — backward compat."""
         _db, db_path = cli_db

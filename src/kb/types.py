@@ -205,6 +205,14 @@ class ZeroResultDiagnostics(StrictFrozen):
     suggestions: list[str]
 
 
+class PhaseTimings(StrictFrozen):
+    """Per-phase search latency (ms) — populated when explain=True and verbose=True (#3)."""
+
+    fts_ms: float
+    vector_ms: float | None  # None on --fast (no vector phase)
+    merge_ms: float  # scoring + fusion + dedup + result building
+
+
 class SearchMeta(StrictFrozen):
     """Metadata about a search operation."""
 
@@ -229,6 +237,8 @@ class SearchMeta(StrictFrozen):
     hierarchy_alpha: float | None = None  # blend weight used in Pass 2 (#69)
     # Zero-result diagnostics (#3) — populated only when explain=True AND 0 results.
     zero_result_diagnostics: ZeroResultDiagnostics | None = None
+    # Per-phase timing breakdown (#3) — populated only when explain=True AND verbose=True.
+    timings: PhaseTimings | None = None
 
 
 class SearchResponse(StrictFrozen):

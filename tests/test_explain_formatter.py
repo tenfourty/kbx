@@ -64,6 +64,29 @@ class TestExplainFormatter:
         out = format_explain_text(_make_response())
         assert isinstance(out, str)
 
+    def test_renders_timing_breakdown(self):
+        """--verbose surfaces a per-phase timing breakdown in the meta header (#3)."""
+        from kb.explain import format_explain_text
+        from kb.types import PhaseTimings
+
+        resp = _make_response(
+            results=[_make_result()],
+            meta_overrides={"timings": PhaseTimings(fts_ms=1.2, vector_ms=8.5, merge_ms=2.4)},
+        )
+        out = format_explain_text(resp)
+        assert "fts" in out.lower()
+        assert "1.2" in out  # fts
+        assert "8.5" in out  # vector
+        assert "merge" in out.lower()
+        assert "2.4" in out  # merge
+
+    def test_omits_timing_breakdown_when_absent(self):
+        """No timings line without --verbose (back-compat)."""
+        from kb.explain import format_explain_text
+
+        out = format_explain_text(_make_response(results=[_make_result()]))
+        assert "timings:" not in out
+
     def test_empty_response_mentions_no_results(self):
         from kb.explain import format_explain_text
 

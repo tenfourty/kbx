@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from kb.entities import strip_wikilinks
 from kb.types import (
+    PhaseTimings,
     SearchExplain,
     SearchMeta,
     SearchResponse,
@@ -786,6 +787,7 @@ def search(
     include_overview: bool = False,
     highlight: bool = False,
     explain: bool = False,
+    verbose: bool = False,
     hotness: bool = True,
     hierarchy: bool = True,
     hierarchy_threshold: float = 0.5,
@@ -853,6 +855,7 @@ def search(
 
     # Step 1: FTS5 search
     hook.on_fts_start()
+    _t_fts0 = time.monotonic()
     fts_results = _fts_search(
         db,
         query,
@@ -860,24 +863,30 @@ def search(
         extra_or_terms=expansion_or_terms,
         doc_ids=path_doc_ids,
     )
+    _fts_ms = (time.monotonic() - _t_fts0) * 1000
     hook.on_fts_done(len(fts_results))
 
     # Step 2: Decide whether to do vector search
     vector_results: list[dict[str, Any]] = []
     used_fast_path = fast or _is_strong_signal(fts_results)
+    _vector_ms: float | None = None
 
     if not used_fast_path and embedder is not None:
         # Check if LanceDB has data
         table = db.get_lance_table()
         if table is not None:
             hook.on_vector_start()
+            _t_vec0 = time.monotonic()
             vector_results = _vector_search(
                 db, embedder, query, limit=limit * 5, doc_ids=path_doc_ids
             )
+            _vector_ms = (time.monotonic() - _t_vec0) * 1000
             hook.on_vector_done(len(vector_results))
         else:
             # FTS-only fallback — no vectors available
             print("Warning: No vector index found. Using FTS-only search.", file=sys.stderr)
+
+    _t_merge0 = time.monotonic()
 
     # Build per-chunk component score maps for explain output. Cheap when explain=False
     # because we only iterate the existing result lists.
@@ -1097,7 +1106,17 @@ def search(
     if sort_by == "date":
         results.sort(key=lambda r: r.date or "", reverse=True)
 
-    elapsed_ms = round((time.monotonic() - start_time) * 1000, 1)
+    _t_end = time.monotonic()
+    elapsed_ms = round((_t_end - start_time) * 1000, 1)
+    timings = (
+        PhaseTimings(
+            fts_ms=round(_fts_ms, 2),
+            vector_ms=round(_vector_ms, 2) if _vector_ms is not None else None,
+            merge_ms=round((_t_end - _t_merge0) * 1000, 2),
+        )
+        if (explain and verbose)
+        else None
+    )
 
     # Explain-mode meta (issue #68 Phase 1) — populated only when explain=True.
     if explain:
@@ -1147,6 +1166,7 @@ def search(
             pass1_entities=pass1_entities,
             hierarchy_alpha=hierarchy_alpha if hierarchy_active else None,
             zero_result_diagnostics=zero_diag,
+            timings=timings,
         )
     else:
         meta = SearchMeta(
