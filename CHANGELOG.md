@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.6](https://github.com/tenfourty/kbx/compare/kbx-v0.3.5...kbx-v0.3.6) (2026-06-24)
+
+
+### Features
+
+* **writes:** auto-commit `correct --apply` when enabled (refs [#1](https://github.com/tenfourty/kbx/issues/1)) ([#25](https://github.com/tenfourty/kbx/issues/25)) ([1b0b4d2](https://github.com/tenfourty/kbx/commit/1b0b4d254368978820dfbf9346a155b7551fb856))
+
 ## [0.3.5](https://github.com/tenfourty/kbx/compare/kbx-v0.3.4...kbx-v0.3.5) (2026-06-24)
 
 
