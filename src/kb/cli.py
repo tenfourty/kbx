@@ -334,7 +334,7 @@ kb note edit "person.md" --insert-under "## Open Items" --body "- [2026-05-25] i
   kb correct "Quartz Indexer" "Datalux"                     # dry-run: preview replacements
   kb correct "Quartz Indexer" "Datalux" --apply             # apply: execute replacements
   kb correct "Quartz Indexer" "Datalux" --apply --json      # apply: structured result
-  kb correct "Bram" "Bram" --word-boundary --scope "meetings/2026/02/17/*" --apply
+  kb correct "Brahm" "Bram" --word-boundary --scope "meetings/2026/02/17/*" --apply
   kb correct "datalux" "Datalux" --ignore-case --apply  # case-insensitive replace
 
   JSON scan output includes title, date, attendees, category per match — agent-ready
@@ -1778,7 +1778,7 @@ def correct(
     Replace mode (with REPLACEMENT):
       kb correct "Quartz Indexer" "Datalux"             # dry-run preview
       kb correct "Quartz Indexer" "Datalux" --apply     # apply changes
-      kb correct "Bram" "Bram" --word-boundary --scope "meetings/2026/02/17/*" --apply
+      kb correct "Brahm" "Bram" --word-boundary --scope "meetings/2026/02/17/*" --apply
     """
     from kb.api import KnowledgeBase
 
