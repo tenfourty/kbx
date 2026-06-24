@@ -2202,3 +2202,56 @@ class TestZeroResultDiagnostics:
         # enriched with the real title/path from the fixture document
         assert near[0].title == "Helix Refactor Status"
         assert near[0].path == "doc2.md"
+
+
+class TestWhyNot:
+    """search(why_not=PATH) explains why a specific document did/didn't surface (#3)."""
+
+    def test_why_not_off_by_default(self, search_db):
+        r = search(search_db, None, "MFA", fast=True)
+        assert r.meta.why_not is None
+
+    def test_why_not_not_indexed(self, search_db):
+        r = search(search_db, None, "MFA", fast=True, why_not="memory/nope/missing.md")
+        wn = r.meta.why_not
+        assert wn is not None
+        assert wn.status == "not_indexed"
+        assert wn.path == "memory/nope/missing.md"
+
+    def test_why_not_ranked(self, search_db):
+        r = search(search_db, None, "MFA", fast=True, why_not="doc1.md")
+        wn = r.meta.why_not
+        assert wn is not None
+        assert wn.status == "ranked"
+        assert wn.rank == 1
+
+    def test_why_not_no_match(self, search_db):
+        # doc4 (Atlas Pipeline) has no "MFA" content → indexed but not a candidate
+        r = search(search_db, None, "MFA", fast=True, why_not="doc4.md")
+        wn = r.meta.why_not
+        assert wn is not None
+        assert wn.status == "no_match"
+
+    def test_why_not_below_cutoff(self, search_db):
+        # "refactor" matches doc2 (title+body) and doc4 (body only); doc2 outranks doc4,
+        # so with limit=1 doc4 is a scored candidate that falls below the cutoff.
+        r = search(search_db, None, "refactor", fast=True, limit=1, why_not="doc4.md")
+        wn = r.meta.why_not
+        assert wn is not None
+        assert wn.status == "below_cutoff"
+        assert wn.rank == 2
+        assert wn.cutoff == 1
+
+    def test_why_not_filtered_path(self, search_db):
+        # restrict the search to doc2; ask why doc4 (also a "refactor" match) didn't appear
+        r = search(
+            search_db,
+            None,
+            "refactor",
+            fast=True,
+            path_filter="doc2.md",
+            why_not="doc4.md",
+        )
+        wn = r.meta.why_not
+        assert wn is not None
+        assert wn.status == "filtered_path"

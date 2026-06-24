@@ -19,6 +19,7 @@ from kb.types import (
     TermHit,
     TermMatch,
     VectorNearMiss,
+    WhyNotDiagnostics,
     ZeroResultDiagnostics,
 )
 
@@ -312,6 +313,70 @@ def _resolve_doc_ids_for_path(db: Database, path_filter: str | None) -> set[int]
         (like_pattern,),
     ).fetchall()
     return {row["id"] for row in rows}
+
+
+def _build_why_not_diagnostics(
+    db: Database,
+    target: str,
+    ranked_doc_ids: list[int],
+    enriched: dict[int, dict[str, Any]],
+    path_doc_ids: set[int] | None,
+    limit: int,
+) -> WhyNotDiagnostics:
+    """Explain why ``target`` did or didn't surface for the query (issue #3 why-not mode).
+
+    ``ranked_doc_ids`` is the doc-level candidate ranking (best chunk first), so a
+    target's score rank is its position there. Status is one of: not_indexed, ranked,
+    below_cutoff, no_match, filtered_path.
+    """
+    target_docs = _resolve_doc_ids_for_path(db, target) or set()
+    if not target_docs:
+        return WhyNotDiagnostics(
+            path=target,
+            status="not_indexed",
+            detail="This path is not in the index. Run `kbx index run` to index it.",
+        )
+
+    rank: int | None = None
+    for i, did in enumerate(ranked_doc_ids):
+        if did in target_docs:
+            rank = i + 1
+            break
+
+    if rank is not None:
+        if rank <= limit:
+            return WhyNotDiagnostics(
+                path=target,
+                status="ranked",
+                rank=rank,
+                detail=f"Indexed and returned at rank {rank} (within the top {limit}).",
+            )
+        return WhyNotDiagnostics(
+            path=target,
+            status="below_cutoff",
+            rank=rank,
+            cutoff=limit,
+            detail=(
+                f"Indexed and scored, but ranked #{rank} — below the top {limit} cutoff. "
+                f"Raise --limit to at least {rank} to surface it."
+            ),
+        )
+
+    if path_doc_ids is not None and target_docs.isdisjoint(path_doc_ids):
+        return WhyNotDiagnostics(
+            path=target,
+            status="filtered_path",
+            detail="Excluded by the --path filter — the document is outside the filtered scope.",
+        )
+
+    return WhyNotDiagnostics(
+        path=target,
+        status="no_match",
+        detail=(
+            "Indexed, but no chunk matched the query (no FTS or vector hit). "
+            "Try broader terms, or raise --vector-weight to lean on semantic matching."
+        ),
+    )
 
 
 def _pass1_entity_search(
@@ -788,6 +853,7 @@ def search(
     highlight: bool = False,
     explain: bool = False,
     verbose: bool = False,
+    why_not: str | None = None,
     hotness: bool = True,
     hierarchy: bool = True,
     hierarchy_threshold: float = 0.5,
@@ -1009,6 +1075,17 @@ def search(
     # Sort by score descending (initial ordering)
     scored.sort(key=lambda x: x[1], reverse=True)
 
+    # Why-not (#3): doc-level ranking by best chunk score, captured pre-truncation so a
+    # target document's rank can be reported even when it fell below the limit.
+    why_not_ranked_docs: list[int] = []
+    if why_not is not None:
+        _wn_seen: set[int] = set()
+        for _cid, _ in scored:
+            _did = enriched[_cid]["document_id"]
+            if _did not in _wn_seen:
+                _wn_seen.add(_did)
+                why_not_ranked_docs.append(_did)
+
     # Deduplicate: keep only the best chunk per document, count matching chunks
     doc_chunk_counts: dict[int, int] = {}
     doc_chunk_ids: dict[int, list[int]] = {}  # doc_id -> all matching chunk_ids
@@ -1118,6 +1195,12 @@ def search(
         else None
     )
 
+    why_not_diag = (
+        _build_why_not_diagnostics(db, why_not, why_not_ranked_docs, enriched, path_doc_ids, limit)
+        if why_not is not None
+        else None
+    )
+
     # Explain-mode meta (issue #68 Phase 1) — populated only when explain=True.
     if explain:
         fts_ids = set(fts_score_map.keys())
@@ -1167,6 +1250,7 @@ def search(
             hierarchy_alpha=hierarchy_alpha if hierarchy_active else None,
             zero_result_diagnostics=zero_diag,
             timings=timings,
+            why_not=why_not_diag,
         )
     else:
         meta = SearchMeta(
@@ -1176,6 +1260,7 @@ def search(
             sort_by=sort_by,
             execution_ms=elapsed_ms,
             expanded_terms=expanded_terms,
+            why_not=why_not_diag,
         )
 
     return SearchResponse(results=results, meta=meta)
