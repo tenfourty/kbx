@@ -42,9 +42,22 @@ def _offline_and_no_socks_proxy():
 
 
 def _model_cached() -> bool:
-    """Return True if Qwen3-Embedding-0.6B is in the local HF cache."""
-    hf_cache = Path.home() / ".cache" / "huggingface" / "hub"
-    return (hf_cache / "models--Qwen--Qwen3-Embedding-0.6B").is_dir()
+    """Return True if Qwen3-Embedding-0.6B is available locally.
+
+    kbx stores the model under its own data dir (``get_data_dir()/model`` in HF
+    snapshot layout) — that is where the Embedder loads it from, so check there
+    first.  Fall back to the default HF hub cache for environments that
+    downloaded it there instead.
+    """
+    rel = "models--Qwen--Qwen3-Embedding-0.6B"
+    candidates = [Path.home() / ".cache" / "huggingface" / "hub" / rel]
+    try:
+        from kb.config import get_data_dir
+
+        candidates.insert(0, get_data_dir() / "model" / rel)
+    except Exception:
+        pass
+    return any(c.is_dir() for c in candidates)
 
 
 requires_model = pytest.mark.skipif(

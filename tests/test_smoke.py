@@ -55,21 +55,22 @@ def test_embedder_query():
 
 @_skip_no_model
 @pytest.mark.slow
-def test_embedder_instruction_aware():
-    """Different instructions produce different embeddings."""
-    from kb.embeddings import INDEX_INSTRUCTION, QUERY_INSTRUCTION, Embedder
+def test_embedder_query_document_asymmetry():
+    """A query (Instruct/Query template) and a raw document embedding of the
+    same text are similar but not identical — Qwen3's asymmetric retrieval."""
+    from kb.embeddings import Embedder
 
     e = Embedder()
     text = "MFA implementation progress"
-    idx_emb = e.embed([text], instruction=INDEX_INSTRUCTION)[0]
-    query_emb = e.embed([text], instruction=QUERY_INSTRUCTION)[0]
+    doc_emb = e.embed([text])[0]  # document: raw text, no instruction
+    query_emb = e.embed_query(text)[0]  # query: Instruct/Query template
 
-    # They should be similar but not identical (different instructions)
-    similarity = np.dot(idx_emb, query_emb)
+    # Similar (same content) but not identical (query carries an instruction).
+    similarity = np.dot(doc_emb, query_emb)
     assert similarity > 0.5, (
-        f"Same text with different instructions should still be similar, got {similarity}"
+        f"Same text as query vs document should still be similar, got {similarity}"
     )
-    assert similarity < 1.0 - 1e-5, "Different instructions should produce different embeddings"
+    assert similarity < 1.0 - 1e-5, "Query template should differ from raw document embedding"
 
 
 def test_sqlite_schema():
