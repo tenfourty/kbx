@@ -58,6 +58,18 @@ class SyncConfig(BaseModel):
     granola: GranolaSyncConfig = GranolaSyncConfig()
 
 
+class WritesConfig(BaseModel):
+    """Auto-commit configuration for CLI write operations (issue #1).
+
+    Off by default. When enabled and the memory directory is inside a git repo,
+    each CLI command that mutates memory files makes a single git commit.
+    """
+
+    auto_commit: bool = False
+    auto_commit_message_format: str = "kbx: {operation} {target}"
+    auto_commit_author: str = "kbx <kbx@localhost>"
+
+
 class KbxConfig(BaseModel):
     """Top-level kbx configuration."""
 
@@ -65,6 +77,7 @@ class KbxConfig(BaseModel):
     data: DataConfig = DataConfig()
     user: UserConfig = UserConfig()
     sync: SyncConfig = SyncConfig()
+    writes: WritesConfig = WritesConfig()
 
 
 def find_config(cwd: Path | None = None) -> Path | None:
