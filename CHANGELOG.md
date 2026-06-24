@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2](https://github.com/tenfourty/kbx/compare/kbx-v0.3.1...kbx-v0.3.2) (2026-06-24)
+
+
+### Bug Fixes
+
+* use fictional stand-ins for residual example names ([#14](https://github.com/tenfourty/kbx/issues/14)) ([8d78600](https://github.com/tenfourty/kbx/commit/8d7860050391cb7451f11d3d38097c52d75640a4))
+
 ## [0.3.1](https://github.com/tenfourty/kbx/compare/kbx-v0.3.0...kbx-v0.3.1) (2026-06-24)
 
 
