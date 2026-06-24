@@ -1,0 +1,11 @@
+# Pin this public project to PyPI.
+#
+# This machine's global uv config (~/.config/uv/uv.toml) may point at a private
+# package mirror. Declaring the index here makes kbx resolve against PyPI by
+# default, so a routine `uv lock`/`uv sync` does not pollute uv.lock with
+# internal mirror URLs.
+#
+# Note: environment variables (UV_INDEX / UV_DEFAULT_INDEX) still override this
+# file, so the hard enforcement is scripts/check-uv-lock-registry.sh (run in
+# pre-commit and CI). This pin reduces accidents; the guard prevents leaks.
+index-url = "https://pypi.org/simple"

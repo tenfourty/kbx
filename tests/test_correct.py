@@ -37,9 +37,9 @@ def memory_tree(tmp_path: Path) -> Path:
     )
 
     # meeting with Bram/Bram ambiguity
-    arno_dir = memory / "meetings" / "2026" / "02" / "17"
-    arno_dir.mkdir(parents=True)
-    (arno_dir / "Monthly_Idris___Bramble.notion.transcript.md").write_text(
+    bram_dir = memory / "meetings" / "2026" / "02" / "17"
+    bram_dir.mkdir(parents=True)
+    (bram_dir / "Monthly_Idris___Bramble.notion.transcript.md").write_text(
         "---\ntitle: Monthly Idris & Bramble\ndate: '2026-02-17'\n"
         "attendees:\n- name: Idris Kalmar\n  email: idris@example.com\n"
         "- name: Bramble Holt\n  email: bram@example.com\n---\n"
@@ -127,9 +127,9 @@ class TestScan:
     def test_scan_word_boundary(self, memory_tree: Path):
         """word_boundary=True avoids substring matches."""
         matches = scan(memory_tree, "Bram", word_boundary=True)
-        arno_match = [m for m in matches if "Bram" in m.rel_path]
-        assert arno_match
-        assert arno_match[0].count == 2  # "Bram" appears twice as whole word
+        bram_match = [m for m in matches if "Bram" in m.rel_path]
+        assert bram_match
+        assert bram_match[0].count == 2  # "Bram" appears twice as whole word
 
     def test_scan_scope_glob(self, memory_tree: Path):
         """scope limits scan to matching files."""
@@ -242,7 +242,7 @@ class TestApply:
         )
         assert result.occurrences_replaced > 0
 
-        arno_file = (
+        bram_file = (
             memory_tree
             / "meetings"
             / "2026"
@@ -250,7 +250,7 @@ class TestApply:
             / "17"
             / "Monthly_Idris___Bramble.notion.transcript.md"
         )
-        content = arno_file.read_text(encoding="utf-8")
+        content = bram_file.read_text(encoding="utf-8")
         assert "Hey Bram" in content
         assert "Bram is one of the top" in content
 
@@ -318,9 +318,9 @@ class TestEnrichMatches:
         """enrich_matches() extracts attendees from meeting frontmatter."""
         matches = scan(memory_tree, "Bram", word_boundary=True)
         enriched = enrich_matches(memory_tree, matches)
-        arno = [e for e in enriched if "Bram" in e["rel_path"]]
-        assert arno
-        attendees = arno[0]["attendees"]
+        bram = [e for e in enriched if "Bram" in e["rel_path"]]
+        assert bram
+        attendees = bram[0]["attendees"]
         assert len(attendees) == 2
         names = [a["name"] for a in attendees]
         assert "Bramble Holt" in names

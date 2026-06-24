@@ -33,6 +33,12 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
+      - id: uv-lock-registry
+        name: uv.lock public-index guard
+        entry: scripts/check-uv-lock-registry.sh
+        language: system
+        files: ^uv\.lock$
+        pass_filenames: false
       - id: ruff-check-pre-push
         name: ruff check (pre-push)
         entry: uv run ruff check .

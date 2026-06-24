@@ -27,3 +27,11 @@ htmlcov/
 # Worktrees
 .worktrees/
 .mypy_cache/
+
+# Planning docs — may reference internal detail; keep out of the public repo
+docs/plans/
+
+# Local PII denylist + local config (never committed to the public repo)
+.pii-denylist
+.config.toml
+*.local.toml
