@@ -8,6 +8,7 @@ from kb.types import (
     SearchResponse,
     SearchResult,
     TermHit,
+    TermMatch,
     VectorNearMiss,
     ZeroResultDiagnostics,
 )
@@ -97,6 +98,53 @@ class TestExplainFormatter:
         assert "memory/meetings/2026/02/foo.md" in out
         # Final score appears as a numeric formatted string
         assert "0.847" in out or "0.85" in out
+
+    def test_renders_matched_terms(self):
+        """Per-result explain surfaces which query terms matched and where (#3)."""
+        from kb.explain import format_explain_text
+
+        explain = SearchExplain(
+            fts_score=0.82,
+            vector_score=None,
+            fused_score=0.82,
+            recency_weight=None,
+            entity_boost_applied=False,
+            final_score=0.82,
+            source="fts_only",
+            fts_weight=1.0,
+            vector_weight=1.0,
+            recency=0.0,
+            matched_terms=[
+                TermMatch(term="deployment", locations=["title", "body"], body_count=3),
+                TermMatch(term="timeline", locations=["body"], body_count=2),
+            ],
+        )
+        result = _make_result(score=0.82, explain=explain)
+        out = format_explain_text(_make_response(results=[result]))
+        assert "deployment" in out
+        assert "timeline" in out
+        # body occurrence count is surfaced
+        assert "body:3" in out
+
+    def test_omits_terms_line_when_no_matches(self):
+        """No 'Terms:' line when matched_terms is empty (back-compat)."""
+        from kb.explain import format_explain_text
+
+        explain = SearchExplain(
+            fts_score=0.82,
+            vector_score=None,
+            fused_score=0.82,
+            recency_weight=None,
+            entity_boost_applied=False,
+            final_score=0.82,
+            source="fts_only",
+            fts_weight=1.0,
+            vector_weight=1.0,
+            recency=0.0,
+        )
+        result = _make_result(score=0.82, explain=explain)
+        out = format_explain_text(_make_response(results=[result]))
+        assert "Terms:" not in out
 
     def test_renders_component_scores(self):
         from kb.explain import format_explain_text

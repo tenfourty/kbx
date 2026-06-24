@@ -327,6 +327,20 @@ class TestSearchCommand:
             assert 0.0 <= ex["fts_score"] <= 1.0
             assert ex["final_score"] == pytest.approx(r["score"])
 
+    def test_search_explain_json_has_matched_terms(self, runner, cli_db):
+        """kb search --explain --json surfaces per-term match detail (#3)."""
+        _db, db_path = cli_db
+        result = invoke_cli(
+            runner,
+            ["search", "Rust", "--fast", "--json", "--explain"],
+            db_path,
+        )
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["results"], "expected at least one result for 'Rust'"
+        all_terms = [tm for r in data["results"] for tm in r["explain"]["matched_terms"]]
+        assert any(tm["term"].lower() == "rust" for tm in all_terms), all_terms
+
     def test_search_without_explain_omits_block(self, runner, cli_db):
         """Default search has no explain block — backward compat."""
         _db, db_path = cli_db

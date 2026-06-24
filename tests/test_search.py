@@ -1752,6 +1752,19 @@ class TestExplain:
             assert r.explain.fts_weight == 1.0
             assert r.explain.vector_weight == 1.0
 
+    def test_explain_populates_matched_terms(self, search_db):
+        """search(explain=True) records which query terms matched per result (#3)."""
+        results = search(search_db, None, "MFA", fast=True, explain=True)
+        assert results.results, "expected MFA query to return results"
+        all_terms = [
+            tm for r in results.results for tm in (r.explain.matched_terms if r.explain else [])
+        ]
+        assert any(tm.term.lower() == "mfa" for tm in all_terms), all_terms
+        for tm in all_terms:
+            assert tm.locations, "a matched term must record at least one location"
+            assert set(tm.locations) <= {"title", "body"}
+            assert tm.body_count >= 0
+
     def test_explain_meta_has_search_mode_fast(self, search_db):
         """fast=True reports search_mode='fast'."""
         results = search(search_db, None, "MFA", fast=True, explain=True)
