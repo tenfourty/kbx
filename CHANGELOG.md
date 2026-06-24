@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.8](https://github.com/tenfourty/kbx/compare/kbx-v0.3.7...kbx-v0.3.8) (2026-06-24)
+
+
+### Features
+
+* **writes:** auto-commit memory/note/glossary writes (refs [#1](https://github.com/tenfourty/kbx/issues/1)) ([#29](https://github.com/tenfourty/kbx/issues/29)) ([50e9f4a](https://github.com/tenfourty/kbx/commit/50e9f4a55adddf5c9e264f4a4a4cc8c7d944d4e9))
+
 ## [0.3.7](https://github.com/tenfourty/kbx/compare/kbx-v0.3.6...kbx-v0.3.7) (2026-06-24)
 
 
