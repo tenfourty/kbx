@@ -1729,7 +1729,7 @@ class TestMcpCorrect:
         _, root = mcp_db
         self._create_memory_files(root)
 
-        result = json.loads(handle_kb_correct(root, "Quartz Indexer", replacement="Coralogix"))
+        result = json.loads(handle_kb_correct(root, "Quartz Indexer", replacement="Datalux"))
         assert result["meta"]["action"] == "dry_run"
         assert result["meta"]["total_occurrences"] == 2
 
@@ -1746,13 +1746,13 @@ class TestMcpCorrect:
 
         with patch("kb.config.get_data_dir", return_value=root):
             result = json.loads(
-                handle_kb_correct(root, "Quartz Indexer", replacement="Coralogix", apply=True)
+                handle_kb_correct(root, "Quartz Indexer", replacement="Datalux", apply=True)
             )
         assert result["meta"]["action"] == "applied"
         assert result["meta"]["occurrences_replaced"] == 2
 
         content = (root / "memory" / "notes" / "test.md").read_text()
-        assert "Coralogix" in content
+        assert "Datalux" in content
         assert "Quartz Indexer" not in content
 
     def test_correct_no_matches(self, mcp_db):

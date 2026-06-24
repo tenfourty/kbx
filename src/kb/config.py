@@ -124,7 +124,7 @@ def find_entities(conn: sqlite3.Connection, name: str) -> list[sqlite3.Row]:
     if rows:
         return list(rows)
 
-    # Exact alias match — collect ALL matches (e.g. "Anders" is alias for both Erics)
+    # Exact alias match — collect ALL matches (e.g. "Anders" is an alias shared by two people)
     all_entities = conn.execute("SELECT * FROM entities").fetchall()
     alias_matches = []
     for e in all_entities:

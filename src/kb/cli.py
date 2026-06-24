@@ -331,11 +331,11 @@ kb note edit "person.md" --insert-under "## Open Items" --body "- [2026-05-25] i
   kb correct "Bram" --word-boundary --json               # scan: whole-word matches only
   kb correct "Quartz Indexer" --type transcript --json        # scan: filter by file type
   kb correct "Quartz Indexer" --scope "**/people/*" --json    # scan: filter by path glob
-  kb correct "Quartz Indexer" "Coralogix"                     # dry-run: preview replacements
-  kb correct "Quartz Indexer" "Coralogix" --apply             # apply: execute replacements
-  kb correct "Quartz Indexer" "Coralogix" --apply --json      # apply: structured result
+  kb correct "Quartz Indexer" "Datalux"                     # dry-run: preview replacements
+  kb correct "Quartz Indexer" "Datalux" --apply             # apply: execute replacements
+  kb correct "Quartz Indexer" "Datalux" --apply --json      # apply: structured result
   kb correct "Bram" "Bram" --word-boundary --scope "meetings/2026/02/17/*" --apply
-  kb correct "corelogix" "Coralogix" --ignore-case --apply  # case-insensitive replace
+  kb correct "datalux" "Datalux" --ignore-case --apply  # case-insensitive replace
 
   JSON scan output includes title, date, attendees, category per match — agent-ready
   for disambiguation decisions (e.g. which "Bram" is in this meeting).
@@ -1776,8 +1776,8 @@ def correct(
 
     \b
     Replace mode (with REPLACEMENT):
-      kb correct "Quartz Indexer" "Coralogix"             # dry-run preview
-      kb correct "Quartz Indexer" "Coralogix" --apply     # apply changes
+      kb correct "Quartz Indexer" "Datalux"             # dry-run preview
+      kb correct "Quartz Indexer" "Datalux" --apply     # apply changes
       kb correct "Bram" "Bram" --word-boundary --scope "meetings/2026/02/17/*" --apply
     """
     from kb.api import KnowledgeBase

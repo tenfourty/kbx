@@ -220,7 +220,7 @@ class TestAPIRequests:
         mock_response.json.return_value = {
             "people": [
                 {"name": "Wren Kasper", "email": "wren@example.com"},
-                {"name": "Soren Vance", "email": "thomas@example.com"},
+                {"name": "Soren Vance", "email": "soren@example.com"},
             ],
             "calendar_event": {
                 "title": "Weekly 1:1",
@@ -412,7 +412,7 @@ class TestBuildFrontmatter:
         metadata = {
             "people": [
                 {"name": "Wren Kasper", "email": "wren@example.com"},
-                {"name": "Soren Vance", "email": "thomas@example.com"},
+                {"name": "Soren Vance", "email": "soren@example.com"},
             ],
             "calendar_event": {
                 "title": "Weekly 1:1",
@@ -1280,7 +1280,7 @@ class TestEntityAutoCreation:
         conn = tmp_db.get_sqlite_conn()
         self._seed_entity(conn, "Soren Vance", aliases=["Soren"])
 
-        attendee = {"name": "Soren Vance", "email": "thomas@example.com"}
+        attendee = {"name": "Soren Vance", "email": "soren@example.com"}
         result = match_or_create_attendee(attendee, tmp_db, project_root=None)
 
         assert result is not None
@@ -1380,7 +1380,7 @@ attendees:
   - name: Wren Kasper
     email: wren@example.com
   - name: Soren Vance
-    email: thomas@example.com
+    email: soren@example.com
 calendar_event:
   title: Weekly 1:1
   organiser: wren@example.com
@@ -1439,7 +1439,7 @@ attendees:
   - name: Wren Kasper
     email: wren@example.com
   - name: Soren Vance
-    email: thomas@example.com
+    email: soren@example.com
 ---
 ## Discussion
 

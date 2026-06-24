@@ -53,7 +53,7 @@ def memory_tree(tmp_path: Path) -> Path:
     notes_dir.mkdir(parents=True)
     (notes_dir / "initiatives.md").write_text(
         "---\ntitle: Active Initiatives\ntags: [initiatives]\n---\n"
-        "# Initiatives\n- Coralogix refactor on track\n",
+        "# Initiatives\n- Datalux refactor on track\n",
         encoding="utf-8",
     )
 
@@ -61,7 +61,7 @@ def memory_tree(tmp_path: Path) -> Path:
     people_dir = memory / "people"
     people_dir.mkdir(parents=True)
     (people_dir / "soren-vance.md").write_text(
-        "---\nemail: eric@example.com\nrole: CEO\n---\n"
+        "---\nemail: soren@example.com\nrole: CEO\n---\n"
         "# Soren Vance\n\nDiscussed Quartz Indexer vendor evaluation.\n",
         encoding="utf-8",
     )
@@ -72,14 +72,14 @@ def memory_tree(tmp_path: Path) -> Path:
     (projects_dir / "observability-refactor.md").write_text(
         "---\nname: Observability Refactor\n---\n"
         "# Observability Refactor\n\n"
-        "Migrating from Quartz Indexer to Coralogix.\n"
-        "Granola garbles Coralogix as Quartz Indexer or Chorologix.\n",
+        "Migrating from Quartz Indexer to Datalux.\n"
+        "Granola garbles Datalux as Quartz Indexer or Chorologix.\n",
         encoding="utf-8",
     )
 
     # glossary
     (memory / "glossary.md").write_text(
-        "# Glossary\n\nCoralogix=Observability platform\n",
+        "# Glossary\n\nDatalux=Observability platform\n",
         encoding="utf-8",
     )
 
@@ -174,7 +174,7 @@ class TestApply:
     def test_apply_replaces_in_files(self, memory_tree: Path):
         """apply_corrections() modifies files on disk."""
         matches = scan(memory_tree, "Quartz Indexer")
-        result = apply_corrections(memory_tree, matches, "Coralogix")
+        result = apply_corrections(memory_tree, matches, "Datalux")
         assert result.files_changed > 0
         assert result.occurrences_replaced > 0
 
@@ -189,12 +189,12 @@ class TestApply:
         )
         content = transcript.read_text(encoding="utf-8")
         assert "Quartz Indexer" not in content
-        assert "Coralogix" in content
+        assert "Datalux" in content
 
     def test_apply_preserves_frontmatter(self, memory_tree: Path):
         """apply_corrections() doesn't corrupt YAML frontmatter."""
         matches = scan(memory_tree, "Quartz Indexer")
-        apply_corrections(memory_tree, matches, "Coralogix")
+        apply_corrections(memory_tree, matches, "Datalux")
 
         transcript = (
             memory_tree
@@ -214,7 +214,7 @@ class TestApply:
         apply_corrections(
             memory_tree,
             matches,
-            "Coralogix",
+            "Datalux",
             ignore_case=True,
         )
 
@@ -229,7 +229,7 @@ class TestApply:
         content = summary.read_text(encoding="utf-8")
         assert "Quartz Indexer" not in content
         assert "quartz indexer" not in content
-        assert content.count("Coralogix") >= 2
+        assert content.count("Datalux") >= 2
 
     def test_apply_word_boundary(self, memory_tree: Path):
         """word_boundary replacement only affects whole-word matches."""
@@ -258,20 +258,20 @@ class TestApply:
         """CorrectionResult has correct file and occurrence counts."""
         matches = scan(memory_tree, "Quartz Indexer")
         total_occurrences = sum(m.count for m in matches)
-        result = apply_corrections(memory_tree, matches, "Coralogix")
+        result = apply_corrections(memory_tree, matches, "Datalux")
         assert result.files_changed == len(matches)
         assert result.occurrences_replaced == total_occurrences
 
     def test_apply_no_matches_is_noop(self, memory_tree: Path):
         """apply_corrections() with empty matches changes nothing."""
-        result = apply_corrections(memory_tree, [], "Coralogix")
+        result = apply_corrections(memory_tree, [], "Datalux")
         assert result.files_changed == 0
         assert result.occurrences_replaced == 0
 
     def test_apply_logs_changed_files(self, memory_tree: Path):
         """CorrectionResult includes list of changed file paths."""
         matches = scan(memory_tree, "Quartz Indexer")
-        result = apply_corrections(memory_tree, matches, "Coralogix")
+        result = apply_corrections(memory_tree, matches, "Datalux")
         assert len(result.changed_paths) == result.files_changed
         assert all(isinstance(p, str) for p in result.changed_paths)
 
@@ -407,15 +407,15 @@ class TestCorrectCLI:
 
     def test_dry_run_json(self, cli_runner: CliRunner, memory_tree: Path):
         """kbx correct OLD NEW --json shows dry-run preview."""
-        result = self._invoke(cli_runner, memory_tree, ["Quartz Indexer", "Coralogix", "--json"])
+        result = self._invoke(cli_runner, memory_tree, ["Quartz Indexer", "Datalux", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["meta"]["action"] == "dry_run"
-        assert data["meta"]["replacement"] == "Coralogix"
+        assert data["meta"]["replacement"] == "Datalux"
 
     def test_dry_run_does_not_modify_files(self, cli_runner: CliRunner, memory_tree: Path):
         """Dry-run (no --apply) leaves files unchanged."""
-        self._invoke(cli_runner, memory_tree, ["Quartz Indexer", "Coralogix"])
+        self._invoke(cli_runner, memory_tree, ["Quartz Indexer", "Datalux"])
         transcript = (
             memory_tree
             / "meetings"
@@ -430,7 +430,7 @@ class TestCorrectCLI:
     def test_apply_modifies_files(self, cli_runner: CliRunner, memory_tree: Path):
         """kbx correct OLD NEW --apply actually replaces content."""
         result = self._invoke(
-            cli_runner, memory_tree, ["Quartz Indexer", "Coralogix", "--apply", "--json"]
+            cli_runner, memory_tree, ["Quartz Indexer", "Datalux", "--apply", "--json"]
         )
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -449,7 +449,7 @@ class TestCorrectCLI:
         )
         content = transcript.read_text(encoding="utf-8")
         assert "Quartz Indexer" not in content
-        assert "Coralogix" in content
+        assert "Datalux" in content
 
     def test_scope_flag(self, cli_runner: CliRunner, memory_tree: Path):
         """--scope limits scan to matching files."""
@@ -497,11 +497,11 @@ class TestAuditLog:
 
         log_path = tmp_path / "corrections.log"
         matches = scan(memory_tree, "Quartz Indexer")
-        apply_corrections(memory_tree, matches, "Coralogix", log_path=log_path)
+        apply_corrections(memory_tree, matches, "Datalux", log_path=log_path)
         assert log_path.exists()
         content = log_path.read_text(encoding="utf-8")
         assert "Quartz Indexer" in content
-        assert "Coralogix" in content
+        assert "Datalux" in content
 
     def test_audit_log_contains_timestamp(self, memory_tree: Path, tmp_path: Path):
         """Audit log entry includes an ISO timestamp."""
@@ -509,7 +509,7 @@ class TestAuditLog:
 
         log_path = tmp_path / "corrections.log"
         matches = scan(memory_tree, "Quartz Indexer")
-        apply_corrections(memory_tree, matches, "Coralogix", log_path=log_path)
+        apply_corrections(memory_tree, matches, "Datalux", log_path=log_path)
         content = log_path.read_text(encoding="utf-8")
         # ISO format: 2026-03-03T...
         assert "2026-" in content or "202" in content
@@ -520,7 +520,7 @@ class TestAuditLog:
 
         log_path = tmp_path / "corrections.log"
         matches = scan(memory_tree, "Quartz Indexer")
-        result = apply_corrections(memory_tree, matches, "Coralogix", log_path=log_path)
+        result = apply_corrections(memory_tree, matches, "Datalux", log_path=log_path)
         content = log_path.read_text(encoding="utf-8")
         assert str(result.files_changed) in content
         assert str(result.occurrences_replaced) in content
@@ -531,11 +531,11 @@ class TestAuditLog:
 
         log_path = tmp_path / "corrections.log"
         matches1 = scan(memory_tree, "Quartz Indexer")
-        apply_corrections(memory_tree, matches1, "Coralogix", log_path=log_path)
+        apply_corrections(memory_tree, matches1, "Datalux", log_path=log_path)
         matches2 = scan(memory_tree, "Bram", word_boundary=True)
         apply_corrections(memory_tree, matches2, "Bram", word_boundary=True, log_path=log_path)
         content = log_path.read_text(encoding="utf-8")
-        assert "Coralogix" in content
+        assert "Datalux" in content
         assert "Bram" in content
 
     def test_no_log_when_no_path(self, memory_tree: Path, tmp_path: Path):
@@ -543,7 +543,7 @@ class TestAuditLog:
         from kb.correct import apply_corrections, scan
 
         matches = scan(memory_tree, "Quartz Indexer")
-        apply_corrections(memory_tree, matches, "Coralogix")
+        apply_corrections(memory_tree, matches, "Datalux")
         # No file should be created in tmp_path
         log_files = list(tmp_path.glob("*.log"))
         # memory_tree is under tmp_path, so filter
@@ -647,7 +647,7 @@ class TestApplyJsonSchema:
         with patch("kb.cli._find_project_root", return_value=project_root):
             result = cli_runner.invoke(
                 cli,
-                ["correct", "Quartz Indexer", "Coralogix", "--apply", "--json"],
+                ["correct", "Quartz Indexer", "Datalux", "--apply", "--json"],
                 catch_exceptions=False,
             )
         assert result.exit_code == 0
@@ -665,7 +665,7 @@ class TestApplyJsonSchema:
         with patch("kb.cli._find_project_root", return_value=project_root):
             result = cli_runner.invoke(
                 cli,
-                ["correct", "Quartz Indexer", "Coralogix", "--apply", "--json"],
+                ["correct", "Quartz Indexer", "Datalux", "--apply", "--json"],
                 catch_exceptions=False,
             )
         data = json.loads(result.output)
