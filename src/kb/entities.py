@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -589,6 +590,52 @@ def _boundary_pattern(escaped: str, name: str, flags: int = 0) -> re.Pattern[str
     return re.compile(rf"\b{escaped}(?=\s|$|[^\w])", flags)
 
 
+def _fold_name(text: str) -> str:
+    """Lowercase + strip accents (NFKD → ASCII) for collision detection (#36).
+
+    Used only to *detect* ambiguity between an accented name and its ASCII near-twin
+    (e.g. "Jérémy" / "Jeremy"). Folding here only *widens* the set of entities a bare
+    name could refer to — making the matcher more conservative — never broadening a match.
+    """
+    return unicodedata.normalize("NFKD", text.lower()).encode("ascii", "ignore").decode("ascii")
+
+
+def _is_gateable_single_name(name: str) -> bool:
+    """True for a single-word personal first name that auto-links via content/title today.
+
+    These are the matches #36 gates on ambiguity. Mirrors the inclusion rules in
+    ``_build_name_patterns``: excludes file-stem aliases, short all-caps abbreviations,
+    common English words used as team names, ``src:`` IDs, and names < 4 chars (already
+    skipped for content matching).
+    """
+    if len(name.split()) != 1:
+        return False
+    if len(name) < 4:
+        return False
+    if "-" in name and name == name.lower():
+        return False  # file stem (e.g. "dave-kowalski")
+    if name.isupper() and len(name) <= 4:
+        return False  # abbreviation (e.g. "GG")
+    if name.lower() in _COMMON_WORDS:
+        return False
+    return not name.startswith("src:")
+
+
+def build_first_name_index(entities: list[Entity]) -> dict[str, set[int]]:
+    """Map each folded single first-name → set of entity ids that claim it (#36).
+
+    A folded name owned by 2+ entities is *ambiguous*: a bare occurrence of it in a
+    document can't be attributed to a single person without corroboration. Built once
+    per entity set (like ``build_entity_patterns``) and passed to ``find_entity_mentions``.
+    """
+    owners: dict[str, set[int]] = {}
+    for entity in entities:
+        for name in (entity.name, *entity.aliases):
+            if _is_gateable_single_name(name):
+                owners.setdefault(_fold_name(name), set()).add(entity.id)
+    return owners
+
+
 def _build_name_patterns(entity: Entity) -> list[tuple[re.Pattern[str], int]]:
     """Build regex patterns for matching entity names/aliases in content.
 
@@ -670,6 +717,8 @@ def find_entity_mentions(
     *,
     cached_patterns: list[tuple[re.Pattern[str], Entity]] | None = None,
     suppressed_ids: set[int] | None = None,
+    attendees: list[str] | None = None,
+    name_owners: dict[str, set[int]] | None = None,
 ) -> list[EntityMention]:
     """Find entity mentions in a document's metadata and content.
 
@@ -682,12 +731,24 @@ def find_entity_mentions(
     Pass cached_patterns (from build_entity_patterns()) to avoid recompiling
     regex patterns on every call. If None, patterns are built on the fly.
 
-    Disambiguation: prefer longer alias matches. If ambiguous (e.g. "Anders"),
-    match all possible entities.
+    First-name disambiguation (#36): a *bare* single first name that is **ambiguous**
+    (claimed by 2+ entities — accent-folded, so "Jérémy"/"Jeremy" collide) does not
+    auto-link on its own. It only links if the entity is *corroborated* in the same
+    document — by a tag, title participant, source-ref, full-name match, or by appearing
+    in ``attendees``. Unambiguous bare first names still link as before. Pass
+    ``name_owners`` (from build_first_name_index()) to skip rebuilding the ambiguity map.
     """
     mentions: list[EntityMention] = []
     seen: set[tuple[int, str]] = set()
     _suppressed = suppressed_ids or set()
+    if name_owners is None:
+        name_owners = build_first_name_index(entities)
+
+    # Entities anchored by a strong signal in this doc. A bare ambiguous first name
+    # only links if its entity ends up here (#36). Built incrementally as we go.
+    corroborated: set[int] = set()
+    # Deferred bare-ambiguous matches, resolved once all strong matches are known.
+    pending: list[tuple[int, str]] = []
 
     def _add(entity_id: int, mention_type: str) -> None:
         if entity_id in _suppressed:
@@ -697,7 +758,16 @@ def find_entity_mentions(
             seen.add(key)
             mentions.append(EntityMention(entity_id=entity_id, mention_type=mention_type))
 
-    # 1. Tag matching
+    def _add_strong(entity_id: int, mention_type: str) -> None:
+        """Add a mention and corroborate the entity (rescues its bare-name matches)."""
+        _add(entity_id, mention_type)
+        corroborated.add(entity_id)
+
+    def _is_ambiguous_bare(name: str) -> bool:
+        """A bare first name claimed by 2+ entities (accent-folded) — #36."""
+        return _is_gateable_single_name(name) and len(name_owners.get(_fold_name(name), ())) >= 2
+
+    # 1. Tag matching — explicit annotation, always strong
     for tag in tags:
         tag_lower = tag.lower().strip()
         if not tag_lower:
@@ -705,16 +775,27 @@ def find_entity_mentions(
         for entity in entities:
             all_names = [entity.name.lower()] + [a.lower() for a in entity.aliases]
             if tag_lower in all_names:
-                _add(entity.id, "tagged")
-                continue
-            # Partial match: tag is a first name or short form
-            for name in all_names:
-                if tag_lower == name:
-                    _add(entity.id, "tagged")
-                    break
+                _add_strong(entity.id, "tagged")
 
-    # 2. Title participant parsing
-    # Split on common separators: " / ", " x ", " & ", " vs "
+    # 3.5. Source ID matching — unambiguous, case-sensitive substring check; strong
+    for entity in entities:
+        for alias in entity.aliases:
+            if not alias.startswith("src:"):
+                continue
+            source_id = alias[4:]  # strip "src:" prefix
+            if source_id in content:
+                _add_strong(entity.id, "source_ref")
+                break  # one source_ref match per entity is enough
+
+    # Attendees corroborate (no mention emitted) — #36 context from frontmatter.
+    if attendees:
+        attendee_folded = {_fold_name(a) for a in attendees if a}
+        for entity in entities:
+            candidate = {_fold_name(entity.name), *(_fold_name(a) for a in entity.aliases)}
+            if candidate & attendee_folded:
+                corroborated.add(entity.id)
+
+    # 2. Title participant parsing — split on " / ", " x ", " & ", " vs "
     parts = re.split(r"\s+/\s+|\s+x\s+|\s+&\s+|\s+vs\s+", title, flags=re.IGNORECASE)
     for part in parts:
         part = part.strip()
@@ -722,45 +803,75 @@ def find_entity_mentions(
             continue
         part_lower = part.lower()
         for entity in entities:
-            all_names = [entity.name.lower()] + [a.lower() for a in entity.aliases]
-            if part_lower in all_names or any(
-                re.search(rf"\b{re.escape(n)}\b", part_lower)
-                for n in all_names
-                if len(n) >= 4  # skip very short names for substring matching
-            ):
-                _add(entity.id, "participant")
+            matched_strong = False
+            matched_bare_ambiguous = False
+            for name in [entity.name, *entity.aliases]:
+                n_lower = name.lower()
+                is_exact = part_lower == n_lower
+                is_substr = len(n_lower) >= 4 and (
+                    re.search(rf"\b{re.escape(n_lower)}\b", part_lower) is not None
+                )
+                if not (is_exact or is_substr):
+                    continue
+                if _is_ambiguous_bare(name):
+                    matched_bare_ambiguous = True
+                    continue  # keep looking for a stronger name for this entity
+                # Exact whole-part match or a multi-word name corroborates; an
+                # unambiguous bare substring just links.
+                if is_exact or len(name.split()) >= 2:
+                    _add_strong(entity.id, "participant")
+                else:
+                    _add(entity.id, "participant")
+                matched_strong = True
+                break
+            if matched_bare_ambiguous and not matched_strong:
+                pending.append((entity.id, "participant"))
 
-    # 3. Title substring matching — catch names embedded in the title
-    # e.g. "Anders Sync Notes", "Wren 1:1", "Helix Refactor Review"
+    # 3. Title substring matching — names embedded in the title (e.g. "Wren 1:1")
     title_lower = title.lower()
     for entity in entities:
-        all_names = [entity.name, *list(entity.aliases)]
-        for name in all_names:
+        matched_strong = False
+        matched_bare_ambiguous = False
+        for name in [entity.name, *list(entity.aliases)]:
             # Skip very short names and file-stem aliases
             if len(name) <= 3:
                 continue
             if "-" in name and name == name.lower():
                 continue
-            if re.search(rf"\b{re.escape(name)}\b", title_lower, re.IGNORECASE):
-                _add(entity.id, "title")
-                break  # one match per entity is enough
-
-    # 3.5. Source ID matching — unambiguous, case-sensitive substring check
-    for entity in entities:
-        for alias in entity.aliases:
-            if not alias.startswith("src:"):
+            if not re.search(rf"\b{re.escape(name)}\b", title_lower, re.IGNORECASE):
                 continue
-            source_id = alias[4:]  # strip "src:" prefix
-            if source_id in content:
-                _add(entity.id, "source_ref")
-                break  # one source_ref match per entity is enough
+            if _is_ambiguous_bare(name):
+                matched_bare_ambiguous = True
+                continue  # keep looking for a stronger name for this entity
+            if len(name.split()) >= 2:
+                _add_strong(entity.id, "title")
+            else:
+                _add(entity.id, "title")
+            matched_strong = True
+            break  # one strong match per entity is enough
+        if matched_bare_ambiguous and not matched_strong:
+            pending.append((entity.id, "title"))
 
     # 4. Content name matching with disambiguation
     if cached_patterns is None:
         cached_patterns = build_entity_patterns(entities)
 
     for pattern, entity in cached_patterns:
-        if pattern.search(content):
+        m = pattern.search(content)
+        if m is None:
+            continue
+        matched = m.group(0)
+        if len(matched.split()) == 1 and len(name_owners.get(_fold_name(matched), ())) >= 2:
+            pending.append((entity.id, "discussed"))  # bare ambiguous — defer
+            continue
+        if len(matched.split()) >= 2:
+            _add_strong(entity.id, "discussed")
+        else:
             _add(entity.id, "discussed")
+
+    # Resolve deferred bare-ambiguous matches: link only if corroborated elsewhere.
+    for entity_id, mention_type in pending:
+        if entity_id in corroborated:
+            _add(entity_id, mention_type)
 
     return mentions

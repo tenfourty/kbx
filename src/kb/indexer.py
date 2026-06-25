@@ -13,6 +13,7 @@ from kb.entities import (
     Entity,
     EntityMention,
     build_entity_patterns,
+    build_first_name_index,
     find_entity_mentions,
     load_entities,
     seed_entities,
@@ -178,6 +179,8 @@ def index_all(
         seed_entities(db, project_root)
     entities = load_entities(db)
     entity_patterns = build_entity_patterns(entities)
+    # Ambiguous-first-name index (#36): folded single name → owning entity ids.
+    name_owners = build_first_name_index(entities)
 
     # Entity-link suppressions (#35): per-document "do not link entity X here", kept in a
     # sidecar so they survive reindex + Granola sync. Resolve names → entity ids once.
@@ -322,6 +325,7 @@ def index_all(
             _suppressed_ids = {
                 entity_name_to_id[n] for n in _doc_suppressed if n in entity_name_to_id
             }
+            _attendee_names = [a.get("name", "") for a in doc.attendees if a.get("name")]
             mentions = find_entity_mentions(
                 doc.title,
                 doc.tags,
@@ -329,6 +333,8 @@ def index_all(
                 entities,
                 cached_patterns=entity_patterns,
                 suppressed_ids=_suppressed_ids,
+                attendees=_attendee_names,
+                name_owners=name_owners,
             )
             entity_id_set = {m.entity_id for m in mentions}
             result.entities_linked += len(mentions)
@@ -439,6 +445,7 @@ def index_all(
             if result.entities_created > 0:
                 entities = load_entities(db)
                 entity_patterns = build_entity_patterns(entities)
+                name_owners = build_first_name_index(entities)
             if embedder:
                 embedder.release_gpu_memory()
             gc.collect()
