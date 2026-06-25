@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.11](https://github.com/tenfourty/kbx/compare/kbx-v0.3.10...kbx-v0.3.11) (2026-06-25)
+
+
+### Features
+
+* **entities:** gate ambiguous bare first names on corroboration (refs [#36](https://github.com/tenfourty/kbx/issues/36)) ([#39](https://github.com/tenfourty/kbx/issues/39)) ([5e29f6e](https://github.com/tenfourty/kbx/commit/5e29f6ed6d8cf10727f30d52513a6f105df36623))
+* **entities:** persist false-positive entity↔document unlink (refs [#35](https://github.com/tenfourty/kbx/issues/35)) ([#37](https://github.com/tenfourty/kbx/issues/37)) ([4fe6154](https://github.com/tenfourty/kbx/commit/4fe6154e4dac339568f90e6ef009e219e07508e6))
+
 ## [0.3.10](https://github.com/tenfourty/kbx/compare/kbx-v0.3.9...kbx-v0.3.10) (2026-06-24)
 
 
