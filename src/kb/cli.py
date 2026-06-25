@@ -292,6 +292,8 @@ kb note edit "person.md" --insert-under "## Open Items" --body "- [2026-05-25] i
   kb entity stale --json               # entities not updated/mentioned in 30+ days
   kb entity stale --days 60 --json     # custom threshold
   kb entity stale --type person --json # filter by type
+  kb entity unlink "Name" DOC          # suppress a false-positive entity↔doc match
+  kb entity relink "Name" DOC          # undo a suppression (re-derives on next index)
 
 ## Glossary contract
   kb glossary add "TERM" "expansion"
@@ -1509,8 +1511,69 @@ def project_list(fmt: str, fields: list[str] | None, jq_expr: str | None) -> Non
 
 @cli.group()
 def entity() -> None:
-    """Entity commands — stale detection."""
+    """Entity commands — stale detection, unlink/relink false-positive matches."""
     pass
+
+
+@entity.command("unlink")
+@click.argument("entity_name")
+@click.argument("document")
+@output_options
+@_commit_option
+def entity_unlink(
+    entity_name: str,
+    document: str,
+    no_commit: bool,
+    fmt: str,
+    fields: list[str] | None,
+    jq_expr: str | None,
+) -> None:
+    """Suppress a false-positive entity↔document link.
+
+    Drops the live mention now and records the suppression in a sidecar
+    (memory/.kbx/entity-suppressions.json) so it survives reindex and sync.
+    ENTITY_NAME is the entity name/alias; DOCUMENT is a path, title, or hash.
+    """
+    from kb.api import KnowledgeBase
+
+    kb = KnowledgeBase(data_dir=_get_data_dir(), project_root=_find_project_root())
+    try:
+        result = kb.unlink_entity(entity_name, document)
+    except ValueError as e:
+        click.echo(str(e), err=True)
+        raise SystemExit(1) from None
+    _autocommit_after_write("unlink-entity", f"{entity_name} ✕ {document}", no_commit=no_commit)
+    kb_output(result, fmt=fmt, fields=fields, jq_expr=jq_expr)
+
+
+@entity.command("relink")
+@click.argument("entity_name")
+@click.argument("document")
+@output_options
+@_commit_option
+def entity_relink(
+    entity_name: str,
+    document: str,
+    no_commit: bool,
+    fmt: str,
+    fields: list[str] | None,
+    jq_expr: str | None,
+) -> None:
+    """Remove a suppression so the entity may re-link to the document.
+
+    The link is re-derived on the next index of that document.
+    ENTITY_NAME is the entity name/alias; DOCUMENT is a path, title, or hash.
+    """
+    from kb.api import KnowledgeBase
+
+    kb = KnowledgeBase(data_dir=_get_data_dir(), project_root=_find_project_root())
+    try:
+        result = kb.relink_entity(entity_name, document)
+    except ValueError as e:
+        click.echo(str(e), err=True)
+        raise SystemExit(1) from None
+    _autocommit_after_write("relink-entity", f"{entity_name} ↔ {document}", no_commit=no_commit)
+    kb_output(result, fmt=fmt, fields=fields, jq_expr=jq_expr)
 
 
 @entity.command("stale")

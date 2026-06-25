@@ -35,7 +35,9 @@ kbx
 │   ├── edit <name>          # Edit a project's metadata
 │   └── delete <name>        # Delete a project
 ├── entity
-│   └── stale                # Entities not mentioned recently
+│   ├── stale                # Entities not mentioned recently
+│   ├── unlink <name> <doc>  # Suppress a false-positive entity↔doc match
+│   └── relink <name> <doc>  # Undo a suppression
 ├── memory
 │   ├── add <text>           # Create a note or record a fact
 │   ├── list                 # List facts

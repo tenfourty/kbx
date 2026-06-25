@@ -19,6 +19,7 @@ from kb.entities import (
 )
 from kb.sources.meetings import walk_meetings
 from kb.sources.memory import walk_memory
+from kb.suppressions import load_suppressions
 from kb.sync.granola import match_or_create_attendee
 from kb.types import IndexResult as IndexResult
 
@@ -178,6 +179,15 @@ def index_all(
     entities = load_entities(db)
     entity_patterns = build_entity_patterns(entities)
 
+    # Entity-link suppressions (#35): per-document "do not link entity X here", kept in a
+    # sidecar so they survive reindex + Granola sync. Resolve names → entity ids once.
+    suppressions = load_suppressions(project_root)
+    entity_name_to_id: dict[str, int] = {}
+    for _e in entities:
+        entity_name_to_id[_e.name.lower()] = _e.id
+        for _a in _e.aliases:
+            entity_name_to_id.setdefault(_a.lower(), _e.id)
+
     # Get existing hashes for incremental mode
     existing_hashes = _get_existing_hashes(db)
 
@@ -308,8 +318,17 @@ def index_all(
 
             # Entity linking (before summary so we can include entity info in summary prefix)
             section_content = " ".join(chunk_texts)
+            _doc_suppressed = suppressions.get(doc.path, set())
+            _suppressed_ids = {
+                entity_name_to_id[n] for n in _doc_suppressed if n in entity_name_to_id
+            }
             mentions = find_entity_mentions(
-                doc.title, doc.tags, section_content, entities, cached_patterns=entity_patterns
+                doc.title,
+                doc.tags,
+                section_content,
+                entities,
+                cached_patterns=entity_patterns,
+                suppressed_ids=_suppressed_ids,
             )
             entity_id_set = {m.entity_id for m in mentions}
             result.entities_linked += len(mentions)

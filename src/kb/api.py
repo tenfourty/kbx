@@ -1723,6 +1723,52 @@ class KnowledgeBase:
     # Corrections
     # ------------------------------------------------------------------
 
+    def unlink_entity(self, entity: str, document: str) -> dict[str, object]:
+        """Suppress a false-positive entity↔document link and drop the live mention (#35).
+
+        The suppression persists in a sidecar (``memory/.kbx/entity-suppressions.json``) so
+        it survives reindex and Granola sync; the live ``entity_mentions`` row is removed now.
+        Raises ValueError if the entity or document can't be resolved.
+        """
+        from kb.crud import find_document_by_target
+        from kb.suppressions import add_suppression
+
+        ent = self.get_entity(entity)
+        if ent is None:
+            raise ValueError(f"Entity not found: {entity}")
+        conn = self._get_conn()
+        doc = find_document_by_target(conn, document)
+        if doc is None:
+            raise ValueError(f"Document not found: {document}")
+
+        add_suppression(self._project_root, doc["path"], ent.name)
+        conn.execute(
+            "DELETE FROM entity_mentions WHERE entity_id = ? AND document_id = ?",
+            (ent.id, doc["id"]),
+        )
+        conn.commit()
+        return {"entity": ent.name, "document": doc["path"], "unlinked": True}
+
+    def relink_entity(self, entity: str, document: str) -> dict[str, object]:
+        """Remove a suppression so the matcher may re-link the entity to the document (#35).
+
+        Re-derivation happens on the next index of that document. Raises ValueError if the
+        entity or document can't be resolved.
+        """
+        from kb.crud import find_document_by_target
+        from kb.suppressions import remove_suppression
+
+        ent = self.get_entity(entity)
+        if ent is None:
+            raise ValueError(f"Entity not found: {entity}")
+        conn = self._get_conn()
+        doc = find_document_by_target(conn, document)
+        if doc is None:
+            raise ValueError(f"Document not found: {document}")
+
+        removed = remove_suppression(self._project_root, doc["path"], ent.name)
+        return {"entity": ent.name, "document": doc["path"], "relinked": removed}
+
     def correct_term(
         self,
         term: str,

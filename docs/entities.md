@@ -111,9 +111,34 @@ Five-tier matching against document metadata and content:
 - Single names 4+ chars (e.g. "Anders", "Wren") are matched in both content and title
 - File-stem aliases with hyphens (e.g. "dave-martin") are excluded from content matching
 
+## Suppressions (manual unlink/relink)
+
+Automatic linking is heuristic, so it occasionally produces a false positive (a bare
+first name that matched the wrong person, a title substring that isn't really about the
+entity). Because `entity_mentions` are **re-derived on every index** (and Granola sync
+regenerates meeting files), a correction can't live in the DB row or in document
+frontmatter — it would be wiped on the next sync. Instead, suppressions live in a sidecar:
+
+```
+memory/.kbx/entity-suppressions.json
+{ "<doc rel-path>": ["<entity name>", ...] }
+```
+
+- **`kbx entity unlink "Name" <doc>`** records the suppression and deletes the live
+  mention now. `<doc>` resolves by path, title, or content hash.
+- **`kbx entity relink "Name" <doc>`** removes the suppression; the link is re-derived on
+  the next index of that document.
+- The indexer loads the sidecar (`kb.suppressions.load_suppressions`), maps suppressed
+  entity names→ids per document, and passes `suppressed_ids` to `find_entity_mentions`,
+  which skips those entities for that document across **all** matching tiers.
+- Entity names (not ids) are the key, so suppressions survive the id churn of a full
+  re-index. Matching is case-insensitive.
+
+MCP equivalents: `kb_entity_unlink` / `kb_entity_relink` (both idempotent).
+
 ## Idempotency
 
-`seed_entities()` clears and re-seeds on every `index_all()` call. Entity IDs may change between full re-indexes; entity_mentions are also cleared.
+`seed_entities()` clears and re-seeds on every `index_all()` call. Entity IDs may change between full re-indexes; entity_mentions are also cleared and re-derived — except links suppressed via `kbx entity unlink`, which persist through the sidecar store (keyed by entity *name*, so id churn doesn't matter).
 
 ## Testing
 

@@ -669,6 +669,7 @@ def find_entity_mentions(
     entities: list[Entity],
     *,
     cached_patterns: list[tuple[re.Pattern[str], Entity]] | None = None,
+    suppressed_ids: set[int] | None = None,
 ) -> list[EntityMention]:
     """Find entity mentions in a document's metadata and content.
 
@@ -686,8 +687,11 @@ def find_entity_mentions(
     """
     mentions: list[EntityMention] = []
     seen: set[tuple[int, str]] = set()
+    _suppressed = suppressed_ids or set()
 
     def _add(entity_id: int, mention_type: str) -> None:
+        if entity_id in _suppressed:
+            return  # entity↔document link suppressed for this document (#35)
         key = (entity_id, mention_type)
         if key not in seen:
             seen.add(key)

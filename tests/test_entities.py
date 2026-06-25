@@ -286,6 +286,28 @@ class TestEntityLinking:
         # "Anders" (5 chars) should now match — threshold lowered to 3
         assert len(david_ids) >= 1
 
+    def test_suppressed_ids_are_not_linked(self, sample_entities):
+        """find_entity_mentions skips entity ids in suppressed_ids (#35)."""
+        from kb.entities import find_entity_mentions
+
+        base = find_entity_mentions(
+            title="Random meeting",
+            tags=[],
+            content="Anders presented the quarterly results.",
+            entities=sample_entities,
+        )
+        base_ids = {m.entity_id for m in base}
+        assert base_ids, "expected at least one match to suppress"
+        target = next(iter(base_ids))
+        suppressed = find_entity_mentions(
+            title="Random meeting",
+            tags=[],
+            content="Anders presented the quarterly results.",
+            entities=sample_entities,
+            suppressed_ids={target},
+        )
+        assert target not in {m.entity_id for m in suppressed}
+
     def test_very_short_name_skipped_in_content(self, sample_entities):
         """Very short single names (<=3 chars) should NOT match in content."""
         from kb.entities import Entity, find_entity_mentions
