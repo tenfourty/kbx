@@ -271,29 +271,32 @@ class TestEntityLinking:
         assert len(charles_mentions) == 0
 
     def test_short_first_name_matched_in_content(self, sample_entities):
-        """First names >3 chars should match in content (threshold lowered from 6 to 3)."""
+        """An *unambiguous* first name >3 chars should match in content (threshold rule).
+
+        ("Soren" is a 5-char single name owned by exactly one entity; ambiguous bare
+        first names are gated separately — see TestFirstNameDisambiguation, #36.)
+        """
         from kb.entities import find_entity_mentions
 
         mentions = find_entity_mentions(
             title="Random meeting",
             tags=[],
-            content="Anders presented the quarterly results.",
+            content="Soren presented the quarterly results.",
             entities=sample_entities,
         )
 
         discussed = [m for m in mentions if m.mention_type == "discussed"]
-        david_ids = {m.entity_id for m in discussed if m.entity_id in (3, 4)}
-        # "Anders" (5 chars) should now match — threshold lowered to 3
-        assert len(david_ids) >= 1
+        assert 2 in {m.entity_id for m in discussed}  # Soren Vance (unambiguous)
 
     def test_suppressed_ids_are_not_linked(self, sample_entities):
         """find_entity_mentions skips entity ids in suppressed_ids (#35)."""
         from kb.entities import find_entity_mentions
 
+        # Use a full name so the match is robust to #36's bare-name gating.
         base = find_entity_mentions(
             title="Random meeting",
             tags=[],
-            content="Anders presented the quarterly results.",
+            content="Soren Vance presented the quarterly results.",
             entities=sample_entities,
         )
         base_ids = {m.entity_id for m in base}
@@ -302,7 +305,7 @@ class TestEntityLinking:
         suppressed = find_entity_mentions(
             title="Random meeting",
             tags=[],
-            content="Anders presented the quarterly results.",
+            content="Soren Vance presented the quarterly results.",
             entities=sample_entities,
             suppressed_ids={target},
         )
@@ -347,21 +350,21 @@ class TestEntityLinking:
         assert 4 in david_ids
 
     def test_title_substring_matching(self, sample_entities):
-        """Entity names appearing as substrings in the title should match as 'title' type."""
+        """An unambiguous name appearing as a substring in the title matches as 'title'.
+
+        ("Wren" is owned by one entity; ambiguous bare names in titles are gated — #36.)
+        """
         from kb.entities import find_entity_mentions
 
         mentions = find_entity_mentions(
-            title="Anders Sync Notes",
+            title="Wren Sync Notes",
             tags=[],
             content="Short content with no names.",
             entities=sample_entities,
         )
 
         title_mentions = [m for m in mentions if m.mention_type == "title"]
-        title_ids = {m.entity_id for m in title_mentions}
-        # Both Davids should match via title substring
-        assert 3 in title_ids  # Soren Vance
-        assert 4 in title_ids  # Kit Larsen (alias "Anders")
+        assert 1 in {m.entity_id for m in title_mentions}  # Wren Kasper (unambiguous)
 
     def test_title_substring_skips_short_names(self, sample_entities):
         """Title substring matching should skip very short names (<=3 chars)."""
@@ -428,6 +431,118 @@ class TestEntityLinking:
         assert "participant" in types
         assert "tagged" in types
         assert "discussed" in types
+
+
+class TestFirstNameDisambiguation:
+    """Bare ambiguous first names must not auto-link without corroboration (#36)."""
+
+    def _alex_pair(self):
+        from kb.entities import Entity
+
+        return [
+            Entity(id=101, name="Alexandre Dupont", entity_type="person", aliases=["Alexandre"]),
+            Entity(id=102, name="Alexandre Martin", entity_type="person", aliases=["Alexandre"]),
+        ]
+
+    def test_build_first_name_index_flags_ambiguous(self):
+        from kb.entities import build_first_name_index
+
+        owners = build_first_name_index(self._alex_pair())
+        assert owners.get("alexandre") == {101, 102}
+
+    def test_build_first_name_index_folds_accents(self):
+        """An accented name and its ASCII near-twin collide in the ambiguity index."""
+        from kb.entities import Entity, build_first_name_index
+
+        ents = [
+            Entity(id=201, name="Jérémy Cotineau", entity_type="person", aliases=["Jérémy"]),
+            Entity(id=202, name="Jeremy Brown", entity_type="person", aliases=["Jeremy"]),
+        ]
+        owners = build_first_name_index(ents)
+        assert owners.get("jeremy") == {201, 202}
+
+    def test_ambiguous_bare_first_name_not_linked_without_context(self):
+        from kb.entities import find_entity_mentions
+
+        mentions = find_entity_mentions(
+            title="Weekly sync",
+            tags=[],
+            content="Alexandre opened the meeting and walked through the roadmap.",
+            entities=self._alex_pair(),
+        )
+        discussed = {m.entity_id for m in mentions if m.mention_type == "discussed"}
+        assert discussed == set(), "ambiguous bare first name should not auto-link"
+
+    def test_ambiguous_bare_name_linked_when_full_name_corroborates(self):
+        from kb.entities import find_entity_mentions
+
+        mentions = find_entity_mentions(
+            title="Weekly sync",
+            tags=[],
+            content="Alexandre Dupont opened. Later Alexandre summarised the actions.",
+            entities=self._alex_pair(),
+        )
+        discussed = {m.entity_id for m in mentions if m.mention_type == "discussed"}
+        assert 101 in discussed, "full-name match should corroborate this Alexandre"
+        assert 102 not in discussed, "the other Alexandre stays unlinked"
+
+    def test_ambiguous_bare_name_linked_when_attendee_corroborates(self):
+        from kb.entities import find_entity_mentions
+
+        mentions = find_entity_mentions(
+            title="Weekly sync",
+            tags=[],
+            content="Alexandre opened the meeting and walked through the roadmap.",
+            entities=self._alex_pair(),
+            attendees=["Alexandre Dupont"],
+        )
+        discussed = {m.entity_id for m in mentions if m.mention_type == "discussed"}
+        assert 101 in discussed, "attendee should corroborate this Alexandre"
+        assert 102 not in discussed
+
+    def test_accent_twin_gates_an_otherwise_unambiguous_match(self):
+        """A bare ASCII 'Jeremy' that could be the accented 'Jérémy' is gated."""
+        from kb.entities import Entity, find_entity_mentions
+
+        ents = [
+            Entity(id=201, name="Jérémy Cotineau", entity_type="person", aliases=["Jérémy"]),
+            Entity(id=202, name="Jeremy Brown", entity_type="person", aliases=["Jeremy"]),
+        ]
+        mentions = find_entity_mentions(
+            title="Review",
+            tags=[],
+            content="Jeremy attended the review and gave feedback.",
+            entities=ents,
+        )
+        discussed = {m.entity_id for m in mentions if m.mention_type == "discussed"}
+        assert discussed == set(), "accent-fold collision should gate the bare match"
+
+    def test_ambiguous_bare_name_in_title_gated(self):
+        from kb.entities import find_entity_mentions
+
+        mentions = find_entity_mentions(
+            title="Alexandre Sync Notes",
+            tags=[],
+            content="Short content with no names.",
+            entities=self._alex_pair(),
+        )
+        title_ids = {m.entity_id for m in mentions if m.mention_type == "title"}
+        assert title_ids == set(), "ambiguous bare first name in title should be gated"
+
+    def test_unambiguous_first_name_still_links(self):
+        from kb.entities import Entity, find_entity_mentions
+
+        ents = [
+            Entity(id=301, name="Soren Vance", entity_type="person", aliases=["Soren"]),
+        ]
+        mentions = find_entity_mentions(
+            title="Weekly sync",
+            tags=[],
+            content="Soren walked the team through the new design.",
+            entities=ents,
+        )
+        discussed = {m.entity_id for m in mentions if m.mention_type == "discussed"}
+        assert 301 in discussed, "an unambiguous first name must still auto-link"
 
 
 class TestSeedEntitiesNonDestructive:

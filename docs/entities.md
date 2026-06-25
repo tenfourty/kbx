@@ -108,8 +108,33 @@ Five-tier matching against document metadata and content:
 
 - Longer alias matches are preferred (e.g. "Kit Martin" matches before "Kit")
 - Very short single names (<=3 chars, e.g. "Ed", "Jo") are skipped for content and title matching (still matched via tags)
-- Single names 4+ chars (e.g. "Anders", "Wren") are matched in both content and title
+- Single names 4+ chars (e.g. "Wren") are matched in both content and title
 - File-stem aliases with hyphens (e.g. "dave-martin") are excluded from content matching
+
+#### Bare ambiguous first names (#36)
+
+A **bare single first name** (≥4 chars, e.g. "Alexandre", "Thomas", "Jean") that is
+**ambiguous** — claimed by 2+ entities — does **not** auto-link on its own in the
+participant, title, or content tiers. It links only when the entity is *corroborated*
+elsewhere in the same document by a stronger signal:
+
+- a tag (`tagged`) or source-ref (`source_ref`) match,
+- a multi-word / full-name match (`participant`, `title`, or `discussed`),
+- an exact title-part match, or
+- appearing in the document's frontmatter `attendees`.
+
+Otherwise the bare match is dropped (it's a likely false positive — the wrong colleague).
+**Unambiguous** bare first names (owned by exactly one entity) still link as before.
+
+Ambiguity is computed by `build_first_name_index()`, which **accent-folds** names
+(`Jérémy` → `jeremy`) so an accented name and its ASCII near-twin collide into the same
+ambiguity bucket. Folding is used *only* to widen the ambiguity set (making the matcher
+more conservative) — it never broadens a match. So a bare ASCII "Jeremy" that could be
+either "Jérémy Cotineau" or "Jeremy Brown" is gated until one of them is corroborated.
+
+The indexer passes the document's `attendees` and a once-built `name_owners` index into
+`find_entity_mentions`. A genuinely wrong link that survives anyway can be removed with
+`kbx entity unlink` (see §Suppressions).
 
 ## Suppressions (manual unlink/relink)
 
