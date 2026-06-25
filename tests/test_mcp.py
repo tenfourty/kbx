@@ -1091,6 +1091,52 @@ class TestMcpEntityStale:
 
 
 # ---------------------------------------------------------------------------
+# handle_kb_entity_unlink / handle_kb_entity_relink tests (#35)
+# ---------------------------------------------------------------------------
+
+
+class TestMcpEntityUnlinkRelink:
+    _DOC = "meetings/2026/01/27/mfa_review.notes.md"
+
+    def test_unlink_drops_mention_and_writes_suppression(self, mcp_db):
+        from kb.mcp_server import handle_kb_entity_unlink
+
+        db, root = mcp_db
+        result = json.loads(handle_kb_entity_unlink(db, root, "Talia Ström", self._DOC))
+        assert result["unlinked"] is True
+        assert result["entity"] == "Talia Ström"
+
+        conn = db.get_sqlite_conn()
+        n = conn.execute(
+            "SELECT COUNT(*) AS n FROM entity_mentions WHERE entity_id = 1 AND document_id = 1"
+        ).fetchone()["n"]
+        assert n == 0
+        assert (root / "memory" / ".kbx" / "entity-suppressions.json").is_file()
+
+    def test_relink_removes_suppression(self, mcp_db):
+        from kb.mcp_server import handle_kb_entity_relink, handle_kb_entity_unlink
+
+        db, root = mcp_db
+        handle_kb_entity_unlink(db, root, "Talia Ström", self._DOC)
+        result = json.loads(handle_kb_entity_relink(db, root, "Talia Ström", self._DOC))
+        assert result["relinked"] is True
+
+    def test_unlink_unknown_entity_returns_error(self, mcp_db):
+        from kb.mcp_server import handle_kb_entity_unlink
+
+        db, root = mcp_db
+        result = json.loads(handle_kb_entity_unlink(db, root, "Nobody Here", self._DOC))
+        assert "error" in result
+
+    def test_unlink_unknown_document_returns_error(self, mcp_db):
+        from kb.mcp_server import handle_kb_entity_unlink
+
+        db, root = mcp_db
+        result = json.loads(handle_kb_entity_unlink(db, root, "Talia Ström", "no/such/doc.md"))
+        assert "error" in result
+
+
+# ---------------------------------------------------------------------------
 # person_find freshness fields
 # ---------------------------------------------------------------------------
 

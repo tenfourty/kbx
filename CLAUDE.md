@@ -159,11 +159,12 @@ All write operations go through `KnowledgeBase` methods. CLI and MCP are thin wr
 
 ## MCP Server
 
-- **31 tools** with full MCP tool annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`)
+- **33 tools** with full MCP tool annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`)
 - **Handler pattern**: thin `handle_*` wrappers that create `KnowledgeBase._from_existing(db, project_root)` and delegate to API methods. MCP tool functions call `get_db()`/`find_project_root()` then pass to handlers.
 - **Entity CRUD tools**: `kb_person_create`, `kb_person_edit`, `kb_project_create`, `kb_project_edit` — metadata via named params + `meta` string (semicolon-delimited `key=value` pairs).
 - **Fact tools**: `kb_memory_add` (fact or note), `kb_memory_edit_fact(entity, fact_seq, ...)`, `kb_memory_delete_fact(entity, fact_seq)` — entity-scoped seq IDs.
 - **Entity find**: `kb_person_find` / `kb_project_find` return facts with `seq` IDs + `mcp_breadcrumbs` (tool + params for agents) alongside CLI breadcrumbs.
+- **Entity link suppression**: `kb_entity_unlink(entity, document)` / `kb_entity_relink(entity, document)` — suppress/restore a false-positive entity↔document match. Persists in `memory/.kbx/entity-suppressions.json` (survives reindex + Granola sync); see `docs/entities.md` §Suppressions.
 - **`kb_usage`**: Structured JSON stats (docs, entities, facts, pinned, date_range, tool_count).
 - **Error shape**: `{"error": str, "suggestion": str | null}` — all tools
 - **List shape**: `{"results": [...], "meta": {"total": N, "limit": N}}` — all list tools. `total` is the true count, not capped by limit.

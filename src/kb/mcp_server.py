@@ -382,6 +382,44 @@ def handle_kb_entity_stale(
         return json.dumps({"error": str(e), "results": []})
 
 
+def handle_kb_entity_unlink(db: Database, project_root: Path, entity: str, document: str) -> str:
+    """Suppress a false-positive entity↔document link. Delegates to KnowledgeBase."""
+    try:
+        from kb.api import KnowledgeBase
+
+        kb = KnowledgeBase._from_existing(db=db, project_root=project_root)
+        try:
+            result = kb.unlink_entity(entity, document)
+            return json.dumps(result, default=str, ensure_ascii=False)
+        except ValueError as e:
+            return json.dumps({"error": str(e)})
+        finally:
+            kb.close()
+    except Exception as e:
+        print(f"kb_entity_unlink error: {e}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        return json.dumps({"error": str(e)})
+
+
+def handle_kb_entity_relink(db: Database, project_root: Path, entity: str, document: str) -> str:
+    """Remove an entity↔document suppression so the link may be re-derived. Delegates to KB."""
+    try:
+        from kb.api import KnowledgeBase
+
+        kb = KnowledgeBase._from_existing(db=db, project_root=project_root)
+        try:
+            result = kb.relink_entity(entity, document)
+            return json.dumps(result, default=str, ensure_ascii=False)
+        except ValueError as e:
+            return json.dumps({"error": str(e)})
+        finally:
+            kb.close()
+    except Exception as e:
+        print(f"kb_entity_relink error: {e}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        return json.dumps({"error": str(e)})
+
+
 def handle_kb_project_find(db: Database, name: str) -> str:
     """Look up a project profile. Returns JSON string."""
     try:
@@ -1214,6 +1252,30 @@ def kb_entity_stale(days: int = 30, entity_type: str | None = None) -> str:
     days = max(1, days)
     db = get_db()
     return handle_kb_entity_stale(db, days=days, entity_type=entity_type)
+
+
+@mcp.tool(annotations=_MUTATING_IDEMPOTENT)
+def kb_entity_unlink(entity: str, document: str) -> str:
+    """Suppress a false-positive link between an entity and a document.
+    Use when search wrongly attributes a document to a person/project (e.g. a bare
+    first name matched the wrong person). Drops the live mention now and persists the
+    suppression so it survives reindex and Granola sync. Reversible with kb_entity_relink.
+    entity: entity name or alias.
+    document: path, title, or content hash."""
+    db = get_db()
+    project_root = find_project_root()
+    return handle_kb_entity_unlink(db, project_root, entity, document)
+
+
+@mcp.tool(annotations=_MUTATING_IDEMPOTENT)
+def kb_entity_relink(entity: str, document: str) -> str:
+    """Remove a previously-recorded entity↔document suppression.
+    The link is re-derived on the next index of that document. Use to undo a kb_entity_unlink.
+    entity: entity name or alias.
+    document: path, title, or content hash."""
+    db = get_db()
+    project_root = find_project_root()
+    return handle_kb_entity_relink(db, project_root, entity, document)
 
 
 @mcp.tool(annotations=_READ_ONLY)
